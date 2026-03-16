@@ -188,11 +188,11 @@ From `run_md_simulation.py`:
 
 **Validation**: All 45 native Metal tests must pass (27 short + 12 long + 6 very-long). Force deviation vs CPU Reference < 0.01 kJ/mol/nm per atom.
 
-**Current status (2026-03-16)**: 43/45 tests pass on the native Metal branch. Short tier: 27/27. Long+very-long: 16/18.
+**Current status (2026-03-16)**: 45/45 tests pass on the native Metal branch. All three tiers green: short 27/27, long 12/12, very-long 6/6.
 
-**Remaining 2 failures**:
-- `TestMetalDispersionPME` — numerical tolerance: `mm_erfc` polynomial (Abramowitz-Stegun, max error 1.5e-7) accumulates error across PME grid evaluations. Energy off by 0.02 kJ/mol (9.2e-5 relative vs 5e-5 tolerance). `metal::erfc` does not exist in MSL. Needs a higher-accuracy polynomial or alternative evaluation strategy.
-- `TestMetalLocalEnergyMinimizer` — runtime assertion: 10 overlapping particles with NoCutoff NonbondedForce don't move during L-BFGS minimization (`maxdist > 0.1` fails). Not a compile issue. May be a force evaluation problem specific to the NoCutoff kernel path.
+**Resolved blockers**:
+- `TestMetalDispersionPME` — fixed by switching from Abramowitz-Stegun 5-term erfc polynomial (max error 1.5e-7, systematic bias accumulated across PME grid) to Numerical Recipes 9-term Chebyshev rational approximation (max error ~1.2e-7, better bias distribution). Energy now within 5e-5 tolerance.
+- `TestMetalLocalEnergyMinimizer` — fixed by clamping `realToFixedPoint()` in `common.metal` to prevent undefined behavior when converting `inf` to `long` (Metal produces 0 for `(long)inf`, unlike OpenCL which saturates). Clamped forces now correctly trigger the existing CPU fallback in L-BFGS for extreme overlapping-particle configurations.
 
 ### Test Suite Architecture
 
