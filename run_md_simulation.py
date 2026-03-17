@@ -845,13 +845,13 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
     integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
 
     # Create new simulation with 4fs integrator
-    # Platform cascade: CUDA → HIP (native Metal) → OpenCL (cl2Metal) → CPU
+    # Platform cascade: CUDA → Metal (native) → OpenCL (cl2Metal) → CPU
     if platform_name == 'CUDA':
         platform = Platform.getPlatformByName('CUDA')
         properties = {'CudaPrecision': 'mixed'}
         simulation = Simulation(modeller.topology, system, integrator, platform, properties)
-    elif platform_name == 'HIP':
-        platform = Platform.getPlatformByName('HIP')
+    elif platform_name == 'Metal':
+        platform = Platform.getPlatformByName('Metal')
         simulation = Simulation(modeller.topology, system, integrator, platform)
     elif platform_name == 'OpenCL':
         platform = Platform.getPlatformByName('OpenCL')
@@ -924,7 +924,7 @@ def run_benchmark(system, modeller, output_dir):
 
     # Try to use CUDA/HIP(Metal)/OpenCL if available
     # The openmm-metal plugin registers as "HIP" to bypass OpenMM's energy minimizer checks.
-    # Cascade: CUDA → HIP (native Metal) → OpenCL (cl2Metal) → CPU
+    # Cascade: CUDA → Metal (native) → OpenCL (cl2Metal) → CPU
     try:
         platform = Platform.getPlatformByName('CUDA')
         properties = {'CudaPrecision': 'mixed'}
@@ -932,9 +932,9 @@ def run_benchmark(system, modeller, output_dir):
         print('Using CUDA platform', file=sys.stderr)
     except Exception:
         try:
-            platform = Platform.getPlatformByName('HIP')
+            platform = Platform.getPlatformByName('Metal')
             simulation = Simulation(modeller.topology, system, integrator, platform)
-            print('Using HIP (native Metal) platform', file=sys.stderr)
+            print('Using Metal (native) platform', file=sys.stderr)
         except Exception:
             try:
                 platform = Platform.getPlatformByName('OpenCL')
@@ -1033,7 +1033,7 @@ def main():
     # List available platforms
     print(f'Available platforms: {[Platform.getPlatform(i).getName() for i in range(Platform.getNumPlatforms())]}', file=sys.stderr)
 
-    # Platform cascade: CUDA → HIP (native Metal) → OpenCL (cl2Metal) → CPU
+    # Platform cascade: CUDA → Metal (native) → OpenCL (cl2Metal) → CPU
     # The openmm-metal plugin registers as "HIP" to bypass OpenMM's energy minimizer checks.
     platform_name = 'CPU'
     try:
@@ -1049,10 +1049,10 @@ def main():
     except Exception as cuda_err:
         print(f'CUDA not available: {cuda_err}', file=sys.stderr)
         try:
-            platform = Platform.getPlatformByName('HIP')
+            platform = Platform.getPlatformByName('Metal')
             simulation = Simulation(modeller.topology, system, integrator, platform)
-            platform_name = 'HIP'
-            print('Using HIP (native Metal) platform', file=sys.stderr)
+            platform_name = 'Metal'
+            print('Using Metal (native) platform', file=sys.stderr)
         except Exception as hip_err:
             print(f'HIP not available: {hip_err}', file=sys.stderr)
             try:

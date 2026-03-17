@@ -861,8 +861,8 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
         platform = Platform.getPlatformByName('CUDA')
         properties = {'CudaPrecision': 'mixed'}
         simulation = Simulation(modeller.topology, system, integrator, platform, properties)
-    elif platform_name == 'HIP':
-        platform = Platform.getPlatformByName('HIP')
+    elif platform_name == 'Metal':
+        platform = Platform.getPlatformByName('Metal')
         simulation = Simulation(modeller.topology, system, integrator, platform)
     elif platform_name == 'OpenCL':
         platform = Platform.getPlatformByName('OpenCL')
@@ -933,8 +933,7 @@ def run_benchmark(system, modeller, output_dir):
     # Create simulation for benchmark (4fs timestep, HMR enabled in system)
     integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
 
-    # Platform cascade: CUDA → HIP (Metal plugin) → OpenCL (cl2Metal) → CPU
-    # The openmm-metal plugin registers as 'HIP' to bypass OpenMM's energy minimizer checks
+    # Platform cascade: CUDA → Metal → OpenCL (cl2Metal) → CPU
     try:
         platform = Platform.getPlatformByName('CUDA')
         properties = {'CudaPrecision': 'mixed'}
@@ -942,9 +941,9 @@ def run_benchmark(system, modeller, output_dir):
         print('Using CUDA platform', file=sys.stderr)
     except Exception:
         try:
-            platform = Platform.getPlatformByName('HIP')
+            platform = Platform.getPlatformByName('Metal')
             simulation = Simulation(modeller.topology, system, integrator, platform)
-            print('Using HIP/Metal platform (Apple GPU)', file=sys.stderr)
+            print('Using Metal platform (Apple GPU)', file=sys.stderr)
         except Exception:
             try:
                 platform = Platform.getPlatformByName('OpenCL')
@@ -1043,7 +1042,7 @@ def main():
     # List available platforms
     print(f'Available platforms: {[Platform.getPlatform(i).getName() for i in range(Platform.getNumPlatforms())]}', file=sys.stderr)
 
-    # Platform cascade: CUDA → HIP (Metal plugin) → OpenCL (cl2Metal) → CPU
+    # Platform cascade: CUDA → Metal → OpenCL (cl2Metal) → CPU
     platform_name = 'CPU'
     try:
         platform = Platform.getPlatformByName('CUDA')
@@ -1058,12 +1057,12 @@ def main():
     except Exception as cuda_err:
         print(f'CUDA not available: {cuda_err}', file=sys.stderr)
         try:
-            platform = Platform.getPlatformByName('HIP')
+            platform = Platform.getPlatformByName('Metal')
             simulation = Simulation(modeller.topology, system, integrator, platform)
-            platform_name = 'HIP'
-            print('Using HIP/Metal platform (Apple GPU)', file=sys.stderr)
+            platform_name = 'Metal'
+            print('Using Metal platform (Apple GPU)', file=sys.stderr)
         except Exception as hip_err:
-            print(f'HIP/Metal not available: {hip_err}', file=sys.stderr)
+            print(f'Metal not available: {hip_err}', file=sys.stderr)
             try:
                 platform = Platform.getPlatformByName('OpenCL')
                 simulation = Simulation(modeller.topology, system, integrator, platform)
