@@ -1,26 +1,364 @@
 import { Component, onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
 import * as NGL from 'ngl';
+import type { Vector3 } from 'ngl';
 import {
   workflowStore,
-  DetectedLigand,
+} from '../../stores/workflow';
+import type {
   ProteinRepresentation,
   LigandRepresentation,
   SurfaceColorScheme,
-  PlaybackSpeed,
-  CenterTarget,
   BindingSiteMapState,
 } from '../../stores/workflow';
 import TrajectoryControls from './TrajectoryControls';
 import ClusteringModal from './ClusteringModal';
 import AnalysisPanel from './AnalysisPanel';
 import BindingSiteMapPanel from './BindingSiteMapPanel';
-import FepScoringPanel from './FepScoringPanel';
+import { projectPaths } from '../../utils/projectPaths';
+import type { AtomProxy, ResidueProxy, SelectionSchemeEntry, NglLoadOptions, BindingSiteResultsJson } from '../../types/ngl';
 
 // NGL representation name mapping (shared across all style update functions)
 const LIGAND_REP_MAP: Record<string, string> = {
   'ball+stick': 'ball+stick',
   stick: 'licorice',
   spacefill: 'spacefill',
+};
+
+// Schrödinger-inspired interaction color palette
+const INTERACTION_COLORS = {
+  hydrogenBond:         [0.61, 0.42, 0.87] as [number, number, number],  // #9C6ADE purple
+  backboneHydrogenBond: [0.72, 0.58, 0.96] as [number, number, number],  // #B794F4 light purple
+  ionicInteraction:     [0.91, 0.27, 0.48] as [number, number, number],  // #E8457A magenta
+  halogenBond:          [0.22, 0.74, 0.97] as [number, number, number],  // #38BDF8 turquoise
+  metalCoordination:    [0.58, 0.64, 0.72] as [number, number, number],  // #94A3B8 gray
+  piStacking:           [0.13, 0.83, 0.93] as [number, number, number],  // #22D3EE cyan
+  cationPi:             [0.98, 0.57, 0.24] as [number, number, number],  // #FB923C orange
+  hydrophobic:          [0.42, 0.45, 0.50] as [number, number, number],  // #6B7280 gray-green
+};
+const INTERACTION_RADIUS = 0.12;
+
+type InteractionType = keyof typeof INTERACTION_COLORS;
+
+interface DetectedInteraction {
+  from: [number, number, number];
+  to: [number, number, number];
+  type: InteractionType;
+}
+
+interface IxAtom {
+  x: number; y: number; z: number;
+  element: string;
+  atomname: string;
+  resname: string;
+  resno: number;
+  chainname: string;
+  isBackbone: boolean;
+  aromatic: boolean;
+  hasPolarBond: boolean;
+  bonded: { x: number; y: number; z: number; element: string }[];
+}
+
+interface RingInfo {
+  centroid: [number, number, number];
+  normal: [number, number, number];
+}
+
+// Salt bridge charged group atoms
+const SALT_BRIDGE_POS: Record<string, string[]> = {
+  LYS: ['NZ'], ARG: ['NH1', 'NH2', 'NE'],
+};
+const SALT_BRIDGE_NEG: Record<string, string[]> = {
+  ASP: ['OD1', 'OD2'], GLU: ['OE1', 'OE2'],
+};
+
+// Protein aromatic ring definitions (atom names per ring)
+const AROMATIC_RINGS: Record<string, string[][]> = {
+  PHE: [['CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ']],
+  TYR: [['CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ']],
+  TRP: [['CG', 'CD1', 'NE1', 'CE2', 'CD2'], ['CD2', 'CE2', 'CE3', 'CZ2', 'CZ3', 'CH2']],
+  HIS: [['CG', 'ND1', 'CD2', 'CE1', 'NE2']],
+};
+
+const METALS = new Set(['ZN', 'FE', 'MG', 'CA', 'MN', 'CU', 'CO', 'NI']);
+const HALOGENS = new Set(['CL', 'BR', 'I']);
+
+/** Collect atom data from an NGL structure within a selection */
+const collectAtoms = (
+  structure: any, // NGL.Structure
+  sele: string,
+  isProteinSide: boolean,
+): IxAtom[] => {
+  const atoms: IxAtom[] = [];
+  structure.eachAtom((atom: AtomProxy) => {
+    let hasPolarBond = false;
+    const bonded: { x: number; y: number; z: number; element: string }[] = [];
+    atom.eachBondedAtom((b: AtomProxy) => {
+      const el = b.element.toUpperCase();
+      if (el === 'N' || el === 'O' || el === 'S') hasPolarBond = true;
+      bonded.push({ x: b.x, y: b.y, z: b.z, element: el });
+    });
+    atoms.push({
+      x: atom.x, y: atom.y, z: atom.z,
+      element: atom.element.toUpperCase(),
+      atomname: atom.atomname || '',
+      resname: (atom.resname || '').toUpperCase(),
+      resno: atom.resno || 0,
+      chainname: (atom as any).chainname || '',
+      isBackbone: isProteinSide ? !!(atom as any).isBackbone : false,
+      aromatic: !!(atom as any).aromatic,
+      hasPolarBond,
+      bonded,
+    });
+  }, new NGL.Selection(sele));
+  return atoms;
+};
+
+/** Compute unit normal for a set of ring atom coordinates */
+const ringNormal = (coords: [number, number, number][]): [number, number, number] => {
+  if (coords.length < 3) return [0, 0, 1];
+  // Use spread atoms (first, middle, last) for robustness on non-planar rings
+  const a = coords[0], b = coords[Math.min(2, coords.length - 1)], c = coords[coords.length - 1];
+  const v1x = b[0] - a[0], v1y = b[1] - a[1], v1z = b[2] - a[2];
+  const v2x = c[0] - a[0], v2y = c[1] - a[1], v2z = c[2] - a[2];
+  const nx = v1y * v2z - v1z * v2y;
+  const ny = v1z * v2x - v1x * v2z;
+  const nz = v1x * v2y - v1y * v2x;
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  if (len < 1e-8) return [0, 0, 1];
+  return [nx / len, ny / len, nz / len];
+};
+
+/** Compute ring info (centroid + normal) for protein residues using known ring atom names */
+const computeProteinRings = (atoms: IxAtom[]): RingInfo[] => {
+  const byResidue = new Map<string, Map<string, [number, number, number]>>();
+  for (const a of atoms) {
+    const key = `${a.resname}_${a.resno}_${a.chainname}`;
+    if (!byResidue.has(key)) byResidue.set(key, new Map());
+    byResidue.get(key)!.set(a.atomname, [a.x, a.y, a.z]);
+  }
+  const rings: RingInfo[] = [];
+  for (const [key, atomMap] of byResidue) {
+    const resname = key.split('_')[0];
+    const ringDefs = AROMATIC_RINGS[resname];
+    if (!ringDefs) continue;
+    for (const ringNames of ringDefs) {
+      const coords = ringNames.map(n => atomMap.get(n)).filter(Boolean) as [number, number, number][];
+      if (coords.length >= ringNames.length - 1) {
+        const n = coords.length;
+        rings.push({
+          centroid: [
+            coords.reduce((s, c) => s + c[0], 0) / n,
+            coords.reduce((s, c) => s + c[1], 0) / n,
+            coords.reduce((s, c) => s + c[2], 0) / n,
+          ],
+          normal: ringNormal(coords),
+        });
+      }
+    }
+  }
+  return rings;
+};
+
+/** Cluster ligand aromatic atoms into rings (centroid + normal) by proximity */
+const computeLigandRings = (atoms: IxAtom[]): RingInfo[] => {
+  const aromatic = atoms.filter(a => a.aromatic);
+  if (aromatic.length === 0) return [];
+  const rings: RingInfo[] = [];
+  const assigned = new Set<number>();
+  for (let i = 0; i < aromatic.length; i++) {
+    if (assigned.has(i)) continue;
+    const cluster: IxAtom[] = [aromatic[i]];
+    assigned.add(i);
+    let head = 0;
+    while (head < cluster.length) {
+      const curr = cluster[head++];
+      for (let j = 0; j < aromatic.length; j++) {
+        if (assigned.has(j)) continue;
+        const dx = curr.x - aromatic[j].x;
+        const dy = curr.y - aromatic[j].y;
+        const dz = curr.z - aromatic[j].z;
+        if (dx * dx + dy * dy + dz * dz < 2.5 * 2.5) {
+          cluster.push(aromatic[j]);
+          assigned.add(j);
+        }
+      }
+    }
+    if (cluster.length >= 5) {
+      const coords: [number, number, number][] = cluster.map(a => [a.x, a.y, a.z]);
+      const n = coords.length;
+      rings.push({
+        centroid: [
+          coords.reduce((s, c) => s + c[0], 0) / n,
+          coords.reduce((s, c) => s + c[1], 0) / n,
+          coords.reduce((s, c) => s + c[2], 0) / n,
+        ],
+        normal: ringNormal(coords),
+      });
+    }
+  }
+  return rings;
+};
+
+/** Detect protein-ligand interactions using distance, angle, and chemical heuristics */
+const detectInteractions = (
+  pocketAtoms: IxAtom[],
+  ligandAtoms: IxAtom[],
+): DetectedInteraction[] => {
+  const results: DetectedInteraction[] = [];
+  const paired = new Set<string>();
+  const proteinRings = computeProteinRings(pocketAtoms);
+  const ligandRings = computeLigandRings(ligandAtoms);
+
+  // --- Angle-checking helpers ---
+
+  // H-bond: D-H...A angle > 120° at the hydrogen (linear = 180°)
+  // Falls back to distance-only if no H atoms are available in the structure
+  const hbondAngleOk = (donor: IxAtom, acceptor: IxAtom): boolean => {
+    const hydrogens = donor.bonded.filter(b => b.element === 'H');
+    if (hydrogens.length === 0) return true; // No H available — accept on distance
+    for (const h of hydrogens) {
+      // Vectors from H
+      const hdx = donor.x - h.x, hdy = donor.y - h.y, hdz = donor.z - h.z;
+      const hax = acceptor.x - h.x, hay = acceptor.y - h.y, haz = acceptor.z - h.z;
+      const dot = hdx * hax + hdy * hay + hdz * haz;
+      const lenSq1 = hdx * hdx + hdy * hdy + hdz * hdz;
+      const lenSq2 = hax * hax + hay * hay + haz * haz;
+      if (lenSq1 < 1e-8 || lenSq2 < 1e-8) continue;
+      const cosA = dot / Math.sqrt(lenSq1 * lenSq2);
+      // D-H...A angle > 120° ⟹ cos(angle) < cos(120°) = -0.5
+      if (cosA < -0.5) return true;
+    }
+    return false;
+  };
+
+  // Halogen bond: C-X...A angle > 140° (sigma-hole directionality, linear = 180°)
+  const halogenAngleOk = (halogen: IxAtom, acceptor: IxAtom): boolean => {
+    const carbons = halogen.bonded.filter(b => b.element === 'C');
+    if (carbons.length === 0) return true; // No C found — accept on distance
+    const c = carbons[0];
+    // Vectors from X (halogen)
+    const xcx = c.x - halogen.x, xcy = c.y - halogen.y, xcz = c.z - halogen.z;
+    const xax = acceptor.x - halogen.x, xay = acceptor.y - halogen.y, xaz = acceptor.z - halogen.z;
+    const dot = xcx * xax + xcy * xay + xcz * xaz;
+    const lenSq1 = xcx * xcx + xcy * xcy + xcz * xcz;
+    const lenSq2 = xax * xax + xay * xay + xaz * xaz;
+    if (lenSq1 < 1e-8 || lenSq2 < 1e-8) return true;
+    const cosA = dot / Math.sqrt(lenSq1 * lenSq2);
+    // C-X...A angle > 140° ⟹ cos(angle) < cos(140°) ≈ -0.766
+    return cosA < -0.766;
+  };
+
+  // --- Atom-atom interactions (priority: metal > salt bridge > halogen > H-bond > hydrophobic) ---
+
+  for (let p = 0; p < pocketAtoms.length; p++) {
+    const pa = pocketAtoms[p];
+    for (let l = 0; l < ligandAtoms.length; l++) {
+      const la = ligandAtoms[l];
+      const dx = pa.x - la.x, dy = pa.y - la.y, dz = pa.z - la.z;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq > 16.0 || distSq < 1.44) continue; // >4Å or <1.2Å (covalent)
+      const dist = Math.sqrt(distSq);
+      let type: InteractionType | null = null;
+
+      // 1. Metal coordination (metal...N/O/S ≤ 2.8Å) — no angle criterion
+      if (dist <= 2.8) {
+        const isCoord = (m: string, a: string) =>
+          METALS.has(m) && (a === 'N' || a === 'O' || a === 'S');
+        if (isCoord(pa.element, la.element) || isCoord(la.element, pa.element)) {
+          type = 'metalCoordination';
+        }
+      }
+
+      // 2. Salt bridge (charged residue atom...complementary element ≤ 4.0Å)
+      if (!type && dist <= 4.0) {
+        if (SALT_BRIDGE_POS[pa.resname]?.includes(pa.atomname) && la.element === 'O') {
+          type = 'ionicInteraction';
+        } else if (SALT_BRIDGE_NEG[pa.resname]?.includes(pa.atomname) && la.element === 'N') {
+          type = 'ionicInteraction';
+        }
+      }
+
+      // 3. Halogen bond (ligand Cl/Br/I...protein N/O/S ≤ 3.5Å + C-X...A > 140°)
+      if (!type && dist <= 3.5 && HALOGENS.has(la.element) &&
+          (pa.element === 'N' || pa.element === 'O' || pa.element === 'S') &&
+          halogenAngleOk(la, pa)) {
+        type = 'halogenBond';
+      }
+
+      // 4. H-bond / Backbone H-bond (N/O/F...N/O/F ≤ 3.5Å + D-H...A > 120°)
+      if (!type && dist <= 3.5) {
+        const isHBE = (el: string) => el === 'N' || el === 'O' || el === 'F';
+        if (isHBE(pa.element) && isHBE(la.element)) {
+          // Either atom could be the donor — check both directions
+          if (hbondAngleOk(pa, la) || hbondAngleOk(la, pa)) {
+            type = pa.isBackbone ? 'backboneHydrogenBond' : 'hydrogenBond';
+          }
+        }
+      }
+
+      // 5. Hydrophobic (C...C, both non-polar, ≤ 4.0Å)
+      if (!type && dist <= 4.0 &&
+          pa.element === 'C' && la.element === 'C' &&
+          !pa.hasPolarBond && !la.hasPolarBond) {
+        type = 'hydrophobic';
+      }
+
+      if (type) {
+        const key = `${p}-${l}`;
+        if (!paired.has(key)) {
+          paired.add(key);
+          results.push({ from: [la.x, la.y, la.z], to: [pa.x, pa.y, pa.z], type });
+        }
+      }
+    }
+  }
+
+  // --- Ring-based interactions ---
+
+  // Cation-Pi: positive protein residue → ligand aromatic ring (≤ 6.0Å)
+  // Cation must be roughly above/below ring plane (angle to normal < 60°)
+  const posAtoms = pocketAtoms.filter(a => SALT_BRIDGE_POS[a.resname]?.includes(a.atomname));
+  for (const pa of posAtoms) {
+    for (const ring of ligandRings) {
+      const dx = pa.x - ring.centroid[0], dy = pa.y - ring.centroid[1], dz = pa.z - ring.centroid[2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist > 6.0 || dist < 1e-8) continue;
+      // Angle between centroid→cation vector and ring normal
+      const cosOff = Math.abs(
+        (dx * ring.normal[0] + dy * ring.normal[1] + dz * ring.normal[2]) / dist
+      );
+      // cos > cos(60°) = 0.5 means cation is within 60° of ring normal (above/below)
+      if (cosOff > 0.5) {
+        results.push({ from: [pa.x, pa.y, pa.z], to: ring.centroid, type: 'cationPi' });
+      }
+    }
+  }
+
+  // Pi-stacking: protein ring ↔ ligand ring
+  // Face-to-face (parallel displaced): normals within 30°, centroid dist ≤ 4.4Å
+  // Edge-to-face (T-shaped):           normals > 50° apart, centroid dist ≤ 5.5Å
+  for (const pr of proteinRings) {
+    for (const lr of ligandRings) {
+      const dx = pr.centroid[0] - lr.centroid[0];
+      const dy = pr.centroid[1] - lr.centroid[1];
+      const dz = pr.centroid[2] - lr.centroid[2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist > 5.5 || dist < 1e-8) continue;
+      // Angle between ring normals (abs handles normal-flip ambiguity)
+      const nDot = Math.abs(
+        pr.normal[0] * lr.normal[0] + pr.normal[1] * lr.normal[1] + pr.normal[2] * lr.normal[2]
+      );
+      // |cos| > 0.866 → angle < 30° (face-to-face / parallel displaced)
+      // |cos| < 0.643 → angle > 50° (edge-to-face / T-shaped)
+      const isFaceToFace = nDot > 0.866 && dist <= 4.4;
+      const isEdgeToFace = nDot < 0.643 && dist <= 5.5;
+      if (isFaceToFace || isEdgeToFace) {
+        results.push({ from: lr.centroid, to: pr.centroid, type: 'piStacking' });
+      }
+    }
+  }
+
+  return results;
 };
 
 const ViewerMode: Component = () => {
@@ -56,6 +394,7 @@ const ViewerMode: Component = () => {
     resetViewer,
   } = workflowStore;
 
+  // eslint-disable-next-line no-unassigned-vars -- SolidJS ref pattern
   let containerRef: HTMLDivElement | undefined;
   let stage: NGL.Stage | null = null;
   let proteinComponent: NGL.Component | null = null;
@@ -65,8 +404,8 @@ const ViewerMode: Component = () => {
   let isFrameLoading = false;
   let pendingFrameIndex: number | null = null;
   let playbackGeneration = 0;
-  let alignedComponents: Map<number, NGL.Component> = new Map();  // For multi-PDB alignment
-  let volumeComponents: Map<string, NGL.Component> = new Map();  // For binding site isosurfaces
+  const alignedComponents: Map<number, NGL.Component> = new Map();  // For multi-PDB alignment
+  const volumeComponents: Map<string, NGL.Component> = new Map();  // For binding site isosurfaces
 
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -98,7 +437,7 @@ const ViewerMode: Component = () => {
   const clearOldSchemes = () => {
     while (registeredSchemes.length > 10) {
       const old = registeredSchemes.shift()!;
-      try { NGL.ColormakerRegistry.removeScheme(old); } catch {}
+      try { NGL.ColormakerRegistry.removeScheme(old); } catch { /* best-effort cleanup */ }
     }
   };
 
@@ -131,8 +470,8 @@ const ViewerMode: Component = () => {
     clearOldSchemes();
     const id = `computed-${Date.now()}-${colorSchemeCounter++}`;
     const FALLBACK = 0x888888;
-    return trackScheme(NGL.ColormakerRegistry.addScheme(function (this: any) {
-      this.atomColor = function (atom: any) {
+    return trackScheme(NGL.ColormakerRegistry.addScheme(function (this: NGL.Colormaker) {
+      this.atomColor = function (atom: AtomProxy) {
         const v = values[atom.index];
         if (v === undefined) return FALLBACK;
         // v is in [-1, 1] — map to color ramp
@@ -166,31 +505,31 @@ const ViewerMode: Component = () => {
 
     // Selection scheme: list of [color, selection] pairs
     // Last entry is the fallback/default
-    const schemeData: [string, string][] = [
-      [carbonColorHex, '_C'],      // Carbon - custom color
-      ['#3050F8', '_N'],           // Nitrogen - blue
-      ['#FF0D0D', '_O'],           // Oxygen - red
-      ['#FFFF30', '_S'],           // Sulfur - yellow
-      ['#FF8000', '_P'],           // Phosphorus - orange
-      ['#FFFFFF', '_H'],           // Hydrogen - white
-      ['#1FF01F', '_CL'],          // Chlorine - green
-      ['#90E050', '_F'],           // Fluorine - light green
-      ['#A62929', '_BR'],          // Bromine - dark red
-      ['#940094', '_I'],           // Iodine - purple
-      ['#808080', '*'],            // Default - gray
+    const schemeData: SelectionSchemeEntry[] = [
+      [carbonColorHex, '_C', undefined],      // Carbon - custom color
+      ['#3050F8', '_N', undefined],           // Nitrogen - blue
+      ['#FF0D0D', '_O', undefined],           // Oxygen - red
+      ['#FFFF30', '_S', undefined],           // Sulfur - yellow
+      ['#FF8000', '_P', undefined],           // Phosphorus - orange
+      ['#FFFFFF', '_H', undefined],           // Hydrogen - white
+      ['#1FF01F', '_CL', undefined],          // Chlorine - green
+      ['#90E050', '_F', undefined],           // Fluorine - light green
+      ['#A62929', '_BR', undefined],          // Bromine - dark red
+      ['#940094', '_I', undefined],           // Iodine - purple
+      ['#808080', '*', undefined],            // Default - gray
     ];
 
     return trackScheme(NGL.ColormakerRegistry.addSelectionScheme(schemeData, id));
   };
 
   // Compute polar hydrogen atom indices for a structure within a selection
-  const getPolarHydrogenIndices = (structure: any, selection: string): number[] => {
+  const getPolarHydrogenIndices = (structure: NGL.Structure, selection: string): number[] => {
     const polarHAtoms: number[] = [];
     try {
-      structure.eachAtom((atom: any) => {
+      structure.eachAtom((atom: AtomProxy) => {
         if (atom.element === 'H') {
           let isPolar = false;
-          atom.eachBondedAtom((bonded: any) => {
+          atom.eachBondedAtom((bonded: AtomProxy) => {
             const el = bonded.element.toUpperCase();
             if (el === 'N' || el === 'O' || el === 'S') {
               isPolar = true;
@@ -223,23 +562,76 @@ const ViewerMode: Component = () => {
       };
       window.addEventListener('resize', handleResize);
       setStageReady(true);
+      console.log('[Viewer] NGL Stage created');
 
       onCleanup(() => {
+        console.log('[Viewer] NGL Stage disposing');
         window.removeEventListener('resize', handleResize);
         if (stage) {
           stage.dispose();
           stage = null;
         }
+        proteinComponent = null;
+        ligandComponent = null;
+        interactionShapeComponent = null;
       });
     }
   });
 
+  // When viewer mode becomes active again after being CSS-hidden, NGL needs a resize
+  // to recalculate canvas dimensions (display:none → display:block changes layout)
+  createEffect(() => {
+    if (state().mode === 'viewer' && stage) {
+      // Defer to next frame so the DOM has finished layout
+      requestAnimationFrame(() => stage?.handleResize());
+    }
+  });
 
-  const updateAllStyles = updateProteinStyle;
+
+  const updateAllStyles = () => updateProteinStyle();
+
+  // Render detected interactions as dashed cylinders on the stage
+  const renderInteractionShape = (interactions: DetectedInteraction[]) => {
+    if (interactions.length > 0 && stage) {
+      const shape = new NGL.Shape('interactions');
+      const DASH = 0.25; // dash length in Å
+      const GAP = 0.15;  // gap length in Å
+      const STEP = DASH + GAP;
+      for (const ix of interactions) {
+        const color = INTERACTION_COLORS[ix.type];
+        const dx = ix.to[0] - ix.from[0];
+        const dy = ix.to[1] - ix.from[1];
+        const dz = ix.to[2] - ix.from[2];
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < 1e-4) continue;
+        const ux = dx / len, uy = dy / len, uz = dz / len;
+        let t = 0;
+        while (t < len) {
+          const tEnd = Math.min(t + DASH, len);
+          const p1: [number, number, number] = [
+            ix.from[0] + ux * t, ix.from[1] + uy * t, ix.from[2] + uz * t,
+          ];
+          const p2: [number, number, number] = [
+            ix.from[0] + ux * tEnd, ix.from[1] + uy * tEnd, ix.from[2] + uz * tEnd,
+          ];
+          shape.addCylinder(p1, p2, color, INTERACTION_RADIUS, ix.type);
+          t += STEP;
+        }
+      }
+      interactionShapeComponent = stage.addComponentFromObject(shape) as NGL.Component || null;
+      if (interactionShapeComponent) interactionShapeComponent.addRepresentation('buffer', {});
+    }
+  };
 
   // Update protein representation when state changes
   const updateProteinStyle = () => {
     if (!proteinComponent) return;
+
+    // Remove previous interaction shape (separate stage component)
+    if (interactionShapeComponent && stage) {
+      stage.removeComponent(interactionShapeComponent);
+      interactionShapeComponent = null;
+    }
 
     proteinComponent.removeAllRepresentations();
 
@@ -259,7 +651,7 @@ const ViewerMode: Component = () => {
 
       // Always show only polar hydrogens for protein spacefill
       let proteinFullSele = proteinBaseSele;
-      const structure = (proteinComponent as any).structure;
+      const structure = (proteinComponent as NGL.StructureComponent).structure;
       if (structure) {
         const polarHIndices = getPolarHydrogenIndices(structure, proteinBaseSele);
         if (polarHIndices.length > 0) {
@@ -338,7 +730,7 @@ const ViewerMode: Component = () => {
         // Determine which hydrogens to show
         let ligandFullSele = ligandSele;
         if (ligandPolarH) {
-          const structure = (proteinComponent as any).structure;
+          const structure = (proteinComponent as NGL.StructureComponent).structure;
           if (structure) {
             const polarHIndices = getPolarHydrogenIndices(structure, ligandSele);
             if (polarHIndices.length > 0) {
@@ -369,7 +761,7 @@ const ViewerMode: Component = () => {
       // Pocket residues (protein sidechains within 5A of ligand) - show even if ligand hidden
       // NGL does NOT support "around" in selection strings - must use JavaScript API
       if (state().viewer.showPocketResidues) {
-        const structure = (proteinComponent as any).structure;
+        const structure = (proteinComponent as NGL.StructureComponent).structure;
         if (structure) {
           try {
             // Create selection for ligand atoms
@@ -407,7 +799,7 @@ const ViewerMode: Component = () => {
                 const labelText: Record<number, string> = {};
                 const labelSele = `(${nearbyResString}) and .CA and protein and not (${ligandSele})`;
 
-                structure.eachAtom((atom: any) => {
+                structure.eachAtom((atom: AtomProxy) => {
                   const resname = atom.resname?.toUpperCase() || '';
                   const resno = atom.resno || '';
                   const oneLetterCode = aa3to1[resname] || resname.charAt(0);
@@ -444,7 +836,7 @@ const ViewerMode: Component = () => {
 
       // Protein-ligand interactions (contacts)
       if (state().viewer.showInteractions) {
-        const structure = (proteinComponent as any).structure;
+        const structure = (proteinComponent as NGL.StructureComponent).structure;
         if (structure) {
           try {
             const ligandSelection = new NGL.Selection(ligandSele);
@@ -453,23 +845,11 @@ const ViewerMode: Component = () => {
             const nearbyResString = nearbyResidues.toSeleString();
 
             if (nearbyResString) {
-              const contactSele = `(${ligandSele}) or (protein and (${nearbyResString}))`;
-
-              proteinComponent.addRepresentation('contact', {
-                sele: contactSele,
-                filterSele: ligandSele,
-                hydrogenBond: true,
-                hydrophobic: false,
-                halogenBond: true,
-                ionicInteraction: true,
-                metalCoordination: true,
-                cationPi: true,
-                piStacking: true,
-                weakHydrogenBond: false,
-                waterHydrogenBond: false,
-                backboneHydrogenBond: true,
-                radiusSize: 0.07,
-              });
+              const pocketSele = `protein and (${nearbyResString})`;
+              const pAtoms = collectAtoms(structure, pocketSele, true);
+              const lAtoms = collectAtoms(structure, ligandSele, false);
+              const ixs = detectInteractions(pAtoms, lAtoms);
+              renderInteractionShape(ixs);
             }
           } catch (err) {
             console.warn('Failed to compute interactions:', err);
@@ -491,24 +871,15 @@ const ViewerMode: Component = () => {
 
     // Handle pocket residues and interactions for EXTERNAL ligands (loaded from SDF)
     // This is separate because external ligands are in a different NGL component
-    console.log('[Viewer] External ligand check:', {
-      ligandSele,
-      hasLigandComponent: !!ligandComponent,
-      showPocketResidues: state().viewer.showPocketResidues,
-      showInteractions: state().viewer.showInteractions,
-    });
-
     if (!ligandSele && ligandComponent && (state().viewer.showPocketResidues || state().viewer.showInteractions)) {
-      const proteinStructure = (proteinComponent as any).structure;
-      const ligandStructure = (ligandComponent as any).structure;
-
-      console.log('[Viewer] Structures:', { hasProtein: !!proteinStructure, hasLigand: !!ligandStructure });
+      const proteinStructure = (proteinComponent as NGL.StructureComponent).structure;
+      const ligandStructure = (ligandComponent as NGL.StructureComponent).structure;
 
       if (proteinStructure && ligandStructure) {
         try {
           // Get all ligand atom positions
           const ligandPositions: { x: number; y: number; z: number }[] = [];
-          ligandStructure.eachAtom((atom: any) => {
+          ligandStructure.eachAtom((atom: AtomProxy) => {
             ligandPositions.push({ x: atom.x, y: atom.y, z: atom.z });
           });
           console.log('[Viewer] Ligand positions:', ligandPositions.length);
@@ -518,7 +889,7 @@ const ViewerMode: Component = () => {
             const nearbyResidueIndices = new Set<number>();
             const cutoffSq = 5 * 5; // 5 Angstroms squared
 
-            proteinStructure.eachAtom((atom: any) => {
+            proteinStructure.eachAtom((atom: AtomProxy) => {
               if (atom.residueIndex !== undefined) {
                 for (const ligPos of ligandPositions) {
                   const dx = atom.x - ligPos.x;
@@ -536,15 +907,10 @@ const ViewerMode: Component = () => {
             console.log('[Viewer] Nearby residue indices:', nearbyResidueIndices.size);
 
             if (nearbyResidueIndices.size > 0) {
-              // Convert residue indices to selection string
-              const residueIndicesArray = Array.from(nearbyResidueIndices);
-              // NGL uses @residueIndex for residue-based selection
-              const nearbyResString = `@${residueIndicesArray.map(i => `[${i}]`).join(',')}`.replace(/@\[/g, '').replace(/\]/g, '');
-
-              // Actually, let's build a proper selection by getting residue info
+              // Build a proper selection by getting residue info
               const residueSelections: string[] = [];
               const seenResidues = new Set<string>();
-              proteinStructure.eachResidue((residue: any) => {
+              proteinStructure.eachResidue((residue: ResidueProxy) => {
                 if (nearbyResidueIndices.has(residue.index)) {
                   const key = `${residue.resno}:${residue.chainname}`;
                   if (!seenResidues.has(key)) {
@@ -581,7 +947,7 @@ const ViewerMode: Component = () => {
                     const labelText: Record<number, string> = {};
                     const labelSele = `(${pocketResiduesSele}) and .CA and protein`;
 
-                    proteinStructure.eachAtom((atom: any) => {
+                    proteinStructure.eachAtom((atom: AtomProxy) => {
                       const resname = atom.resname?.toUpperCase() || '';
                       const resno = atom.resno || '';
                       const oneLetterCode = aa3to1[resname] || resname.charAt(0);
@@ -611,80 +977,16 @@ const ViewerMode: Component = () => {
                   }
                 }
 
-                // For interactions with external ligand, compute H-bonds manually
-                // NGL's contact representation only works within a single structure
-                if (state().viewer.showInteractions && ligandComponent) {
-                  // Clean up previous interaction shape
-                  if (interactionShapeComponent && stage) {
-                    stage.removeComponent(interactionShapeComponent);
-                    interactionShapeComponent = null;
-                  }
-
+                // Cross-structure interactions with external ligand
+                if (state().viewer.showInteractions && ligandComponent && ligandStructure) {
                   try {
-                    const ligandStructure = (ligandComponent as any).structure;
-                    if (ligandStructure) {
-                      // Collect potential H-bond donors/acceptors from ligand
-                      const ligandAtoms: { x: number; y: number; z: number; element: string; index: number }[] = [];
-                      ligandStructure.eachAtom((atom: any) => {
-                        const el = atom.element.toUpperCase();
-                        // H-bond donors/acceptors: N, O, and H attached to them
-                        if (el === 'N' || el === 'O' || el === 'H' || el === 'F') {
-                          ligandAtoms.push({ x: atom.x, y: atom.y, z: atom.z, element: el, index: atom.index });
-                        }
-                      });
-
-                      // Collect potential H-bond partners from protein pocket
-                      const proteinAtoms: { x: number; y: number; z: number; element: string }[] = [];
-                      proteinStructure.eachAtom((atom: any) => {
-                        const el = atom.element.toUpperCase();
-                        if (el === 'N' || el === 'O' || el === 'H') {
-                          proteinAtoms.push({ x: atom.x, y: atom.y, z: atom.z, element: el });
-                        }
-                      }, new NGL.Selection(pocketResiduesSele));
-
-                      // Find H-bonds (N/O...H-N/O or N/O...N/O within ~3.5Å)
-                      const hbonds: { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } }[] = [];
-                      const hbondCutoffSq = 3.5 * 3.5;
-
-                      for (const ligAtom of ligandAtoms) {
-                        if (ligAtom.element === 'H') continue; // Skip H for now, check heavy atoms
-                        for (const protAtom of proteinAtoms) {
-                          if (protAtom.element === 'H') continue;
-                          const dx = ligAtom.x - protAtom.x;
-                          const dy = ligAtom.y - protAtom.y;
-                          const dz = ligAtom.z - protAtom.z;
-                          const distSq = dx * dx + dy * dy + dz * dz;
-                          if (distSq <= hbondCutoffSq && distSq > 1.0) { // Avoid covalent bonds
-                            hbonds.push({
-                              from: { x: ligAtom.x, y: ligAtom.y, z: ligAtom.z },
-                              to: { x: protAtom.x, y: protAtom.y, z: protAtom.z }
-                            });
-                          }
-                        }
-                      }
-
-                      // Draw H-bonds as cylinders using Shape
-                      if (hbonds.length > 0 && stage) {
-                        const shape = new NGL.Shape('hbonds');
-                        for (const hb of hbonds) {
-                          shape.addCylinder(
-                            [hb.from.x, hb.from.y, hb.from.z],
-                            [hb.to.x, hb.to.y, hb.to.z],
-                            [0.2, 0.6, 1.0], // Blue color for H-bonds
-                            0.05 // Radius
-                          );
-                        }
-                        interactionShapeComponent = stage.addComponentFromObject(shape);
-                        interactionShapeComponent.addRepresentation('buffer');
-                      }
-                    }
+                    const pAtoms = collectAtoms(proteinStructure, pocketResiduesSele, true);
+                    const lAtoms = collectAtoms(ligandStructure, '*', false);
+                    const ixs = detectInteractions(pAtoms, lAtoms);
+                    renderInteractionShape(ixs);
                   } catch (err) {
                     console.warn('Failed to compute interactions for external ligand:', err);
                   }
-                } else if (!state().viewer.showInteractions && interactionShapeComponent && stage) {
-                  // Clean up interaction shape when interactions are disabled
-                  stage.removeComponent(interactionShapeComponent);
-                  interactionShapeComponent = null;
                 }
               }
             }
@@ -712,7 +1014,7 @@ const ViewerMode: Component = () => {
     let sele = '*';  // All atoms by default
     if (ligandPolarH) {
       // Show only polar hydrogens - compute using Structure API
-      const structure = (ligandComponent as any).structure;
+      const structure = (ligandComponent as NGL.StructureComponent).structure;
       if (structure) {
         const polarHIndices = getPolarHydrogenIndices(structure, '*');
         if (polarHIndices.length > 0) {
@@ -743,6 +1045,7 @@ const ViewerMode: Component = () => {
   // Load PDB file into viewer (used by both browse and auto-load)
   // preserveExternalLigand: if true, don't clear ligand state (for auto-load with external SDF)
   const handleLoadPdb = async (pdbPath: string, preserveExternalLigand: boolean = false) => {
+    console.log(`[Viewer] Loading PDB: ${pdbPath} (preserveLigand=${preserveExternalLigand})`);
     setIsLoading(true);
     setError(null);
 
@@ -773,7 +1076,7 @@ const ViewerMode: Component = () => {
           stage.removeAllComponents();
         }
 
-        proteinComponent = await stage.loadFile(pdbPath, { defaultRepresentation: false });
+        proteinComponent = await stage.loadFile(pdbPath, { defaultRepresentation: false }) as NGL.Component || null;
 
         // Clear cached surface props if PDB changed
         if (surfacePropsPdbPath !== pdbPath) {
@@ -795,7 +1098,7 @@ const ViewerMode: Component = () => {
               if (proteinComponent) {
                 const ligandSele = getLigandSelection();
                 if (ligandSele) {
-                  (proteinComponent as any).autoView(ligandSele);
+                  (proteinComponent as NGL.StructureComponent).autoView(ligandSele);
                 } else {
                   proteinComponent.autoView();
                 }
@@ -824,28 +1127,42 @@ const ViewerMode: Component = () => {
     }
   };
 
+  // Import a PDB/CIF into the current project's raw/ directory
+  // Loads the raw file directly — NGL handles bond orders natively (CIF bond tables / PDB CCD lookup)
+  // and detects interactions via distance-based heuristics without needing explicit H atoms.
+  const importToProject = async (sourcePath: string): Promise<string> => {
+    const defaultDir = await api.getDefaultOutputDir();
+    const baseOutputDir = state().customOutputDir || defaultDir;
+    const paths = projectPaths(baseOutputDir, state().jobName);
+    const result = await api.importStructure(sourcePath, paths.root);
+    if (result.ok) return result.value;
+    return sourcePath;
+  };
+
   const handleBrowsePdb = async () => {
     // Multi-select: if user picks multiple PDBs, load them as a browseable queue
-    const paths = await api.selectPdbFilesMulti();
-    if (!paths || paths.length === 0) return;
+    const selected = await api.selectPdbFilesMulti();
+    if (!selected || selected.length === 0) return;
 
-    if (paths.length === 1) {
+    // Import all selected files into the project
+    const imported = await Promise.all(selected.map(importToProject));
+
+    if (imported.length === 1) {
       // Single file — load directly, clear queue
       setViewerPdbQueue([]);
-      await handleLoadPdb(paths[0], false);
+      await handleLoadPdb(imported[0], false);
     } else {
       // Multiple files — set up queue with page-turn navigation
-      const queue = paths.map(p => ({
+      const queue = imported.map(p => ({
         pdbPath: p,
-        label: p.split('/').pop()?.replace('.pdb', '') || p,
+        label: p.split('/').pop()?.replace('.pdb', '').replace('.cif', '') || p,
       }));
       setViewerPdbQueue(queue);
-      // Don't call setViewerPdbPath here — handleLoadPdb sets it at the end.
-      // Calling it early triggers the auto-load effect, causing a double-load.
       await handleLoadPdb(queue[0].pdbPath, false);
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- will be wired to UI
   const handleBrowseLigand = async () => {
     const path = await api.selectSdfFile();
     if (!path) return;
@@ -854,6 +1171,7 @@ const ViewerMode: Component = () => {
 
   // Load external ligand from path (supports .sdf and .sdf.gz)
   const handleLoadExternalLigand = async (filePath: string) => {
+    console.log('[Viewer] Loading external ligand:', filePath);
     setIsLoading(true);
     setError(null);
 
@@ -865,17 +1183,14 @@ const ViewerMode: Component = () => {
           stage.removeComponent(ligandComponent);
         }
 
-        // NGL supports gzipped files if we specify the correct ext
+        // NGL auto-detects .sdf.gz (format=SDF, compression=gzip) — don't override ext
         // Use firstModelOnly to load only the selected pose (not all conformers)
-        const loadOptions: any = {
+        const loadOptions: NglLoadOptions = {
           firstModelOnly: true,
         };
-        if (filePath.endsWith('.sdf.gz')) {
-          loadOptions.ext = 'sdf';
-        }
 
         console.log('[Viewer] Loading ligand file:', filePath, 'options:', loadOptions);
-        ligandComponent = await stage.loadFile(filePath, loadOptions);
+        ligandComponent = await stage.loadFile(filePath, loadOptions) as NGL.Component || null;
 
         // Wait for structure to be parsed (NGL parses asynchronously)
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -902,13 +1217,24 @@ const ViewerMode: Component = () => {
 
   // React to PDB queue navigation (page-turn arrows)
   let lastQueueIndex = -1;
+  // eslint-disable-next-line solid/reactivity -- async load is intentional
   createEffect(async () => {
     const queue = state().viewer.pdbQueue;
     const idx = state().viewer.pdbQueueIndex;
     if (queue.length > 1 && idx !== lastQueueIndex && lastQueueIndex >= 0 && stageReady()) {
       lastQueueIndex = idx;
+      const item = queue[idx];
+      if (!item) { lastQueueIndex = idx; return; }
 
-      if (isAligned() && alignedComponents.has(idx)) {
+      if (item.ligandPath) {
+        // Docking mode: keep receptor, swap ligand only
+        console.log(`[Viewer] Queue nav (docking): ${item.label} — ligand=${item.ligandPath}`);
+        const currentPdb = state().viewer.pdbPath;
+        if (currentPdb !== item.pdbPath || !proteinComponent) {
+          await handleLoadPdb(item.pdbPath, true);
+        }
+        await handleLoadExternalLigand(item.ligandPath);
+      } else if (isAligned() && alignedComponents.has(idx)) {
         // Aligned mode: toggle visibility instead of reloading
         for (const [i, comp] of alignedComponents.entries()) {
           comp.setVisibility(i === idx);
@@ -917,18 +1243,16 @@ const ViewerMode: Component = () => {
         proteinComponent = alignedComponents.get(idx) || null;
       } else {
         // Normal mode: load the PDB
-        const item = queue[idx];
-        if (item) {
-          console.log('[Viewer] Queue navigation to:', item.label, item.pdbPath);
-          if (isAligned()) clearAlignment();
-          await handleLoadPdb(item.pdbPath, false);
-        }
+        console.log('[Viewer] Queue navigation to:', item.label, item.pdbPath);
+        if (isAligned()) clearAlignment();
+        await handleLoadPdb(item.pdbPath, false);
       }
     }
     lastQueueIndex = idx;
   });
 
   // Auto-load files from store when component mounts with pre-set paths
+  // eslint-disable-next-line solid/reactivity -- async load is intentional
   createEffect(async () => {
     if (!stageReady()) return;
 
@@ -1055,7 +1379,7 @@ const ViewerMode: Component = () => {
 
     try {
       // Get the structure from NGL and export as PDB
-      const structure = proteinComponent.structure;
+      const structure = (proteinComponent as NGL.StructureComponent).structure;
       if (!structure) return;
 
       // Use NGL's built-in PDB writer
@@ -1207,10 +1531,10 @@ const ViewerMode: Component = () => {
   let isFirstFrameLoad = true;
 
   // Helper: get the center-of-mass of a selection within the current proteinComponent
-  const getSelectionCenter = (sele: string): any | null => {
+  const getSelectionCenter = (sele: string): Vector3 | null => {
     if (!proteinComponent) return null;
     try {
-      const structure = (proteinComponent as any).structure;
+      const structure = (proteinComponent as NGL.StructureComponent).structure;
       if (!structure) return null;
       const selection = new NGL.Selection(sele);
       return structure.atomCenter(selection);
@@ -1220,7 +1544,7 @@ const ViewerMode: Component = () => {
   };
 
   // Helper: get the center to track based on centerTarget setting
-  const getTrackingCenter = (): any | null => {
+  const getTrackingCenter = (): Vector3 | null => {
     const centerTarget = state().viewer.centerTarget;
     if (centerTarget === 'none') return null;
 
@@ -1235,7 +1559,7 @@ const ViewerMode: Component = () => {
     // Fallback: center of all atoms
     if (!proteinComponent) return null;
     try {
-      const structure = (proteinComponent as any).structure;
+      const structure = (proteinComponent as NGL.StructureComponent).structure;
       return structure ? structure.atomCenter() : null;
     } catch {
       return null;
@@ -1287,7 +1611,7 @@ const ViewerMode: Component = () => {
       proteinComponent = await stage.loadFile(pdbBlob, {
         ext: 'pdb',
         defaultRepresentation: false
-      });
+      }) as NGL.Component || null;
 
       if (!proteinComponent) {
         console.error('[Viewer] Failed to create protein component');
@@ -1312,12 +1636,12 @@ const ViewerMode: Component = () => {
         if (centerTarget === 'ligand' && hasAnyLigand()) {
           const ligandSele = getLigandSelection();
           if (ligandSele) {
-            (proteinComponent as any).autoView(ligandSele);
+            (proteinComponent as NGL.StructureComponent).autoView(ligandSele);
           } else {
             proteinComponent.autoView();
           }
         } else if (centerTarget === 'protein') {
-          (proteinComponent as any).autoView('protein');
+          (proteinComponent as NGL.StructureComponent).autoView('protein');
         } else {
           proteinComponent.autoView();
         }
@@ -1481,7 +1805,6 @@ const ViewerMode: Component = () => {
   const hasTrajectory = () => state().viewer.trajectoryPath !== null;
 
   // FEP scoring overlay
-  const [showFepPanel, setShowFepPanel] = createSignal(false);
 
   // Clustering modal (for trajectory analysis — separate from multi-PDB import)
   const [showClusteringModal, setShowClusteringModal] = createSignal(false);
@@ -1494,6 +1817,7 @@ const ViewerMode: Component = () => {
   // Multi-PDB alignment: load all queue PDBs, superpose onto current, toggle visibility
   const [isAligned, setIsAligned] = createSignal(false);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- will be wired to UI
   const handleAlignAll = async () => {
     const queue = state().viewer.pdbQueue;
     if (queue.length < 2 || !stage || !proteinComponent) return;
@@ -1522,11 +1846,11 @@ const ViewerMode: Component = () => {
         // Superpose onto reference
         try {
           // Try backbone alignment first (works for proteins)
-          (comp as any).superpose(proteinComponent, true, 'backbone', 'backbone');
+          (comp as NGL.StructureComponent).superpose(proteinComponent as NGL.StructureComponent, true, 'backbone', 'backbone');
         } catch {
           try {
             // Fallback: align without selection (uses all matching atoms)
-            (comp as any).superpose(proteinComponent, false);
+            (comp as NGL.StructureComponent).superpose(proteinComponent as NGL.StructureComponent, false, '', '');
           } catch {
             console.warn(`Could not align ${queue[i].label}`);
           }
@@ -1584,7 +1908,7 @@ const ViewerMode: Component = () => {
 
   const clearAlignment = () => {
     if (stage) {
-      for (const [idx, comp] of alignedComponents.entries()) {
+      for (const [_idx, comp] of alignedComponents.entries()) {
         // Don't remove the current proteinComponent
         if (comp !== proteinComponent) {
           stage.removeComponent(comp);
@@ -1605,7 +1929,7 @@ const ViewerMode: Component = () => {
 
   const DEFAULT_BS_CHANNEL = { visible: true, isolevel: 0.3, opacity: 0.5 };
 
-  const buildMapState = (data: { hydrophobicDx: string; hbondDonorDx: string; hbondAcceptorDx: string; hotspots: any[] }): BindingSiteMapState => ({
+  const buildMapState = (data: BindingSiteResultsJson): BindingSiteMapState => ({
     hydrophobic: { ...DEFAULT_BS_CHANNEL },
     hbondDonor: { ...DEFAULT_BS_CHANNEL },
     hbondAcceptor: { ...DEFAULT_BS_CHANNEL },
@@ -1627,10 +1951,11 @@ const ViewerMode: Component = () => {
 
   const loadBindingSiteVolumes = async (mapState: BindingSiteMapState) => {
     if (!stage) return;
+    const stageRef = stage;  // capture for async closure
 
     // Clear any existing volumes
     for (const comp of volumeComponents.values()) {
-      stage.removeComponent(comp);
+      stageRef.removeComponent(comp);
     }
     volumeComponents.clear();
 
@@ -1643,7 +1968,7 @@ const ViewerMode: Component = () => {
     // Load all 3 DX files in parallel
     const results = await Promise.allSettled(
       BS_CHANNELS.map(async (ch) => {
-        const comp = await stage.loadFile(dxPaths[ch.key], { defaultRepresentation: false });
+        const comp = await stageRef.loadFile(dxPaths[ch.key], { defaultRepresentation: false });
         return { key: ch.key, color: ch.color, comp };
       })
     );
@@ -1680,8 +2005,8 @@ const ViewerMode: Component = () => {
     const legacyPath = `${mapDir}/binding_site_results.json`;
 
     try {
-      const data = (prefixedPath ? await api.readJsonFile(prefixedPath) as any : null)
-        || await api.readJsonFile(legacyPath) as any;
+      const data = (prefixedPath ? await api.readJsonFile(prefixedPath) as BindingSiteResultsJson | null : null)
+        || await api.readJsonFile(legacyPath) as BindingSiteResultsJson | null;
       if (!data || !data.hydrophobicDx) return;
 
       const mapState = buildMapState(data);
@@ -1730,7 +2055,7 @@ const ViewerMode: Component = () => {
       const result = await api.mapBindingSite({
         pdbPath: targetPdb,
         ligandResname: ligand.resname,
-        ligandResnum: ligand.resnum,
+        ligandResnum: parseInt(ligand.resnum, 10),
         outputDir,
       });
 
@@ -1739,7 +2064,7 @@ const ViewerMode: Component = () => {
         setViewerBindingSiteMap(mapState);
         await loadBindingSiteVolumes(mapState);
       } else {
-        setError(`Binding site map failed: ${(result as any).error?.message || 'Unknown error'}`);
+        setError(`Binding site map failed: ${result.error?.message || 'Unknown error'}`);
       }
     } catch (err) {
       setError(`Binding site map error: ${(err as Error).message}`);
@@ -1970,27 +2295,19 @@ const ViewerMode: Component = () => {
         {/* Floating buttons */}
         <Show when={state().viewer.pdbPath}>
           <div class="absolute top-2 right-2 z-10 flex gap-1.5">
-            {/* Experimental features — shown when trajectory + ligand loaded */}
-            <Show when={hasTrajectory() && hasAutoDetectedLigand()}>
+            {/* Grow — binding site expansion map */}
+            <Show when={hasAutoDetectedLigand()}>
               <button
-                class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300 gap-1"
-                onClick={() => setShowFepPanel(true)}
-                title="FEP binding free energy (experimental)"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 3h6v5l3 3-3 3v7H9v-7l-3-3 3-3V3z" />
-                </svg>
-                Score
-              </button>
-              <button
-                class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300 gap-1"
+                class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300"
                 onClick={handleComputeBindingSiteMap}
-                title="Binding site hotspot map (experimental)"
+                disabled={state().viewer.isComputingBindingSiteMap}
+                title="Grow — show where to expand the ligand"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 3h6v5l3 3-3 3v7H9v-7l-3-3 3-3V3z" />
-                </svg>
-                Grow
+                {state().viewer.isComputingBindingSiteMap ? (
+                  <span class="loading loading-spinner loading-xs" />
+                ) : (
+                  <span class="font-mono text-xs">MAP</span>
+                )}
               </button>
             </Show>
             {/* Export (always visible) */}
@@ -2004,10 +2321,6 @@ const ViewerMode: Component = () => {
               </svg>
             </button>
           </div>
-        </Show>
-        {/* FEP scoring overlay */}
-        <Show when={showFepPanel()}>
-          <FepScoringPanel onBack={() => setShowFepPanel(false)} />
         </Show>
         <Show when={isLoading()}>
           <div class="absolute inset-0 bg-base-300/50 flex items-center justify-center">
@@ -2072,7 +2385,7 @@ const ViewerMode: Component = () => {
                 <option value="electrostatic">Electrostatic</option>
               </select>
               <Show when={surfacePropsLoading()}>
-                <span class="loading loading-spinner loading-xs text-primary" title="Computing surface properties..."></span>
+                <span class="loading loading-spinner loading-xs text-primary" title="Computing surface properties..." />
               </Show>
               <select
                 class="select select-xs select-bordered w-16"
