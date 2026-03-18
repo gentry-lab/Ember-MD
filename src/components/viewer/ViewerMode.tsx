@@ -8,10 +8,20 @@ import {
   SurfaceColorScheme,
   PlaybackSpeed,
   CenterTarget,
+  BindingSiteMapState,
 } from '../../stores/workflow';
 import TrajectoryControls from './TrajectoryControls';
 import ClusteringModal from './ClusteringModal';
 import AnalysisPanel from './AnalysisPanel';
+import BindingSiteMapPanel from './BindingSiteMapPanel';
+import FepScoringPanel from './FepScoringPanel';
+
+// NGL representation name mapping (shared across all style update functions)
+const LIGAND_REP_MAP: Record<string, string> = {
+  'ball+stick': 'ball+stick',
+  stick: 'licorice',
+  spacefill: 'spacefill',
+};
 
 const ViewerMode: Component = () => {
   const {
@@ -41,6 +51,8 @@ const ViewerMode: Component = () => {
     setViewerIsPlaying,
     setViewerPdbQueue,
     setViewerPdbQueueIndex,
+    setViewerBindingSiteMap,
+    setViewerIsComputingBindingSiteMap,
     resetViewer,
   } = workflowStore;
 
@@ -54,9 +66,17 @@ const ViewerMode: Component = () => {
   let pendingFrameIndex: number | null = null;
   let playbackGeneration = 0;
   let alignedComponents: Map<number, NGL.Component> = new Map();  // For multi-PDB alignment
+  let volumeComponents: Map<string, NGL.Component> = new Map();  // For binding site isosurfaces
 
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [surfacePropsLoading, setSurfacePropsLoading] = createSignal(false);
+  const [surfacePropsData, setSurfacePropsData] = createSignal<{
+    hydrophobic: number[];
+    electrostatic: number[];
+  } | null>(null);
+  // Track which PDB the cached surface props are for
+  let surfacePropsPdbPath: string | null = null;
 
   const api = window.electronAPI;
 
@@ -71,8 +91,16 @@ const ViewerMode: Component = () => {
     return `[${ligand.resname}] and ${ligand.resnum}`;
   };
 
-  // Counter for unique scheme names
+  // Counter for unique scheme names + cleanup tracker
   let colorSchemeCounter = 0;
+  const registeredSchemes: string[] = [];
+  const trackScheme = (id: string) => { registeredSchemes.push(id); return id; };
+  const clearOldSchemes = () => {
+    while (registeredSchemes.length > 10) {
+      const old = registeredSchemes.shift()!;
+      try { NGL.ColormakerRegistry.removeScheme(old); } catch {}
+    }
+  };
 
   // 3-letter to 1-letter amino acid code mapping
   const aa3to1: Record<string, string> = {
@@ -84,9 +112,56 @@ const ViewerMode: Component = () => {
     MSE: 'M', HSD: 'H', HSE: 'H', HSP: 'H',
   };
 
+  // Interpolate between two hex colors (0xRRGGBB) by t in [0,1]
+  const lerpColor = (c1: number, c2: number, t: number): number => {
+    const r = ((c1 >> 16) & 0xff) + t * (((c2 >> 16) & 0xff) - ((c1 >> 16) & 0xff));
+    const g = ((c1 >> 8) & 0xff) + t * (((c2 >> 8) & 0xff) - ((c1 >> 8) & 0xff));
+    const b = (c1 & 0xff) + t * ((c2 & 0xff) - (c1 & 0xff));
+    return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+  };
+
+  // Create a surface color scheme from computed per-atom values
+  // Uses precomputed data from compute_surface_props.py (Gaussian-smoothed, not per-residue)
+  const createComputedScheme = (
+    values: number[],
+    lowColor: number,
+    midColor: number,
+    highColor: number
+  ): string => {
+    clearOldSchemes();
+    const id = `computed-${Date.now()}-${colorSchemeCounter++}`;
+    const FALLBACK = 0x888888;
+    return trackScheme(NGL.ColormakerRegistry.addScheme(function (this: any) {
+      this.atomColor = function (atom: any) {
+        const v = values[atom.index];
+        if (v === undefined) return FALLBACK;
+        // v is in [-1, 1] — map to color ramp
+        const t = (v + 1) / 2; // [0, 1]
+        if (t < 0.5) return lerpColor(lowColor, midColor, t * 2);
+        return lerpColor(midColor, highColor, (t - 0.5) * 2);
+      };
+    }, id));
+  };
+
+  // Hydrophobic: teal (hydrophilic) → white → goldenrod (hydrophobic)
+  const createHydrophobicScheme = (): string | null => {
+    const data = surfacePropsData();
+    if (!data) return null;
+    return createComputedScheme(data.hydrophobic, 0x3BA8A0, 0xFAFAFA, 0xB8860B);
+  };
+
+  // Coulombic electrostatic: red (negative/anionic) → white → blue (positive/cationic)
+  // APBS/Maestro convention: blue = positive potential, red = negative potential
+  const createElectrostaticScheme = (): string | null => {
+    const data = surfacePropsData();
+    if (!data) return null;
+    return createComputedScheme(data.electrostatic, 0xD32F2F, 0xFAFAFA, 0x2979FF);
+  };
+
   // Create a selection-based color scheme with custom carbon color
   // Uses addSelectionScheme which is simpler and more reliable
   const createCarbonColorScheme = (carbonColorHex: string): string => {
+    clearOldSchemes();
     const id = `cpk-${Date.now()}-${colorSchemeCounter++}`;
 
     // Selection scheme: list of [color, selection] pairs
@@ -105,7 +180,7 @@ const ViewerMode: Component = () => {
       ['#808080', '*'],            // Default - gray
     ];
 
-    return NGL.ColormakerRegistry.addSelectionScheme(schemeData, id);
+    return trackScheme(NGL.ColormakerRegistry.addSelectionScheme(schemeData, id));
   };
 
   // Compute polar hydrogen atom indices for a structure within a selection
@@ -160,10 +235,7 @@ const ViewerMode: Component = () => {
   });
 
 
-  // Update all visualizations
-  const updateAllStyles = () => {
-    updateProteinStyle();
-  };
+  const updateAllStyles = updateProteinStyle;
 
   // Update protein representation when state changes
   const updateProteinStyle = () => {
@@ -227,30 +299,29 @@ const ViewerMode: Component = () => {
 
     // Protein surface
     if (state().viewer.proteinSurface) {
-      const surfaceColorScheme = state().viewer.surfaceColorScheme;
+      const scheme = state().viewer.surfaceColorScheme;
+      const opacity = state().viewer.proteinSurfaceOpacity;
 
-      // Handle custom color schemes
-      if (surfaceColorScheme === 'uniform-grey') {
+      if (scheme === 'uniform-grey') {
         proteinComponent.addRepresentation('surface', {
-          sele: 'protein',
-          opacity: state().viewer.proteinSurfaceOpacity,
-          color: 0x888888, // Neutral grey
-        });
-      } else if (surfaceColorScheme === 'electrostatic-muted') {
-        // Muted electrostatic with reduced color range (more white/grey in the middle)
-        proteinComponent.addRepresentation('surface', {
-          sele: 'protein',
-          opacity: state().viewer.proteinSurfaceOpacity,
-          colorScheme: 'electrostatic',
-          colorScale: ['#6688bb', '#f5f5f5', '#bb6666'], // Muted blue-white-red
-          colorDomain: [-0.3, 0, 0.3], // Narrower range = more muted
+          sele: 'protein', opacity, color: 0x888888,
         });
       } else {
-        proteinComponent.addRepresentation('surface', {
-          sele: 'protein',
-          opacity: state().viewer.proteinSurfaceOpacity,
-          colorScheme: surfaceColorScheme,
-        });
+        // Computed schemes — requires precomputed data from Python
+        let colorSchemeId: string | null = null;
+        if (scheme === 'hydrophobic') colorSchemeId = createHydrophobicScheme();
+        else if (scheme === 'electrostatic') colorSchemeId = createElectrostaticScheme();
+
+        if (colorSchemeId) {
+          proteinComponent.addRepresentation('surface', {
+            sele: 'protein', opacity, color: colorSchemeId,
+          });
+        } else {
+          // Data not loaded yet — show grey as placeholder while computing
+          proteinComponent.addRepresentation('surface', {
+            sele: 'protein', opacity, color: 0x888888,
+          });
+        }
       }
     }
 
@@ -258,11 +329,6 @@ const ViewerMode: Component = () => {
     if (ligandSele) {
       // Only render ligand representation if visible
       if (state().viewer.ligandVisible) {
-        const repMap: Record<LigandRepresentation, string> = {
-          'ball+stick': 'ball+stick',
-          stick: 'licorice',
-          spacefill: 'spacefill',
-        };
         const ligandRep = state().viewer.ligandRep;
         const ligandPolarH = state().viewer.ligandPolarHOnly;
 
@@ -285,7 +351,7 @@ const ViewerMode: Component = () => {
 
         // Single representation for entire ligand (preserves bonds)
         // Custom schemes use "color:", built-in schemes use "colorScheme:"
-        proteinComponent.addRepresentation(repMap[ligandRep], {
+        proteinComponent.addRepresentation(LIGAND_REP_MAP[ligandRep], {
           sele: ligandFullSele,
           color: ligandColorSchemeId,
         });
@@ -636,12 +702,6 @@ const ViewerMode: Component = () => {
 
     ligandComponent.removeAllRepresentations();
 
-    const repMap: Record<LigandRepresentation, string> = {
-      'ball+stick': 'ball+stick',
-      stick: 'licorice',
-      spacefill: 'spacefill',
-    };
-
     const ligandRep = state().viewer.ligandRep;
     const ligandPolarH = state().viewer.ligandPolarHOnly;
 
@@ -667,7 +727,7 @@ const ViewerMode: Component = () => {
 
     // Single representation (preserves bonds)
     // Custom schemes use "color:", built-in schemes use "colorScheme:"
-    ligandComponent.addRepresentation(repMap[ligandRep], {
+    ligandComponent.addRepresentation(LIGAND_REP_MAP[ligandRep], {
       sele: sele,
       color: ligandColorSchemeId,
     });
@@ -687,6 +747,9 @@ const ViewerMode: Component = () => {
     setError(null);
 
     try {
+      // Clear binding site volumes from previous PDB
+      clearBindingSiteVolumes();
+
       // Reset ligand state only if not preserving external ligand
       if (!preserveExternalLigand) {
         setViewerLigandPath(null);
@@ -711,6 +774,13 @@ const ViewerMode: Component = () => {
         }
 
         proteinComponent = await stage.loadFile(pdbPath, { defaultRepresentation: false });
+
+        // Clear cached surface props if PDB changed
+        if (surfacePropsPdbPath !== pdbPath) {
+          setSurfacePropsData(null);
+          surfacePropsPdbPath = null;
+        }
+
         updateProteinStyle();
 
         // Detect ligands in the PDB in the background (don't block the viewer)
@@ -730,6 +800,8 @@ const ViewerMode: Component = () => {
                   proteinComponent.autoView();
                 }
               }
+              // Auto-load existing binding site map if available
+              tryAutoLoadBindingSiteMap(pdbPath);
             } else {
               // No ligand found — center on whole structure
               if (proteinComponent) proteinComponent.autoView();
@@ -863,7 +935,7 @@ const ViewerMode: Component = () => {
     const pdbPath = state().viewer.pdbPath;
     const ligandPath = state().viewer.ligandPath;
 
-    console.log('[Viewer] Auto-load check - pdb:', pdbPath, 'ligand:', ligandPath, 'proteinComponent:', !!proteinComponent);
+    // Debug: only log on actual changes, not every reactive re-evaluation
 
     // Only auto-load if paths are set and components aren't already loaded
     if (pdbPath && !proteinComponent) {
@@ -910,8 +982,37 @@ const ViewerMode: Component = () => {
     updateAllStyles();
   };
 
-  const handleSurfaceColorChange = (scheme: SurfaceColorScheme) => {
+  const handleSurfaceColorChange = async (scheme: SurfaceColorScheme) => {
     setViewerSurfaceColorScheme(scheme);
+
+    // For computed schemes, ensure property data is loaded
+    if (scheme !== 'uniform-grey' && !surfacePropsData()) {
+      const pdbPath = state().viewer.pdbPath;
+      if (!pdbPath) return;
+
+      setSurfacePropsLoading(true);
+      try {
+        // Store in a surface_props subdir next to the PDB, or in the project dir
+        const pdbDir = pdbPath.substring(0, pdbPath.lastIndexOf('/'));
+        const outputDir = state().customOutputDir
+          ? `${state().customOutputDir}/${state().jobName}/surface_props`
+          : `${pdbDir}/surface_props`;
+
+        const result = await api.computeSurfaceProps(pdbPath, outputDir);
+        if (result.ok) {
+          surfacePropsPdbPath = pdbPath;
+          setSurfacePropsData({
+            hydrophobic: result.value.hydrophobic,
+            electrostatic: result.value.electrostatic,
+          });
+        } else {
+          console.error('Surface props computation failed:', result.error?.message);
+        }
+      } finally {
+        setSurfacePropsLoading(false);
+      }
+    }
+
     updateAllStyles();
   };
 
@@ -1379,6 +1480,9 @@ const ViewerMode: Component = () => {
 
   const hasTrajectory = () => state().viewer.trajectoryPath !== null;
 
+  // FEP scoring overlay
+  const [showFepPanel, setShowFepPanel] = createSignal(false);
+
   // Clustering modal (for trajectory analysis — separate from multi-PDB import)
   const [showClusteringModal, setShowClusteringModal] = createSignal(false);
   const handleOpenClustering = () => setShowClusteringModal(true);
@@ -1465,8 +1569,7 @@ const ViewerMode: Component = () => {
 
     // Ligand representation
     if (ligandSele && state().viewer.ligandVisible) {
-      const repMap: Record<string, string> = { 'ball+stick': 'ball+stick', stick: 'licorice', spacefill: 'spacefill' };
-      comp.addRepresentation(repMap[state().viewer.ligandRep] || 'ball+stick', {
+      comp.addRepresentation(LIGAND_REP_MAP[state().viewer.ligandRep] || 'ball+stick', {
         sele: ligandSele,
         colorScheme: 'element',
       });
@@ -1492,6 +1595,171 @@ const ViewerMode: Component = () => {
     setIsAligned(false);
   };
 
+  // === Binding site interaction maps ===
+
+  const BS_CHANNELS = [
+    { key: 'hydrophobic' as const, color: '#22c55e' },
+    { key: 'hbondDonor' as const, color: '#3b82f6' },
+    { key: 'hbondAcceptor' as const, color: '#ef4444' },
+  ];
+
+  const DEFAULT_BS_CHANNEL = { visible: true, isolevel: 0.3, opacity: 0.5 };
+
+  const buildMapState = (data: { hydrophobicDx: string; hbondDonorDx: string; hbondAcceptorDx: string; hotspots: any[] }): BindingSiteMapState => ({
+    hydrophobic: { ...DEFAULT_BS_CHANNEL },
+    hbondDonor: { ...DEFAULT_BS_CHANNEL },
+    hbondAcceptor: { ...DEFAULT_BS_CHANNEL },
+    hydrophobicDx: data.hydrophobicDx,
+    hbondDonorDx: data.hbondDonorDx,
+    hbondAcceptorDx: data.hbondAcceptorDx,
+    hotspots: data.hotspots || [],
+  });
+
+  const clearBindingSiteVolumes = () => {
+    if (stage) {
+      for (const comp of volumeComponents.values()) {
+        stage.removeComponent(comp);
+      }
+    }
+    volumeComponents.clear();
+    setViewerBindingSiteMap(null);
+  };
+
+  const loadBindingSiteVolumes = async (mapState: BindingSiteMapState) => {
+    if (!stage) return;
+
+    // Clear any existing volumes
+    for (const comp of volumeComponents.values()) {
+      stage.removeComponent(comp);
+    }
+    volumeComponents.clear();
+
+    const dxPaths: Record<string, string> = {
+      hydrophobic: mapState.hydrophobicDx,
+      hbondDonor: mapState.hbondDonorDx,
+      hbondAcceptor: mapState.hbondAcceptorDx,
+    };
+
+    // Load all 3 DX files in parallel
+    const results = await Promise.allSettled(
+      BS_CHANNELS.map(async (ch) => {
+        const comp = await stage.loadFile(dxPaths[ch.key], { defaultRepresentation: false });
+        return { key: ch.key, color: ch.color, comp };
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.comp) {
+        const { key, color, comp } = r.value;
+        const chState = mapState[key];
+        comp.addRepresentation('surface', {
+          isolevel: chState.isolevel,
+          color,
+          opacity: chState.opacity,
+          wireframe: false,
+        });
+        comp.setVisibility(chState.visible);
+        volumeComponents.set(key, comp);
+      } else if (r.status === 'rejected') {
+        console.error('[Viewer] Failed to load DX:', r.reason);
+      }
+    }
+  };
+
+  const tryAutoLoadBindingSiteMap = async (pdbPath: string) => {
+    // Check if binding_site_map/ exists next to the PDB
+    const pdbDir = pdbPath.replace(/\/[^/]+$/, '');
+    const mapDir = `${pdbDir}/binding_site_map`;
+    const resultsPath = `${mapDir}/binding_site_results.json`;
+
+    try {
+      const data = await api.readJsonFile(resultsPath) as any;
+      if (!data || !data.hydrophobicDx) return;
+
+      const mapState = buildMapState(data);
+      setViewerBindingSiteMap(mapState);
+      await loadBindingSiteVolumes(mapState);
+    } catch (err) {
+      console.error('[Viewer] Failed to auto-load binding site map:', err);
+    }
+  };
+
+  const handleComputeBindingSiteMap = async () => {
+    const pdbPath = state().viewer.pdbPath;
+    const selectedId = state().viewer.selectedLigandId;
+    if (!pdbPath || !selectedId) return;
+
+    const ligand = state().viewer.detectedLigands.find((l) => l.id === selectedId);
+    if (!ligand) return;
+
+    setViewerIsComputingBindingSiteMap(true);
+
+    try {
+      // Determine PDB to use: if trajectory loaded, export current frame; otherwise use static PDB
+      let targetPdb = pdbPath;
+      const trajectoryPath = state().viewer.trajectoryPath;
+      if (trajectoryPath) {
+        const tmpPath = `/tmp/ember_expand_frame_${Date.now()}.pdb`;
+        const exportResult = await api.exportTrajectoryFrame({
+          topologyPath: pdbPath,
+          trajectoryPath: trajectoryPath,
+          frameIndex: state().viewer.currentFrame,
+          outputPath: tmpPath,
+          stripWaters: true,
+        });
+        if (exportResult.ok) {
+          targetPdb = exportResult.value.pdbPath;
+        }
+      }
+
+      // Output dir: next to the PDB
+      const pdbDir = pdbPath.replace(/\/[^/]+$/, '');
+      const outputDir = `${pdbDir}/binding_site_map`;
+
+      const result = await api.mapBindingSite({
+        pdbPath: targetPdb,
+        ligandResname: ligand.resname,
+        ligandResnum: ligand.resnum,
+        outputDir,
+      });
+
+      if (result.ok) {
+        const mapState = buildMapState(result.value);
+        setViewerBindingSiteMap(mapState);
+        await loadBindingSiteVolumes(mapState);
+      } else {
+        setError(`Binding site map failed: ${(result as any).error?.message || 'Unknown error'}`);
+      }
+    } catch (err) {
+      setError(`Binding site map error: ${(err as Error).message}`);
+    } finally {
+      setViewerIsComputingBindingSiteMap(false);
+    }
+  };
+
+  // Reactive effect: update volume representations when channel settings change
+  createEffect(() => {
+    const bsMap = state().viewer.bindingSiteMap;
+    if (!bsMap) return;
+
+    for (const ch of BS_CHANNELS) {
+      const comp = volumeComponents.get(ch.key);
+      if (!comp) continue;
+
+      const chState = bsMap[ch.key];
+      comp.setVisibility(chState.visible);
+
+      // Update representation parameters
+      if (comp.reprList && comp.reprList.length > 0) {
+        const repr = comp.reprList[0];
+        repr.setParameters({
+          isolevel: chState.isolevel,
+          opacity: chState.opacity,
+        });
+      }
+    }
+  });
+
   const handleClear = () => {
     // Stop playback if running
     playbackGeneration++;
@@ -1501,6 +1769,9 @@ const ViewerMode: Component = () => {
       clearTimeout(playbackTimer);
       playbackTimer = null;
     }
+
+    // Clear binding site volumes
+    clearBindingSiteVolumes();
 
     if (stage) {
       stage.removeAllComponents();
@@ -1618,6 +1889,14 @@ const ViewerMode: Component = () => {
             </span>
           </div>
 
+          {/* Binding site map channel controls (shown after map is computed) */}
+          <Show when={state().viewer.bindingSiteMap}>
+            <BindingSiteMapPanel
+              onCompute={handleComputeBindingSiteMap}
+              onClear={clearBindingSiteVolumes}
+            />
+          </Show>
+
           {/* Trajectory Row */}
           <div class="flex items-center gap-2">
             <button
@@ -1677,17 +1956,47 @@ const ViewerMode: Component = () => {
           class="absolute inset-0"
           style={{ width: '100%', height: '100%' }}
         />
-        {/* Floating export button */}
+        {/* Floating buttons */}
         <Show when={state().viewer.pdbPath}>
-          <button
-            class="absolute top-2 right-2 btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300"
-            onClick={handleExportPdb}
-            title="Export as PDB"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-          </button>
+          <div class="absolute top-2 right-2 z-10 flex gap-1.5">
+            {/* Experimental features — shown when trajectory + ligand loaded */}
+            <Show when={hasTrajectory() && hasAutoDetectedLigand()}>
+              <button
+                class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300 gap-1"
+                onClick={() => setShowFepPanel(true)}
+                title="FEP binding free energy (experimental)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 3h6v5l3 3-3 3v7H9v-7l-3-3 3-3V3z" />
+                </svg>
+                Score
+              </button>
+              <button
+                class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300 gap-1"
+                onClick={handleComputeBindingSiteMap}
+                title="Binding site hotspot map (experimental)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 3h6v5l3 3-3 3v7H9v-7l-3-3 3-3V3z" />
+                </svg>
+                Grow
+              </button>
+            </Show>
+            {/* Export (always visible) */}
+            <button
+              class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300"
+              onClick={handleExportPdb}
+              title="Export as PDB"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </button>
+          </div>
+        </Show>
+        {/* FEP scoring overlay */}
+        <Show when={showFepPanel()}>
+          <FepScoringPanel onBack={() => setShowFepPanel(false)} />
         </Show>
         <Show when={isLoading()}>
           <div class="absolute inset-0 bg-base-300/50 flex items-center justify-center">
@@ -1747,13 +2056,13 @@ const ViewerMode: Component = () => {
                 onChange={(e) => handleSurfaceColorChange(e.target.value as SurfaceColorScheme)}
                 disabled={!state().viewer.pdbPath}
               >
-                <option value="uniform-grey">Grey</option>
+                <option value="uniform-grey">Solid</option>
+                <option value="hydrophobic">Hydrophobic</option>
                 <option value="electrostatic">Electrostatic</option>
-                <option value="electrostatic-muted">Electrostatic (Muted)</option>
-                <option value="hydrophobicity">Hydrophobic</option>
-                <option value="chainid">Chain</option>
-                <option value="residueindex">Position</option>
               </select>
+              <Show when={surfacePropsLoading()}>
+                <span class="loading loading-spinner loading-xs text-primary" title="Computing surface properties..."></span>
+              </Show>
               <select
                 class="select select-xs select-bordered w-16"
                 value={state().viewer.proteinSurfaceOpacity}
