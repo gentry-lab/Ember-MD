@@ -19,12 +19,20 @@ Desktop app for GPU-accelerated molecular dynamics on Apple Silicon. Two modes: 
 
 ## GPU Platform Cascade
 ```
-CUDA → Metal (native MSL) → OpenCL (cl2Metal) → CPU
+CUDA → OpenCL (cl2Metal) → Metal (native MSL) → CPU
 ```
-- **Metal**: Native MSL backend (`pseudo-control/Ember-Metal`), registers as "Metal" platform. 46/47 tests pass (1 expected: `TestMetalCustomIntegrator` bitwise force equality). Command buffer batching, blit clears, register hoisting, float atomics, simdgroup barriers. ~206 ns/day on M4 for 22K atom system.
-- **OpenCL**: Apple's cl2Metal translates OpenCL to Metal GPU instructions. ~210 ns/day on M4 (slightly faster due to cl2Metal IR-level optimizations). Works across all macOS versions (Ventura through Tahoe).
-- **Performance gap**: Metal is ~2% slower than OpenCL on 22K atoms. Float atomics (v0.1.11) + simdgroup barrier fix (v0.1.12) closed the gap from 16% to 2%.
-- **SIMD note**: macOS 26 blocks `__asm("air....")` inline assembly in cl2Metal. No subgroup extensions available. SIMD intrinsics only accessible via native Metal Shading Language (not implemented).
+- **OpenCL** (preferred on macOS): Apple's cl2Metal translates OpenCL to Metal GPU instructions. Faster than native Metal on systems >3K atoms due to cl2Metal IR-level compiler optimizations. Works across all macOS versions (Ventura through Tahoe).
+- **Metal** (fallback / iOS): Native MSL backend (`pseudo-control/Ember-Metal`), registers as "Metal" platform. 46/47 tests pass (1 expected: `TestMetalCustomIntegrator` bitwise force equality). Command buffer batching, blit clears, register hoisting, float atomics, simdgroup barriers. Required for iOS (no OpenCL). Wins on small systems (<3K atoms) due to faster dispatch encoding.
+- **Performance comparison** (v0.1.12, M4, TIP3P water boxes):
+
+| Atoms | Metal ms/step | OpenCL ms/step | Diff |
+|------:|:---:|:---:|:---|
+| 2,094 | 0.323 | 0.336 | **Metal 4% faster** |
+| 5,796 | 0.754 | 0.541 | Metal 39% slower |
+| 12,990 | 1.276 | 1.181 | Metal 8% slower |
+| 18,138 | 1.342 | 1.212 | Metal 11% slower |
+
+- **SIMD note**: macOS 26 blocks `__asm("air....")` inline assembly in cl2Metal. Workaround: `VENDOR_APPLE` disabled, falls back to local-memory reductions. SIMD intrinsics only accessible via native Metal Shading Language.
 
 ## Project Structure
 ```
@@ -251,6 +259,7 @@ Profile is now **balanced** between compute (28%) and cache (27%) — no single 
 - Indirect Command Buffers — MD arguments change every step (box vectors, interaction counts), can't pre-encode
 - Private storage mode / MTLHeap — Apple Silicon unified memory, no coherency tax, shared=private performance
 - VkFFT command buffer pass-through — VkFFT already disabled, native FFT batched
+- `fast::divide(1.0f, x)` for RECIP — tested in nonbonded kernel, 204 ns/day vs 206 baseline (-1%). Apple Silicon compiles `1.0f/x` to the same fast reciprocal instruction.
 
 **Hardware detection**: Use runtime MTL queries (`threadExecutionWidth`, `maxTotalThreadsPerThreadgroup`, `isLowPowerDevice`, `recommendedMaxWorkingSetSize`) — no static chip tables. Same binary runs on M-series desktops and A-series phones.
 
