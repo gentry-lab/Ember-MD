@@ -2,6 +2,10 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
+
+// Prevent EPIPE crashes when stdout/stderr pipe is closed (e.g. npm start)
+process.stdout?.on('error', () => {});
+process.stderr?.on('error', () => {});
 import * as yaml from 'yaml';
 import { Ok, Err, Result } from '../shared/types/result';
 import { AppError } from '../shared/types/errors';
@@ -22,6 +26,26 @@ let mainWindow: BrowserWindow | null = null;
 
 // Track spawned processes for cleanup
 const childProcesses = new Set<ChildProcess>();
+
+// Filter noisy stderr from Metal backend and Python deprecation warnings
+function filterMdStderr(text: string): string {
+  const lines = text.split('\n').filter(line => {
+    if (line.startsWith('[Metal Transform STEP')) return false;
+    if (line.startsWith('[Metal Debug]')) return false;
+    if (line.startsWith('[Metal]') && (
+      line.includes('wrapped ') || line.includes('mutable param') ||
+      line.includes('Functions needing') || line.includes('Added _mm_ts') ||
+      line.includes('Applied ') || line.includes('Renamed ') ||
+      line.includes('Rewrote ') || line.includes('Compiled kernel library')
+    )) return false;
+    if (line.includes('pkg_resources is deprecated')) return false;
+    if (line.includes('FutureWarning')) return false;
+    if (line.match(/^\s+from pkg_resources/)) return false;
+    if (line.match(/^\s+if isinstance\(obj, functools\._lru_cache_wrapper\)/)) return false;
+    return true;
+  });
+  return lines.join('\n');
+}
 
 function killAllChildProcesses() {
   for (const proc of childProcesses) {
@@ -255,17 +279,21 @@ function initializePaths(): void {
   }
   surfaceGenPythonPath = getSurfaceGenPythonPath();
 
-  console.log('=== FragGen Path Configuration ===');
-  console.log('Bundled installation:', isBundledInstall() ? 'Yes' : 'No');
-  console.log('FragGen root:', fraggenRoot);
-  console.log('Model checkpoint dir:', getModelCheckpointDir());
-  console.log('Fragment base:', getFragBase());
-  console.log('Conda Python (fraggen):', condaPythonPath);
-  console.log('Conda Python (surface_gen):', surfaceGenPythonPath);
-  console.log('GNINA path:', GNINA_PATH);
-  console.log('CORDIAL root:', getCordialRoot() || 'Not found');
-  console.log('OpenBabel data:', detectBabelDataDir() || 'Not found');
-  console.log('==================================');
+  try {
+    console.log('=== FragGen Path Configuration ===');
+    console.log('Bundled installation:', isBundledInstall() ? 'Yes' : 'No');
+    console.log('FragGen root:', fraggenRoot);
+    console.log('Model checkpoint dir:', getModelCheckpointDir());
+    console.log('Fragment base:', getFragBase());
+    console.log('Conda Python (fraggen):', condaPythonPath);
+    console.log('Conda Python (surface_gen):', surfaceGenPythonPath);
+    console.log('Docking backend: Vina (Python API)');
+    console.log('CORDIAL root:', getCordialRoot() || 'Not found');
+    console.log('OpenBabel data:', detectBabelDataDir() || 'Not found');
+    console.log('==================================');
+  } catch {
+    // Ignore EPIPE — stdout may be closed when launched from npm start
+  }
 }
 
 function getFragGenScript(): string {
@@ -398,7 +426,7 @@ ipcMain.handle(IpcChannels.SELECT_PDB_FILES_MULTI, async (): Promise<string[]> =
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
     filters: [
-      { name: 'PDB Files', extensions: ['pdb'] },
+      { name: 'Structure Files', extensions: ['pdb', 'cif'] },
       { name: 'All Files', extensions: ['*'] },
     ],
   });
@@ -412,7 +440,7 @@ ipcMain.handle(IpcChannels.SELECT_PDB_FILE, async (_event, defaultPath?: string)
     properties: ['openFile'],
     defaultPath: defaultPath || undefined,
     filters: [
-      { name: 'PDB Files', extensions: ['pdb'] },
+      { name: 'Structure Files', extensions: ['pdb', 'cif'] },
       { name: 'All Files', extensions: ['*'] },
     ],
   });
@@ -1155,30 +1183,7 @@ except Exception as e:
   }
 );
 
-// === GNINA Docking Handlers ===
-
-const GNINA_DIR = path.join(os.homedir(), '.fraggen', 'bin');
-const GNINA_DOWNLOAD_URL = 'https://github.com/gnina/gnina/releases/download/v1.1/gnina';
-
-// GNINA path - check bundled first, then user directory
-function getGninaPath(): string {
-  // Check environment variable (set by launcher script)
-  if (process.env.FRAGGEN_GNINA && fs.existsSync(process.env.FRAGGEN_GNINA)) {
-    return process.env.FRAGGEN_GNINA;
-  }
-
-  // Check bundled installation
-  const bundledGnina = path.join(BUNDLED_INSTALL_PATH, 'gnina');
-  if (fs.existsSync(bundledGnina)) {
-    return bundledGnina;
-  }
-
-  // Fall back to user directory
-  return path.join(GNINA_DIR, 'gnina');
-}
-
-// Dynamic GNINA_PATH that checks bundled first
-const GNINA_PATH = getGninaPath();
+// === Docking Handlers (Vina + CORDIAL) ===
 
 // Select CSV file
 ipcMain.handle(IpcChannels.SELECT_CSV_FILE, async (): Promise<string | null> => {
@@ -1231,9 +1236,9 @@ ipcMain.handle(
   }
 );
 
-// Parse FragGen results CSV
+// Parse FragGen results CSV (legacy — kept for backwards compat)
 ipcMain.handle(
-  IpcChannels.PARSE_FRAGGEN_CSV,
+  'parse-fraggen-csv',
   async (_event, csvPath: string): Promise<Result<{
     molecules: Array<{
       filename: string;
@@ -1340,85 +1345,6 @@ ipcMain.handle(
   }
 );
 
-// Check if GNINA is installed
-ipcMain.handle(IpcChannels.CHECK_GNINA_INSTALLED, async (): Promise<boolean> => {
-  if (!fs.existsSync(GNINA_PATH)) return false;
-  try {
-    // Check if executable
-    fs.accessSync(GNINA_PATH, fs.constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-});
-
-// Download GNINA binary
-ipcMain.handle(
-  IpcChannels.DOWNLOAD_GNINA,
-  async (event): Promise<Result<string, AppError>> => {
-    return new Promise(async (resolve) => {
-      try {
-        // Create directory
-        fs.mkdirSync(GNINA_DIR, { recursive: true });
-
-        const https = require('https');
-        const file = fs.createWriteStream(GNINA_PATH);
-
-        const request = https.get(GNINA_DOWNLOAD_URL, {
-          headers: { 'User-Agent': 'FragGen-GUI' }
-        }, (response: any) => {
-          // Handle redirects
-          if (response.statusCode === 302 || response.statusCode === 301) {
-            const redirectUrl = response.headers.location;
-            https.get(redirectUrl, {
-              headers: { 'User-Agent': 'FragGen-GUI' }
-            }, (redirectResponse: any) => {
-              handleDownload(redirectResponse);
-            });
-            return;
-          }
-          handleDownload(response);
-        });
-
-        function handleDownload(response: any) {
-          const totalSize = parseInt(response.headers['content-length'] || '0', 10);
-          let downloaded = 0;
-
-          response.on('data', (chunk: Buffer) => {
-            downloaded += chunk.length;
-            file.write(chunk);
-            if (totalSize > 0) {
-              event.sender.send(IpcChannels.GNINA_DOWNLOAD_PROGRESS, {
-                downloaded,
-                total: totalSize,
-                percentage: (downloaded / totalSize) * 100,
-              });
-            }
-          });
-
-          response.on('end', () => {
-            file.end();
-            // Make executable
-            fs.chmodSync(GNINA_PATH, '755');
-            resolve(Ok(GNINA_PATH));
-          });
-
-          response.on('error', (error: Error) => {
-            file.close();
-            fs.unlinkSync(GNINA_PATH);
-            resolve(Err({ type: 'DOWNLOAD_FAILED', message: error.message }));
-          });
-        }
-
-        request.on('error', (error: Error) => {
-          resolve(Err({ type: 'DOWNLOAD_FAILED', message: error.message }));
-        });
-      } catch (error) {
-        resolve(Err({ type: 'DOWNLOAD_FAILED', message: (error as Error).message }));
-      }
-    });
-  }
-);
 
 // Get CPU count for parallel docking
 ipcMain.handle(IpcChannels.GET_CPU_COUNT, async (): Promise<number> => {
@@ -1434,15 +1360,17 @@ interface DockingResult {
   error?: string;
 }
 
-interface GninaDockingConfig {
+interface VinaDockConfig {
   exhaustiveness: number;
   numPoses: number;
   autoboxAdd: number;
-  numThreads: number;
-  minimize: boolean;
+  numCpus: number;
   seed: number;
-  waterRetentionDistance: number;
+  coreConstrained: boolean;
 }
+
+// Track active docking processes for cancellation
+const dockingProcesses = new Set<ChildProcess>();
 
 /**
  * Concurrency-limited parallel execution helper with staggered starts.
@@ -1505,23 +1433,22 @@ async function runWithConcurrency<T, R>(
 }
 
 /**
- * Dock a single ligand using the simplified Python script.
+ * Dock a single ligand using Vina Python API script.
  * Returns a promise that resolves when docking completes.
  */
-function dockSingleLigand(
+function dockSingleLigandVina(
   ligandPath: string,
   receptor: string,
   reference: string,
   outputDir: string,
-  config: GninaDockingConfig
+  config: VinaDockConfig
 ): Promise<DockingResult> {
   return new Promise((resolve) => {
     const name = path.basename(ligandPath, '.sdf');
-    const scriptPath = path.join(fraggenRoot, 'run_gnina_docking.py');
+    const scriptPath = path.join(fraggenRoot, 'run_vina_docking.py');
 
     const args = [
       scriptPath,
-      '--gnina', GNINA_PATH,
       '--receptor', receptor,
       '--ligand', ligandPath,
       '--reference', reference,
@@ -1529,20 +1456,18 @@ function dockSingleLigand(
       '--exhaustiveness', String(config.exhaustiveness),
       '--num_poses', String(config.numPoses),
       '--autobox_add', String(config.autoboxAdd),
+      '--cpu', '1',  // Each Vina process uses 1 CPU, concurrency handled by Node.js
     ];
 
-    // Post-docking MMFF energy minimization
-    if (config.minimize) {
-      args.push('--minimize');
-    }
-
-    // Random seed for reproducibility
     if (config.seed > 0) {
       args.push('--seed', String(config.seed));
     }
 
+    if (config.coreConstrained) {
+      args.push('--core_constrain', '--reference_sdf', reference);
+    }
+
     // Set BABEL_DATADIR to help Open Babel find its data files
-    // This prevents race conditions when multiple GNINA processes initialize
     const babelDataDir = process.env.BABEL_DATADIR || detectBabelDataDir();
     const env = {
       ...process.env,
@@ -1551,6 +1476,7 @@ function dockSingleLigand(
 
     const python = spawn(condaPythonPath!, args, { env });
     childProcesses.add(python);
+    dockingProcesses.add(python);
 
     let stdout = '';
     let stderr = '';
@@ -1565,6 +1491,7 @@ function dockSingleLigand(
 
     python.on('close', (code: number | null) => {
       childProcesses.delete(python);
+      dockingProcesses.delete(python);
       if (code === 0) {
         const match = stdout.match(/SUCCESS:([^:]+):(.+)/);
         resolve({
@@ -1583,35 +1510,46 @@ function dockSingleLigand(
 
     python.on('error', (err: Error) => {
       childProcesses.delete(python);
+      dockingProcesses.delete(python);
       resolve({ ligand: name, success: false, error: err.message });
     });
   });
 }
 
-// Run GNINA docking - Node.js-managed parallel execution
+// Cancel Vina docking — kill all docking child processes
+ipcMain.handle(IpcChannels.CANCEL_VINA_DOCKING, async (): Promise<void> => {
+  for (const proc of dockingProcesses) {
+    if (!proc.killed) {
+      proc.kill('SIGTERM');
+    }
+  }
+  dockingProcesses.clear();
+});
+
+// Run Vina docking — Node.js-managed parallel execution
 ipcMain.handle(
-  IpcChannels.RUN_GNINA_DOCKING,
+  IpcChannels.RUN_VINA_DOCKING,
   async (
     event,
     receptorPdb: string,
     referenceLigand: string,
     ligandSdfPaths: string[],
     outputDir: string,
-    config: GninaDockingConfig
+    config: VinaDockConfig
   ): Promise<Result<string, AppError>> => {
     if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
       return Err({
         type: 'PYTHON_NOT_FOUND',
-        message: 'Python not found. Please install miniconda and create fraggen environment.',
+        message: 'Python not found. Please install miniconda and create the openmm-metal environment.',
       });
     }
 
-    const scriptPath = path.join(fraggenRoot, 'run_gnina_docking.py');
+    const scriptPath = path.join(fraggenRoot, 'run_vina_docking.py');
     if (!fs.existsSync(scriptPath)) {
       return Err({
         type: 'SCRIPT_NOT_FOUND',
         path: scriptPath,
-        message: `GNINA docking script not found: ${scriptPath}`,
+        message: `Vina docking script not found: ${scriptPath}`,
       });
     }
 
@@ -1620,7 +1558,7 @@ ipcMain.handle(
 
     // Copy receptor and reference ligand to output directory for downstream use (MD)
     const receptorOutputPath = path.join(outputDir, 'receptor_prepared.pdb');
-    const referenceOutputPath = path.join(outputDir, 'reference_ligand.pdb');
+    const referenceOutputPath = path.join(outputDir, 'reference_ligand.sdf');
     fs.copyFileSync(receptorPdb, receptorOutputPath);
     fs.copyFileSync(referenceLigand, referenceOutputPath);
 
@@ -1628,33 +1566,28 @@ ipcMain.handle(
     const ligandsJsonPath = path.join(outputDir, 'ligands.json');
     fs.writeFileSync(ligandsJsonPath, JSON.stringify(ligandSdfPaths, null, 2));
 
-    // Limit concurrency for GPU mode - each GNINA process uses VRAM for CNN scoring
-    // 4 workers for 8GB VRAM (3070) - conservative to avoid OOM
-    const maxGninaWorkers = 4;
-    const requestedWorkers = config.numThreads || os.cpus().length;
-    const concurrency = Math.min(requestedWorkers, maxGninaWorkers);
+    // Vina is CPU-only — concurrency = CPU count (each process uses 1 CPU)
+    const concurrency = config.numCpus > 0 ? config.numCpus : os.cpus().length;
 
     // Emit header
-    event.sender.send(IpcChannels.GNINA_OUTPUT, {
+    event.sender.send(IpcChannels.DOCK_OUTPUT, {
       type: 'stdout',
-      data: `=== GNINA Parallel Docking ===\nWorkers: ${concurrency} (GPU mode, max ${maxGninaWorkers} for VRAM)\nLigands: ${ligandSdfPaths.length}\nReceptor: ${receptorPdb}\nReference: ${referenceLigand}\nOutput: ${outputDir}\n\n`
+      data: `=== Vina Parallel Docking ===\nWorkers: ${concurrency}\nLigands: ${ligandSdfPaths.length}\nReceptor: ${receptorPdb}\nReference: ${referenceLigand}\nOutput: ${outputDir}\n\n`
     });
 
-    console.log(`Starting GNINA parallel docking: ${ligandSdfPaths.length} ligands, ${concurrency} workers`);
+    console.log(`Starting Vina parallel docking: ${ligandSdfPaths.length} ligands, ${concurrency} workers`);
 
     let successful = 0;
     let failed = 0;
 
-    // IMPORTANT: Run the FIRST docking job sequentially to initialize Open Babel
-    // This prevents race conditions when multiple GNINA processes try to initialize
-    // the Open Babel database (space-groups.txt) simultaneously
+    // Run first ligand sequentially to initialize Open Babel
     if (ligandSdfPaths.length > 0) {
-      event.sender.send(IpcChannels.GNINA_OUTPUT, {
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
         data: `Initializing Open Babel with first ligand...\n`
       });
 
-      const firstResult = await dockSingleLigand(
+      const firstResult = await dockSingleLigandVina(
         ligandSdfPaths[0],
         receptorPdb,
         referenceLigand,
@@ -1670,56 +1603,53 @@ ipcMain.handle(
         : `DOCKING: 1/${ligandSdfPaths.length} - ${firstResult.ligand} - FAILED\n  ${firstResult.error}\n`;
 
       console.log(firstStatusLine.trim());
-      event.sender.send(IpcChannels.GNINA_OUTPUT, {
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
         data: firstStatusLine
       });
 
-      // Small delay to ensure Open Babel is fully initialized before parallel jobs
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 100));
     }
 
-    // Process remaining ligands in parallel (Open Babel is now initialized)
+    // Process remaining ligands in parallel (Open Babel already initialized by first ligand)
     const remainingLigands = ligandSdfPaths.slice(1);
 
     if (remainingLigands.length > 0) {
-      event.sender.send(IpcChannels.GNINA_OUTPUT, {
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
-        data: `\nStarting parallel docking for ${remainingLigands.length} remaining ligands...\n\n`
+        data: `\nDocking ${remainingLigands.length} remaining ligands (${concurrency} workers)...\n\n`
       });
 
-      // Use 500ms stagger between job starts to avoid Open Babel race conditions
       await runWithConcurrency(
         remainingLigands,
         concurrency,
         async (ligandPath) => {
-          return dockSingleLigand(ligandPath, receptorPdb, referenceLigand, outputDir, config);
+          return dockSingleLigandVina(ligandPath, receptorPdb, referenceLigand, outputDir, config);
         },
         (completed, total, result) => {
           if (result.success) successful++;
           else failed++;
 
-          // Offset by 1 since we already processed the first ligand
           const statusLine = result.success
             ? `DOCKING: ${completed + 1}/${ligandSdfPaths.length} - ${result.ligand} - OK\n  ${result.output}\n`
             : `DOCKING: ${completed + 1}/${ligandSdfPaths.length} - ${result.ligand} - FAILED\n  ${result.error}\n`;
 
           console.log(statusLine.trim());
-          event.sender.send(IpcChannels.GNINA_OUTPUT, {
+          event.sender.send(IpcChannels.DOCK_OUTPUT, {
             type: 'stdout',
             data: statusLine
           });
         },
-        500  // 500ms stagger delay between job starts
+        100  // minimal stagger — OBabel already initialized by first ligand
       );
     }
 
-    event.sender.send(IpcChannels.GNINA_OUTPUT, {
+    event.sender.send(IpcChannels.DOCK_OUTPUT, {
       type: 'stdout',
       data: `\n=== COMPLETE ===\nSuccessful: ${successful}/${ligandSdfPaths.length}\nFailed: ${failed}\n`
     });
 
-    console.log(`GNINA docking complete: ${successful} successful, ${failed} failed`);
+    console.log(`Vina docking complete: ${successful} successful, ${failed} failed`);
 
     if (failed === ligandSdfPaths.length) {
       return Err({ type: 'DOCKING_FAILED', message: 'All docking jobs failed' });
@@ -1729,76 +1659,94 @@ ipcMain.handle(
   }
 );
 
-// Parse GNINA results
+// Parse Vina docking results — reads *_docked.sdf.gz files from output dir
 ipcMain.handle(
-  IpcChannels.PARSE_GNINA_RESULTS,
+  IpcChannels.PARSE_DOCK_RESULTS,
   async (_event, outputDir: string): Promise<Result<Array<{
     ligandName: string;
     smiles: string;
     qed: number;
-    cnnScore: number;
-    cnnAffinity: number;
     vinaAffinity: number;
     poseIndex: number;
     outputSdf: string;
+    parentMolecule: string;
+    protonationVariant: number | null;
+    conformerIndex: number | null;
+    cordialExpectedPkd?: number;
+    cordialPHighAffinity?: number;
+    cordialPVeryHighAffinity?: number;
+    coreRmsd?: number;
   }>, AppError>> => {
-    return new Promise((resolve) => {
-      if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
-        resolve(Err({
-          type: 'PYTHON_NOT_FOUND',
-          message: 'Python not found',
-        }));
-        return;
+    try {
+      if (!fs.existsSync(outputDir)) {
+        return Err({ type: 'DIRECTORY_ERROR', path: outputDir, message: 'Output directory not found' });
       }
 
-      const scriptPath = path.join(fraggenRoot, 'parse_gnina_results.py');
-      if (!fs.existsSync(scriptPath)) {
-        resolve(Err({
-          type: 'SCRIPT_NOT_FOUND',
-          path: scriptPath,
-          message: `Results parser script not found: ${scriptPath}`,
-        }));
-        return;
+      const files = fs.readdirSync(outputDir);
+      const dockedFiles = files.filter((f) => f.endsWith('_docked.sdf.gz'));
+
+      if (dockedFiles.length === 0) {
+        return Err({ type: 'FILE_NOT_FOUND', path: outputDir, message: 'No docked SDF files found' });
       }
 
-      const python = spawn(condaPythonPath, [scriptPath, '--output_dir', outputDir]);
-      let stdout = '';
-      let stderr = '';
-
-      python.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
+      // Parse all docked SDF files in parallel
+      const parsePromises = dockedFiles.map(async (sdfFile) => {
+        const sdfPath = path.join(outputDir, sdfFile);
+        const name = sdfFile.replace('_docked.sdf.gz', '');
+        const props = await parseSdfProperties(sdfPath);
+        return {
+          ligandName: name,
+          smiles: props.smiles || '',
+          qed: props.qed,
+          vinaAffinity: props.vinaAffinity,
+          poseIndex: 0,
+          outputSdf: sdfPath,
+          parentMolecule: name,
+          protonationVariant: null,
+          conformerIndex: null,
+          coreRmsd: props.coreRmsd,
+        };
       });
+      const results: Array<any> = await Promise.all(parsePromises);
 
-      python.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      python.on('close', (code: number | null) => {
-        if (code === 0) {
-          try {
-            const results = JSON.parse(stdout);
-            resolve(Ok(results));
-          } catch (e) {
-            resolve(Err({
-              type: 'PARSE_FAILED',
-              message: `Failed to parse results JSON: ${(e as Error).message}`,
-            }));
+      // Load CORDIAL scores if available
+      const cordialJsonPath = path.join(outputDir, 'cordial_scores.json');
+      if (fs.existsSync(cordialJsonPath)) {
+        try {
+          const cordialData = JSON.parse(fs.readFileSync(cordialJsonPath, 'utf-8'));
+          const cordialByName = new Map<string, { expectedPkd: number; pHighAffinity: number; pVeryHighAffinity: number }>();
+          for (const entry of cordialData) {
+            const entryName = entry.source_name;
+            const pHighAffinity = entry.cordial_p_high_affinity;
+            const existing = cordialByName.get(entryName);
+            if (!existing || pHighAffinity > existing.pHighAffinity) {
+              cordialByName.set(entryName, {
+                expectedPkd: entry.cordial_expected_pkd,
+                pHighAffinity,
+                pVeryHighAffinity: entry.cordial_p_very_high_affinity || 0,
+              });
+            }
           }
-        } else {
-          resolve(Err({
-            type: 'PARSE_FAILED',
-            message: `Parser exited with code ${code}: ${stderr}`,
-          }));
+          for (const result of results) {
+            const scores = cordialByName.get(result.ligandName);
+            if (scores) {
+              result.cordialExpectedPkd = scores.expectedPkd;
+              result.cordialPHighAffinity = scores.pHighAffinity;
+              result.cordialPVeryHighAffinity = scores.pVeryHighAffinity;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load CORDIAL scores:', e);
         }
-      });
+      }
 
-      python.on('error', (error: Error) => {
-        resolve(Err({
-          type: 'PARSE_FAILED',
-          message: error.message,
-        }));
-      });
-    });
+      // Sort by Vina affinity ascending (most negative = best)
+      results.sort((a: any, b: any) => a.vinaAffinity - b.vinaAffinity);
+
+      return Ok(results);
+    } catch (error) {
+      return Err({ type: 'PARSE_FAILED', message: (error as Error).message });
+    }
   }
 );
 
@@ -2031,69 +1979,48 @@ ipcMain.handle(
   }
 );
 
-// Export GNINA results to CSV
+// Export docking results to CSV — done in Node.js (no Python needed)
 ipcMain.handle(
-  IpcChannels.EXPORT_GNINA_CSV,
+  IpcChannels.EXPORT_DOCK_CSV,
   async (_event, outputDir: string, csvOutput: string, bestOnly: boolean): Promise<Result<string, AppError>> => {
-    return new Promise((resolve) => {
-      if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
-        resolve(Err({
-          type: 'PYTHON_NOT_FOUND',
-          message: 'Python not found',
-        }));
-        return;
+    try {
+      // Re-parse results
+      const files = fs.readdirSync(outputDir);
+      const dockedFiles = files.filter((f) => f.endsWith('_docked.sdf.gz'));
+
+      const rows: string[] = [];
+      const header = ['ligand', 'vina_affinity', 'qed', 'smiles', 'sdf_path'];
+
+      // Check for CORDIAL scores
+      const cordialJsonPath = path.join(outputDir, 'cordial_scores.json');
+      const hasCordial = fs.existsSync(cordialJsonPath);
+      if (hasCordial) {
+        header.push('cordial_pkd', 'cordial_p_high_affinity');
       }
 
-      const scriptPath = path.join(fraggenRoot, 'export_gnina_csv.py');
-      if (!fs.existsSync(scriptPath)) {
-        resolve(Err({
-          type: 'SCRIPT_NOT_FOUND',
-          path: scriptPath,
-          message: `CSV export script not found: ${scriptPath}`,
-        }));
-        return;
+      rows.push(header.join(','));
+
+      for (const sdfFile of dockedFiles) {
+        const sdfPath = path.join(outputDir, sdfFile);
+        const name = sdfFile.replace('_docked.sdf.gz', '');
+        const props = await parseSdfProperties(sdfPath);
+
+        const row = [
+          name,
+          String(props.vinaAffinity),
+          String(props.qed),
+          `"${(props.smiles || '').replace(/"/g, '""')}"`,
+          sdfPath,
+        ];
+
+        rows.push(row.join(','));
       }
 
-      const args = [
-        scriptPath,
-        '--output_dir', outputDir,
-        '--csv_output', csvOutput,
-      ];
-      if (bestOnly) {
-        args.push('--best_only');
-      }
-
-      const python = spawn(condaPythonPath, args);
-
-      let stdout = '';
-      let stderr = '';
-
-      python.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      python.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      python.on('close', (code: number | null) => {
-        if (code === 0) {
-          resolve(Ok(csvOutput));
-        } else {
-          resolve(Err({
-            type: 'PARSE_FAILED',
-            message: `CSV export failed: ${stderr}`,
-          }));
-        }
-      });
-
-      python.on('error', (error: Error) => {
-        resolve(Err({
-          type: 'PARSE_FAILED',
-          message: error.message,
-        }));
-      });
-    });
+      fs.writeFileSync(csvOutput, rows.join('\n'));
+      return Ok(csvOutput);
+    } catch (error) {
+      return Err({ type: 'EXPORT_FAILED', message: (error as Error).message });
+    }
   }
 );
 
@@ -2292,7 +2219,7 @@ ipcMain.handle(
         const text = data.toString();
         stdout += text;
         // Forward progress to UI
-        event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stdout', data: text });
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
       });
 
       python.stderr.on('data', (data: Buffer) => {
@@ -2477,7 +2404,7 @@ ipcMain.handle(
       const scriptPath = path.join(fraggenRoot, 'enumerate_protonation.py');
       if (!fs.existsSync(scriptPath)) {
         // Graceful degradation: if script not found, return original paths
-        event.sender.send(IpcChannels.GNINA_OUTPUT, {
+        event.sender.send(IpcChannels.DOCK_OUTPUT, {
           type: 'stdout',
           data: 'Warning: enumerate_protonation.py not found, skipping protonation\n'
         });
@@ -2509,7 +2436,7 @@ ipcMain.handle(
         '--ph_max', String(phMax),
       ];
 
-      event.sender.send(IpcChannels.GNINA_OUTPUT, {
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
         data: `=== Protonation Enumeration ===\npH range: ${phMin}-${phMax}\nInput molecules: ${ligandSdfPaths.length}\n\n`
       });
@@ -2523,7 +2450,7 @@ ipcMain.handle(
       python.stdout.on('data', (data: Buffer) => {
         const text = data.toString();
         stdout += text;
-        event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stdout', data: text });
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
       });
 
       python.stderr.on('data', (data: Buffer) => {
@@ -2531,7 +2458,7 @@ ipcMain.handle(
         stderr += text;
         // Only show warnings in output, not debug messages
         if (text.includes('Warning') || text.includes('ERROR')) {
-          event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stderr', data: text });
+          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
         }
       });
 
@@ -2549,7 +2476,7 @@ ipcMain.handle(
               }));
             } else {
               // No output - may mean Dimorphite-DL not installed, fallback to original
-              event.sender.send(IpcChannels.GNINA_OUTPUT, {
+              event.sender.send(IpcChannels.DOCK_OUTPUT, {
                 type: 'stdout',
                 data: 'Warning: No protonation output, using original molecules\n'
               });
@@ -2572,7 +2499,7 @@ ipcMain.handle(
         } else {
           // Non-zero exit - check if it's because Dimorphite-DL not installed
           if (stderr.includes('dimorphite_dl') || stderr.includes('ModuleNotFoundError')) {
-            event.sender.send(IpcChannels.GNINA_OUTPUT, {
+            event.sender.send(IpcChannels.DOCK_OUTPUT, {
               type: 'stdout',
               data: 'Warning: Dimorphite-DL not installed, skipping protonation\n' +
                     'Install with: pip install dimorphite_dl\n\n'
@@ -2632,7 +2559,7 @@ ipcMain.handle(
       const scriptPath = path.join(fraggenRoot, 'generate_conformers.py');
       if (!fs.existsSync(scriptPath)) {
         // Graceful degradation: if script not found, return original paths
-        event.sender.send(IpcChannels.GNINA_OUTPUT, {
+        event.sender.send(IpcChannels.DOCK_OUTPUT, {
           type: 'stdout',
           data: 'Warning: generate_conformers.py not found, skipping conformer generation\n'
         });
@@ -2665,7 +2592,7 @@ ipcMain.handle(
         '--energy_window', String(energyWindow),
       ];
 
-      event.sender.send(IpcChannels.GNINA_OUTPUT, {
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
         data: `=== Conformer Generation ===\nMax conformers: ${maxConformers}\nRMSD cutoff: ${rmsdCutoff} A\nEnergy window: ${energyWindow} kcal/mol\nInput molecules: ${ligandSdfPaths.length}\n\n`
       });
@@ -2679,7 +2606,7 @@ ipcMain.handle(
       python.stdout.on('data', (data: Buffer) => {
         const text = data.toString();
         stdout += text;
-        event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stdout', data: text });
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
       });
 
       python.stderr.on('data', (data: Buffer) => {
@@ -2687,7 +2614,7 @@ ipcMain.handle(
         stderr += text;
         // Only show warnings in output, not debug messages
         if (text.includes('Warning') || text.includes('ERROR')) {
-          event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stderr', data: text });
+          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
         }
       });
 
@@ -2705,7 +2632,7 @@ ipcMain.handle(
               }));
             } else {
               // No output - fallback to original
-              event.sender.send(IpcChannels.GNINA_OUTPUT, {
+              event.sender.send(IpcChannels.DOCK_OUTPUT, {
                 type: 'stdout',
                 data: 'Warning: No conformer output, using original molecules\n'
               });
@@ -2748,7 +2675,12 @@ ipcMain.handle(
 
 interface MDConfig {
   productionNs: number;
-  forceFieldPreset: 'fast' | 'accurate';
+  forceFieldPreset: string;
+  compoundId?: string;
+  temperatureK?: number;
+  saltConcentrationM?: number;
+  paddingNm?: number;
+  restrainLigandNs?: number;
 }
 
 interface MDBenchmarkResult {
@@ -2763,19 +2695,16 @@ interface MDLoadedLigand {
   name: string;
   sdfPath: string;
   smiles: string;
-  cnnScore: number;
-  cnnAffinity: number;
   vinaAffinity: number;
   qed: number;
   mw?: number;
   logp?: number;
   cordialPHighAffinity?: number;
   cordialExpectedPkd?: number;
-  thumbnailPath?: string;
   thumbnail?: string;
 }
 
-interface MDGninaOutput {
+interface MDDockOutput {
   receptorPdb: string;
   ligands: MDLoadedLigand[];
 }
@@ -2785,21 +2714,18 @@ function parseSdfProperties(sdfPath: string): Promise<{
   success: boolean;
   error?: string;
   smiles?: string;
-  cnnScore: number;
-  cnnAffinity: number;
   vinaAffinity: number;
   qed: number;
   mw: number;
   logp: number;
   thumbnail?: string;
+  coreRmsd?: number;
 }> {
   return new Promise((resolve) => {
     if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
       resolve({
         success: false,
         error: 'Python not found',
-        cnnScore: 0,
-        cnnAffinity: 0,
         vinaAffinity: 0,
         qed: 0,
         mw: 0,
@@ -2813,8 +2739,6 @@ function parseSdfProperties(sdfPath: string): Promise<{
       resolve({
         success: false,
         error: 'parse_sdf_properties.py not found',
-        cnnScore: 0,
-        cnnAffinity: 0,
         vinaAffinity: 0,
         qed: 0,
         mw: 0,
@@ -2843,20 +2767,17 @@ function parseSdfProperties(sdfPath: string): Promise<{
             success: result.success,
             error: result.error,
             smiles: result.smiles,
-            cnnScore: result.cnnScore || 0,
-            cnnAffinity: result.cnnAffinity || 0,
-            vinaAffinity: result.vinaAffinity || 0,
+            vinaAffinity: result.vinaAffinity || result.minimizedAffinity || 0,
             qed: result.qed || 0,
             mw: result.mw || 0,
             logp: result.logp || 0,
             thumbnail: result.thumbnail,
+            coreRmsd: result.coreRMSD != null ? parseFloat(result.coreRMSD) : undefined,
           });
         } catch (e) {
           resolve({
             success: false,
             error: 'Failed to parse JSON output',
-            cnnScore: 0,
-            cnnAffinity: 0,
             vinaAffinity: 0,
             qed: 0,
             mw: 0,
@@ -2867,8 +2788,6 @@ function parseSdfProperties(sdfPath: string): Promise<{
         resolve({
           success: false,
           error: stderr || 'Script failed',
-          cnnScore: 0,
-          cnnAffinity: 0,
           vinaAffinity: 0,
           qed: 0,
           mw: 0,
@@ -2881,8 +2800,6 @@ function parseSdfProperties(sdfPath: string): Promise<{
       resolve({
         success: false,
         error: err.message,
-        cnnScore: 0,
-        cnnAffinity: 0,
         vinaAffinity: 0,
         qed: 0,
         mw: 0,
@@ -2892,10 +2809,10 @@ function parseSdfProperties(sdfPath: string): Promise<{
   });
 }
 
-// Load GNINA output directory for MD
+// Load docking output directory for MD
 ipcMain.handle(
-  IpcChannels.LOAD_GNINA_OUTPUT_FOR_MD,
-  async (_event, dirPath: string): Promise<Result<MDGninaOutput, AppError>> => {
+  IpcChannels.LOAD_DOCK_OUTPUT_FOR_MD,
+  async (_event, dirPath: string): Promise<Result<MDDockOutput, AppError>> => {
     try {
       // Check if directory exists
       if (!fs.existsSync(dirPath)) {
@@ -2907,7 +2824,7 @@ ipcMain.handle(
       }
 
       // Look for receptor_prepared.pdb in multiple locations
-      // 1. In the GNINA output directory itself (new behavior)
+      // 1. In the docking output directory itself
       // 2. In parent directories (legacy: receptor was prepared in FragGen job dir)
       const receptorCandidates = [
         path.join(dirPath, 'receptor_prepared.pdb'),
@@ -2927,7 +2844,7 @@ ipcMain.handle(
         return Err({
           type: 'FILE_NOT_FOUND',
           path: path.join(dirPath, 'receptor_prepared.pdb'),
-          message: 'receptor_prepared.pdb not found in GNINA output directory or parent directories. Please ensure you ran GNINA docking with a prepared receptor.',
+          message: 'receptor_prepared.pdb not found in docking output directory or parent directories. Please ensure you ran docking with a prepared receptor.',
         });
       }
 
@@ -2992,13 +2909,10 @@ ipcMain.handle(
           name,
           sdfPath,
           smiles: props.smiles || '',
-          cnnScore: props.cnnScore,
-          cnnAffinity: props.cnnAffinity,
           vinaAffinity: props.vinaAffinity,
           qed: props.qed,
           mw: props.mw,
           logp: props.logp,
-          thumbnailPath,
           thumbnail: props.thumbnail,
         };
       });
@@ -3037,8 +2951,8 @@ ipcMain.handle(
         }
       }
 
-      // Sort by cnnScore descending (best docking scores first)
-      ligands.sort((a, b) => b.cnnScore - a.cnnScore);
+      // Sort by vinaAffinity ascending (most negative = best)
+      ligands.sort((a, b) => a.vinaAffinity - b.vinaAffinity);
 
       return Ok({
         receptorPdb,
@@ -3061,7 +2975,7 @@ ipcMain.handle(
     receptorPdb: string | null,
     ligandSdf: string,
     outputDir: string,
-    forceFieldPreset: 'fast' | 'accurate' = 'accurate',
+    forceFieldPreset: string = 'ff19sb-opc',
     ligandOnly: boolean = false
   ): Promise<Result<MDBenchmarkResult, AppError>> => {
     return new Promise((resolve) => {
@@ -3094,7 +3008,7 @@ ipcMain.handle(
       args.push(
         '--ligand', ligandSdf,
         '--output_dir', outputDir,
-        '--force_field_preset', forceFieldPreset || 'accurate',
+        '--force_field_preset', forceFieldPreset || 'ff19sb-opc',
         '--benchmark_only',
       );
 
@@ -3102,8 +3016,14 @@ ipcMain.handle(
         args.push('--ligand_only');
       }
 
+      // Kill any previous benchmark still running
+      if (currentBenchmarkProcess && !currentBenchmarkProcess.killed) {
+        currentBenchmarkProcess.kill('SIGTERM');
+      }
+
       const python = spawn(condaPythonPath, args);
       childProcesses.add(python);
+      currentBenchmarkProcess = python;
 
       let stdout = '';
       let systemInfo = { atomCount: 0, boxVolumeA3: 0 };
@@ -3129,11 +3049,15 @@ ipcMain.handle(
       });
 
       python.stderr.on('data', (data: Buffer) => {
-        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: data.toString() });
+        const filtered = filterMdStderr(data.toString());
+        if (filtered.trim()) {
+          event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: filtered });
+        }
       });
 
       python.on('close', (code: number | null) => {
         childProcesses.delete(python);
+        if (currentBenchmarkProcess === python) currentBenchmarkProcess = null;
         if (code === 0 && nsPerDay > 0) {
           resolve(Ok({
             nsPerDay,
@@ -3149,6 +3073,7 @@ ipcMain.handle(
 
       python.on('error', (error: Error) => {
         childProcesses.delete(python);
+        if (currentBenchmarkProcess === python) currentBenchmarkProcess = null;
         resolve(Err({
           type: 'BENCHMARK_FAILED',
           message: error.message,
@@ -3157,6 +3082,9 @@ ipcMain.handle(
     });
   }
 );
+
+let currentBenchmarkProcess: ChildProcess | null = null;
+let currentMdProcess: ChildProcess | null = null;
 
 // Run full MD simulation
 ipcMain.handle(
@@ -3195,8 +3123,15 @@ ipcMain.handle(
         '--ligand', ligandSdf,
         '--output_dir', outputDir,
         '--production_ns', String(config.productionNs),
-        '--force_field_preset', config.forceFieldPreset || 'accurate',
+        '--force_field_preset', config.forceFieldPreset || 'ff19sb-opc',
+        '--temperature', String(config.temperatureK || 300),
+        '--salt_concentration', String(config.saltConcentrationM || 0.15),
+        '--padding', String(config.paddingNm || 1.2),
       ];
+
+      if (config.restrainLigandNs && config.restrainLigandNs > 0) {
+        args.push('--restrain_ligand_ns', String(config.restrainLigandNs));
+      }
 
       if (ligandOnly) {
         args.push('--ligand_only');
@@ -3204,10 +3139,17 @@ ipcMain.handle(
         args.push('--receptor', receptorPdb);
       }
 
+      // Kill any running benchmark before starting simulation
+      if (currentBenchmarkProcess && !currentBenchmarkProcess.killed) {
+        currentBenchmarkProcess.kill('SIGTERM');
+        currentBenchmarkProcess = null;
+      }
+
       console.log('Running MD simulation:', condaPythonPath, args.join(' '));
 
       const python = spawn(condaPythonPath, args);
       childProcesses.add(python);
+      currentMdProcess = python;
 
       let trajectoryPath = '';
 
@@ -3223,11 +3165,15 @@ ipcMain.handle(
       });
 
       python.stderr.on('data', (data: Buffer) => {
-        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: data.toString() });
+        const filtered = filterMdStderr(data.toString());
+        if (filtered.trim()) {
+          event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: filtered });
+        }
       });
 
       python.on('close', (code: number | null) => {
         childProcesses.delete(python);
+        currentMdProcess = null;
         if (code === 0 && trajectoryPath) {
           resolve(Ok(trajectoryPath));
         } else {
@@ -3240,6 +3186,7 @@ ipcMain.handle(
 
       python.on('error', (error: Error) => {
         childProcesses.delete(python);
+        currentMdProcess = null;
         resolve(Err({
           type: 'SIMULATION_FAILED',
           message: error.message,
@@ -3249,9 +3196,152 @@ ipcMain.handle(
   }
 );
 
-// Get the default output directory (user's Desktop)
+// Cancel running MD simulation
+// Cancel running benchmark
+ipcMain.handle(IpcChannels.CANCEL_MD_BENCHMARK, async (): Promise<void> => {
+  if (currentBenchmarkProcess && !currentBenchmarkProcess.killed) {
+    currentBenchmarkProcess.kill('SIGTERM');
+    currentBenchmarkProcess = null;
+  }
+});
+
+ipcMain.handle(IpcChannels.CANCEL_MD_SIMULATION, async (): Promise<void> => {
+  if (currentMdProcess && !currentMdProcess.killed) {
+    currentMdProcess.kill('SIGTERM');
+    currentMdProcess = null;
+  }
+});
+
+// Pause running MD simulation (SIGSTOP)
+ipcMain.handle(IpcChannels.PAUSE_MD_SIMULATION, async (): Promise<void> => {
+  if (currentMdProcess && !currentMdProcess.killed) {
+    currentMdProcess.kill('SIGSTOP');
+  }
+});
+
+// Resume paused MD simulation (SIGCONT)
+ipcMain.handle(IpcChannels.RESUME_MD_SIMULATION, async (): Promise<void> => {
+  if (currentMdProcess && !currentMdProcess.killed) {
+    currentMdProcess.kill('SIGCONT');
+  }
+});
+
+// Get the default output directory (~/Ember)
 ipcMain.handle('get-default-output-dir', async (): Promise<string> => {
-  return app.getPath('desktop');
+  const emberDir = path.join(app.getPath('home'), 'Ember');
+  if (!fs.existsSync(emberDir)) {
+    fs.mkdirSync(emberDir, { recursive: true });
+  }
+  return emberDir;
+});
+
+// Project browser: scan ~/Ember for projects and runs
+ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
+  const emberDir = path.join(app.getPath('home'), 'Ember');
+  if (!fs.existsSync(emberDir)) return [];
+
+  const projects: any[] = [];
+  const legacyPattern = /^(.+?)_(ff14sb-TIP3P|ff19sb-OPC|ff19sb-OPC3|charmm36-mTIP3P)_MD-/;
+
+  try {
+    const entries = fs.readdirSync(emberDir, { withFileTypes: true });
+    const legacyGroups: Record<string, any[]> = {};
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const entryPath = path.join(emberDir, entry.name);
+
+      const subEntries = fs.readdirSync(entryPath, { withFileTypes: true });
+      const runs: any[] = [];
+      let isProjectDir = false;
+
+      for (const sub of subEntries) {
+        if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
+        const runPath = path.join(entryPath, sub.name);
+        const runFiles = fs.readdirSync(runPath);
+        const hasSimOutput = runFiles.some((f: string) => f.endsWith('_system.pdb') || f.endsWith('_trajectory.dcd') || f === 'simulation.log');
+        if (hasSimOutput) {
+          isProjectDir = true;
+          const stat = fs.statSync(runPath);
+          runs.push({
+            folderName: sub.name,
+            path: runPath,
+            lastModified: stat.mtimeMs,
+            hasTrajectory: runFiles.some((f: string) => f.endsWith('_trajectory.dcd')),
+            hasFinalPdb: runFiles.some((f: string) => f.endsWith('_final.pdb')),
+          });
+        }
+      }
+
+      if (isProjectDir && runs.length > 0) {
+        runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
+        projects.push({
+          name: entry.name,
+          path: entryPath,
+          runs,
+          lastModified: runs[0].lastModified,
+        });
+      } else {
+        const match = entry.name.match(legacyPattern);
+        if (match) {
+          const projectName = match[1];
+          const files = fs.readdirSync(entryPath);
+          const hasSimOutput = files.some((f: string) => f.endsWith('_system.pdb') || f.endsWith('_trajectory.dcd') || f === 'simulation.log');
+          if (hasSimOutput) {
+            if (!legacyGroups[projectName]) legacyGroups[projectName] = [];
+            const stat = fs.statSync(entryPath);
+            legacyGroups[projectName].push({
+              folderName: entry.name,
+              path: entryPath,
+              lastModified: stat.mtimeMs,
+              hasTrajectory: files.some((f: string) => f.endsWith('_trajectory.dcd')),
+              hasFinalPdb: files.some((f: string) => f.endsWith('_final.pdb')),
+            });
+          }
+        }
+      }
+    }
+
+    for (const [name, runs] of Object.entries(legacyGroups)) {
+      runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
+      projects.push({
+        name,
+        path: path.join(emberDir, name),
+        runs,
+        lastModified: runs[0].lastModified,
+      });
+    }
+
+    projects.sort((a, b) => b.lastModified - a.lastModified);
+  } catch (err) {
+    console.error('Error scanning projects:', err);
+  }
+  return projects;
+});
+
+// Project browser: scan a run directory for output files
+ipcMain.handle(IpcChannels.SCAN_RUN_FILES, async (_event: any, runDir: string): Promise<any> => {
+  const result: any = {
+    systemPdb: null,
+    trajectory: null,
+    finalPdb: null,
+    equilibratedPdb: null,
+    energyCsv: null,
+  };
+  try {
+    if (!fs.existsSync(runDir)) return result;
+    const files = fs.readdirSync(runDir);
+    for (const f of files) {
+      if (f.endsWith('_system.pdb')) result.systemPdb = path.join(runDir, f);
+      else if (f.endsWith('_trajectory.dcd')) result.trajectory = path.join(runDir, f);
+      else if (f.endsWith('_final.pdb')) result.finalPdb = path.join(runDir, f);
+      else if (f.endsWith('_equilibrated.pdb')) result.equilibratedPdb = path.join(runDir, f);
+      else if (f.endsWith('_energy.csv')) result.energyCsv = path.join(runDir, f);
+    }
+  } catch (err) {
+    console.error('Error scanning run files:', err);
+  }
+  return result;
 });
 
 // Read image file and return as data URL (for thumbnail display in Electron)
@@ -3375,7 +3465,7 @@ ipcMain.handle(
   IpcChannels.RUN_CORDIAL_SCORING,
   async (
     event,
-    gninaOutputDir: string,
+    dockOutputDir: string,
     batchSize: number = 32
   ): Promise<Result<{ scoresFile: string; count: number }, AppError>> => {
     const cordialRoot = getCordialRoot();
@@ -3390,11 +3480,13 @@ ipcMain.handle(
     if (!pythonPath) {
       return Err({
         type: 'PYTHON_NOT_FOUND',
-        message: 'Conda environment not found. Make sure fraggen environment is set up.',
+        message: 'Conda environment not found. Make sure the openmm-metal environment is set up.',
       });
     }
 
-    const scriptPath = path.join(getFragGenRoot(), 'scripts', 'score_cordial.py');
+    // score_cordial.py lives in project-root/scripts/, not in deps/staging/scripts/
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    const scriptPath = path.join(projectRoot, 'scripts', 'score_cordial.py');
     if (!fs.existsSync(scriptPath)) {
       return Err({
         type: 'SCRIPT_NOT_FOUND',
@@ -3403,17 +3495,17 @@ ipcMain.handle(
       });
     }
 
-    const outputCsv = path.join(gninaOutputDir, 'cordial_scores.csv');
+    const outputCsv = path.join(dockOutputDir, 'cordial_scores.csv');
 
     return new Promise((resolve) => {
-      event.sender.send(IpcChannels.GNINA_OUTPUT, {
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
-        data: `=== CORDIAL Rescoring ===\nCORDIAL Root: ${cordialRoot}\nGNINA Output: ${gninaOutputDir}\nBatch Size: ${batchSize}\n\n`,
+        data: `=== CORDIAL Rescoring ===\nCORDIAL Root: ${cordialRoot}\nDock Output: ${dockOutputDir}\nBatch Size: ${batchSize}\n\n`,
       });
 
       const args = [
         scriptPath,
-        '--gnina_dir', gninaOutputDir,
+        '--dock_dir', dockOutputDir,
         '--cordial_root', cordialRoot,
         '--output', outputCsv,
         '--batch_size', String(batchSize),
@@ -3431,16 +3523,16 @@ ipcMain.handle(
 
       proc.stdout?.on('data', (data: Buffer) => {
         const text = data.toString();
-        event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stdout', data: text });
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
       });
 
       proc.stderr?.on('data', (data: Buffer) => {
         const text = data.toString();
         // Don't treat warnings as errors
         if (!text.toLowerCase().includes('error') && !text.toLowerCase().includes('traceback')) {
-          event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stdout', data: text });
+          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
         } else {
-          event.sender.send(IpcChannels.GNINA_OUTPUT, { type: 'stderr', data: text });
+          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
         }
       });
 
@@ -3454,7 +3546,7 @@ ipcMain.handle(
             const lines = content.trim().split('\n');
             const count = Math.max(0, lines.length - 1); // Subtract header
 
-            event.sender.send(IpcChannels.GNINA_OUTPUT, {
+            event.sender.send(IpcChannels.DOCK_OUTPUT, {
               type: 'stdout',
               data: `\n=== CORDIAL Scoring Complete ===\nScored ${count} poses\nOutput: ${outputCsv}\n`,
             });
@@ -4326,7 +4418,7 @@ ipcMain.handle(
   }
 );
 
-// Generate comprehensive MD analysis report
+// Generate comprehensive MD analysis report (PDF pipeline)
 ipcMain.handle(
   IpcChannels.GENERATE_MD_REPORT,
   async (
@@ -4335,14 +4427,20 @@ ipcMain.handle(
       topologyPath: string;
       trajectoryPath: string;
       outputDir: string;
-      includeRmsd?: boolean;
-      includeRmsf?: boolean;
-      includeHbonds?: boolean;
-      includeContacts?: boolean;
+      ligandSelection?: string;
+      simInfo?: Record<string, string>;
     }
   ): Promise<Result<{
     reportPath: string;
     analysisDir: string;
+    sectionPdfs: string[];
+    clusteringResults?: Array<{
+      clusterId: number;
+      frameCount: number;
+      population: number;
+      centroidFrame: number;
+      centroidPdbPath?: string;
+    }>;
   }, AppError>> => {
     if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
       return Err({
@@ -4378,10 +4476,13 @@ ipcMain.handle(
         '--output_dir', options.outputDir,
       ];
 
-      if (options.includeRmsd !== false) args.push('--rmsd');
-      if (options.includeRmsf !== false) args.push('--rmsf');
-      if (options.includeHbonds !== false) args.push('--hbonds');
-      if (options.includeContacts) args.push('--contacts');
+      if (options.ligandSelection) {
+        args.push('--ligand_selection', options.ligandSelection);
+      }
+
+      if (options.simInfo) {
+        args.push('--sim_info', JSON.stringify(options.simInfo));
+      }
 
       const proc = spawn(condaPythonPath!, args);
       childProcesses.add(proc);
@@ -4399,11 +4500,38 @@ ipcMain.handle(
       proc.on('close', (code: number | null) => {
         childProcesses.delete(proc);
 
-        const reportPath = path.join(options.outputDir, 'md_analysis_report.html');
+        const reportPath = path.join(options.outputDir, 'full_report.pdf');
         if (code === 0 && fs.existsSync(reportPath)) {
+          // Collect section PDFs
+          const sectionPdfs: string[] = [];
+          const subdirs = ['contacts', 'rmsd', 'rmsf', 'sse', 'hbonds', 'ligand_props', 'torsions'];
+          for (const subdir of subdirs) {
+            const dirPath = path.join(options.outputDir, subdir);
+            if (fs.existsSync(dirPath)) {
+              const files = fs.readdirSync(dirPath).filter((f: string) => f.endsWith('.pdf'));
+              for (const f of files) {
+                sectionPdfs.push(path.join(dirPath, f));
+              }
+            }
+          }
+
+          // Read clustering results if available
+          let clusteringResults;
+          const clusteringFile = path.join(options.outputDir, 'clustering', 'clustering_results.json');
+          if (fs.existsSync(clusteringFile)) {
+            try {
+              const clusterData = JSON.parse(fs.readFileSync(clusteringFile, 'utf-8'));
+              clusteringResults = clusterData.clusters;
+            } catch {
+              // ignore parse errors
+            }
+          }
+
           resolve(Ok({
             reportPath,
             analysisDir: options.outputDir,
+            sectionPdfs,
+            clusteringResults,
           }));
         } else {
           resolve(Err({
@@ -4423,3 +4551,344 @@ ipcMain.handle(
     });
   }
 );
+
+// Map binding site interaction potentials around a ligand
+ipcMain.handle(
+  IpcChannels.MAP_BINDING_SITE,
+  async (
+    event,
+    options: {
+      pdbPath: string;
+      ligandResname: string;
+      ligandResnum: number;
+      outputDir: string;
+      boxPadding?: number;
+      gridSpacing?: number;
+    }
+  ): Promise<Result<{
+    hydrophobicDx: string;
+    hbondDonorDx: string;
+    hbondAcceptorDx: string;
+    hotspots: Array<{ type: string; position: number[]; direction: number[]; score: number }>;
+    gridDimensions: number[];
+    ligandCom: number[];
+  }, AppError>> => {
+    if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+      return Err({
+        type: 'PYTHON_NOT_FOUND',
+        message: 'Python not found. Please install miniconda and create the openmm-metal environment.',
+      });
+    }
+
+    const scriptPath = path.join(fraggenRoot, 'map_binding_site.py');
+    if (!fs.existsSync(scriptPath)) {
+      return Err({
+        type: 'SCRIPT_NOT_FOUND',
+        path: scriptPath,
+        message: `Binding site mapping script not found: ${scriptPath}`,
+      });
+    }
+
+    if (!fs.existsSync(options.outputDir)) {
+      fs.mkdirSync(options.outputDir, { recursive: true });
+    }
+
+    return new Promise((resolve) => {
+      event.sender.send(IpcChannels.MD_OUTPUT, {
+        type: 'stdout',
+        data: '=== Binding Site Interaction Map ===\n',
+      });
+
+      const args = [
+        scriptPath,
+        '--pdb_path', options.pdbPath,
+        '--ligand_resname', options.ligandResname,
+        '--ligand_resnum', String(options.ligandResnum),
+        '--output_dir', options.outputDir,
+      ];
+
+      if (options.boxPadding !== undefined) {
+        args.push('--box_padding', String(options.boxPadding));
+      }
+      if (options.gridSpacing !== undefined) {
+        args.push('--grid_spacing', String(options.gridSpacing));
+      }
+
+      const proc = spawn(condaPythonPath!, args);
+      childProcesses.add(proc);
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: text });
+      });
+
+      proc.on('close', (code: number | null) => {
+        childProcesses.delete(proc);
+
+        const resultFile = path.join(options.outputDir, 'binding_site_results.json');
+        if (code === 0 && fs.existsSync(resultFile)) {
+          try {
+            const content = fs.readFileSync(resultFile, 'utf-8');
+            const result = JSON.parse(content);
+            resolve(Ok(result));
+          } catch (err) {
+            resolve(Err({
+              type: 'BINDING_SITE_MAP_FAILED',
+              message: `Error reading binding site results: ${err}`,
+            }));
+          }
+        } else {
+          resolve(Err({
+            type: 'BINDING_SITE_MAP_FAILED',
+            message: `Binding site mapping failed with exit code ${code}`,
+          }));
+        }
+      });
+
+      proc.on('error', (err: Error) => {
+        childProcesses.delete(proc);
+        resolve(Err({
+          type: 'BINDING_SITE_MAP_FAILED',
+          message: `Failed to start binding site mapping: ${err.message}`,
+        }));
+      });
+    });
+  }
+);
+
+// Compute surface properties (hydrophobic, electrostatic) for a PDB
+ipcMain.handle(
+  IpcChannels.COMPUTE_SURFACE_PROPS,
+  async (
+    _event,
+    pdbPath: string,
+    outputDir: string
+  ): Promise<Result<{
+    atomCount: number;
+    hydrophobic: number[];
+    electrostatic: number[];
+    cachedPath: string;
+  }, AppError>> => {
+    if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+      return Err({
+        type: 'PYTHON_NOT_FOUND',
+        message: 'Python not found.',
+      });
+    }
+
+    const scriptPath = path.join(fraggenRoot, 'compute_surface_props.py');
+    if (!fs.existsSync(scriptPath)) {
+      return Err({
+        type: 'SCRIPT_NOT_FOUND',
+        path: scriptPath,
+        message: `Surface properties script not found: ${scriptPath}`,
+      });
+    }
+
+    // Cache path: outputDir/surface_properties.json
+    fs.mkdirSync(outputDir, { recursive: true });
+    const cachePath = path.join(outputDir, 'surface_properties.json');
+
+    // Return cached if exists
+    if (fs.existsSync(cachePath)) {
+      try {
+        const cached = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+        return Ok({ ...cached, cachedPath: cachePath });
+      } catch {
+        // Corrupted cache, recompute
+      }
+    }
+
+    return new Promise((resolve) => {
+      const proc = spawn(condaPythonPath!, [
+        scriptPath,
+        '--pdb_path', pdbPath,
+        '--output_path', cachePath,
+      ]);
+      childProcesses.add(proc);
+
+      let stderr = '';
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code: number | null) => {
+        childProcesses.delete(proc);
+        if (code === 0 && fs.existsSync(cachePath)) {
+          try {
+            const result = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+            resolve(Ok({ ...result, cachedPath: cachePath }));
+          } catch (err) {
+            resolve(Err({
+              type: 'SURFACE_PROPS_FAILED',
+              message: `Failed to parse surface properties: ${err}`,
+            }));
+          }
+        } else {
+          resolve(Err({
+            type: 'SURFACE_PROPS_FAILED',
+            message: `Surface property computation failed (exit ${code}): ${stderr.slice(0, 300)}`,
+          }));
+        }
+      });
+
+      proc.on('error', (err: Error) => {
+        childProcesses.delete(proc);
+        resolve(Err({
+          type: 'SURFACE_PROPS_FAILED',
+          message: err.message,
+        }));
+      });
+    });
+  }
+);
+
+// === FEP Scoring ===
+
+let currentFepProcess: ChildProcess | null = null;
+
+ipcMain.handle(
+  IpcChannels.RUN_FEP_SCORING,
+  async (
+    event,
+    options: {
+      topologyPath: string;
+      trajectoryPath: string;
+      startNs: number;
+      endNs: number;
+      numSnapshots: number;
+      speedPreset: 'fast' | 'accurate';
+      outputDir: string;
+      forceFieldPreset: string;
+      ligandSdf?: string;
+    }
+  ): Promise<Result<{
+    snapshots: Array<{
+      snapshotIndex: number;
+      frameIndex: number;
+      timeNs: number;
+      deltaG_complex: number;
+      deltaG_solvent: number;
+      deltaG_bind: number;
+      uncertainty: number;
+    }>;
+    meanDeltaG: number;
+    sem: number;
+    outputDir: string;
+  }, AppError>> => {
+    if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+      return Err({
+        type: 'PYTHON_NOT_FOUND',
+        message: 'Python not found. Please install miniconda and create the openmm-metal environment.',
+      });
+    }
+
+    const scriptPath = path.join(fraggenRoot, 'run_abfe.py');
+    if (!fs.existsSync(scriptPath)) {
+      return Err({
+        type: 'SCRIPT_NOT_FOUND',
+        path: scriptPath,
+        message: `ABFE FEP script not found: ${scriptPath}`,
+      });
+    }
+
+    if (!fs.existsSync(options.outputDir)) {
+      fs.mkdirSync(options.outputDir, { recursive: true });
+    }
+
+    return new Promise((resolve) => {
+      event.sender.send(IpcChannels.MD_OUTPUT, {
+        type: 'stdout',
+        data: `=== ABFE Free Energy Perturbation ===\nPreset: ${options.speedPreset}\nSnapshots: ${options.numSnapshots}\nRange: ${options.startNs.toFixed(1)} - ${options.endNs.toFixed(1)} ns\n\n`,
+      });
+
+      const args = [
+        scriptPath,
+        '--topology', options.topologyPath,
+        '--trajectory', options.trajectoryPath,
+        '--start_ns', String(options.startNs),
+        '--end_ns', String(options.endNs),
+        '--num_snapshots', String(options.numSnapshots),
+        '--speed_preset', options.speedPreset,
+        '--output_dir', options.outputDir,
+        '--force_field_preset', options.forceFieldPreset,
+      ];
+
+      if (options.ligandSdf) {
+        args.push('--ligand_sdf', options.ligandSdf);
+      }
+
+      const proc = spawn(condaPythonPath!, args);
+      currentFepProcess = proc;
+      childProcesses.add(proc);
+
+      let stderrOutput = '';
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        try { event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text }); } catch {}
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        // Cap stderr to last 2KB — only used for error reporting on failure
+        stderrOutput = (stderrOutput + text).slice(-2048);
+        const filtered = filterMdStderr(text);
+        if (filtered.trim()) {
+          try { event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: filtered }); } catch {}
+        }
+      });
+
+      proc.on('close', (code: number | null) => {
+        childProcesses.delete(proc);
+        if (currentFepProcess === proc) currentFepProcess = null;
+
+        const resultFile = path.join(options.outputDir, 'fep_results.json');
+        if (code === 0 && fs.existsSync(resultFile)) {
+          try {
+            const content = fs.readFileSync(resultFile, 'utf-8');
+            const result = JSON.parse(content);
+            resolve(Ok(result));
+          } catch (err) {
+            resolve(Err({
+              type: 'FEP_SCORING_FAILED',
+              message: `Error reading FEP results: ${err}`,
+            }));
+          }
+        } else if (code === null || code === 137 || code === 143) {
+          resolve(Err({
+            type: 'FEP_SCORING_CANCELLED',
+            message: 'FEP scoring was cancelled.',
+          }));
+        } else {
+          resolve(Err({
+            type: 'FEP_SCORING_FAILED',
+            message: stderrOutput.slice(-500) || `FEP scoring failed with exit code ${code}`,
+          }));
+        }
+      });
+
+      proc.on('error', (err: Error) => {
+        childProcesses.delete(proc);
+        if (currentFepProcess === proc) currentFepProcess = null;
+        resolve(Err({
+          type: 'FEP_SCORING_FAILED',
+          message: err.message,
+        }));
+      });
+    });
+  }
+);
+
+ipcMain.handle(IpcChannels.CANCEL_FEP_SCORING, async () => {
+  if (currentFepProcess && !currentFepProcess.killed) {
+    currentFepProcess.kill('SIGTERM');
+    currentFepProcess = null;
+  }
+});

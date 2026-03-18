@@ -20,19 +20,17 @@ const IpcChannels = {
   UPDATE_STATS: 'update-stats',
   CHECK_JOB_EXISTS: 'check-job-exists',
   VALIDATE_ANCHOR_SDF: 'validate-anchor-sdf',
-  // GNINA channels
+  // Docking channels
   SELECT_CSV_FILE: 'select-csv-file',
   SELECT_SDF_FILE: 'select-sdf-file',
-  PARSE_FRAGGEN_CSV: 'parse-fraggen-csv',
-  CHECK_GNINA_INSTALLED: 'check-gnina-installed',
-  DOWNLOAD_GNINA: 'download-gnina',
-  RUN_GNINA_DOCKING: 'run-gnina-docking',
-  PARSE_GNINA_RESULTS: 'parse-gnina-results',
+  RUN_VINA_DOCKING: 'dock:run-vina',
+  CANCEL_VINA_DOCKING: 'dock:cancel',
+  PARSE_DOCK_RESULTS: 'dock:parse-results',
   LIST_SDF_IN_DIRECTORY: 'list-sdf-in-directory',
   DETECT_PDB_LIGANDS: 'detect-pdb-ligands',
   EXTRACT_LIGAND: 'extract-ligand',
   PREPARE_RECEPTOR: 'prepare-receptor',
-  EXPORT_GNINA_CSV: 'export-gnina-csv',
+  EXPORT_DOCK_CSV: 'dock:export-csv',
   EXPORT_COMPLEX_PDB: 'export-complex-pdb',
   GET_CPU_COUNT: 'get-cpu-count',
   // Multi-input ligand source channels
@@ -51,9 +49,13 @@ const IpcChannels = {
   // File writing
   WRITE_TEXT_FILE: 'write-text-file',
   // MD channels
-  LOAD_GNINA_OUTPUT_FOR_MD: 'md:load-gnina-output',
+  LOAD_DOCK_OUTPUT_FOR_MD: 'md:load-dock-output',
   RUN_MD_BENCHMARK: 'md:benchmark',
+  CANCEL_MD_BENCHMARK: 'md:cancel-benchmark',
   RUN_MD_SIMULATION: 'md:simulate',
+  CANCEL_MD_SIMULATION: 'md:cancel',
+  PAUSE_MD_SIMULATION: 'md:pause',
+  RESUME_MD_SIMULATION: 'md:resume',
   // Trajectory viewer channels
   SELECT_DCD_FILE: 'select-dcd-file',
   LIST_PDB_IN_DIRECTORY: 'list-pdb-in-directory',
@@ -65,14 +67,21 @@ const IpcChannels = {
   EXPORT_TRAJECTORY_FRAME: 'export-trajectory-frame',
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
+  MAP_BINDING_SITE: 'map-binding-site',
+  COMPUTE_SURFACE_PROPS: 'compute-surface-props',
+  // FEP scoring channels
+  RUN_FEP_SCORING: 'fep:run',
+  CANCEL_FEP_SCORING: 'fep:cancel',
+  // Project browser channels
+  SCAN_PROJECTS: 'scan-projects',
+  SCAN_RUN_FILES: 'scan-run-files',
   // Image reading channel
   READ_IMAGE_AS_DATA_URL: 'read-image-as-data-url',
   // Send channels
   PREP_OUTPUT: 'prep-output',
   SURFACE_OUTPUT: 'surface-output',
   GENERATION_OUTPUT: 'generation-output',
-  GNINA_OUTPUT: 'gnina-output',
-  GNINA_DOWNLOAD_PROGRESS: 'gnina-download-progress',
+  DOCK_OUTPUT: 'dock:output',
   MD_OUTPUT: 'md:output',
 } as const;
 
@@ -100,22 +109,18 @@ interface GenerationOptions {
   anchorSdfPath: string | null;
 }
 
-interface GninaDockingConfig {
+interface DockConfig {
   exhaustiveness: number;
   numPoses: number;
   autoboxAdd: number;
-  numThreads: number;
-}
-
-interface GninaDownloadProgress {
-  downloaded: number;
-  total: number;
-  percentage: number;
+  numCpus: number;
+  seed: number;
+  coreConstrained: boolean;
 }
 
 interface MDConfig {
   productionNs: number;
-  forceFieldPreset: 'fast' | 'accurate';
+  forceFieldPreset: string;
 }
 
 interface MDBenchmarkResult {
@@ -162,10 +167,17 @@ interface MdReportOptions {
   topologyPath: string;
   trajectoryPath: string;
   outputDir: string;
-  includeRmsd?: boolean;
-  includeRmsf?: boolean;
-  includeHbonds?: boolean;
-  includeContacts?: boolean;
+  ligandSelection?: string;
+  simInfo?: Record<string, string>;
+}
+
+interface BindingSiteMapOptions {
+  pdbPath: string;
+  ligandResname: string;
+  ligandResnum: number;
+  outputDir: string;
+  boxPadding?: number;
+  gridSpacing?: number;
 }
 
 const electronAPI = {
@@ -234,28 +246,21 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IpcChannels.GENERATION_OUTPUT, listener);
   },
 
-  // GNINA docking operations
+  // Docking operations
   selectCsvFile: () => ipcRenderer.invoke(IpcChannels.SELECT_CSV_FILE),
   selectSdfFile: () => ipcRenderer.invoke(IpcChannels.SELECT_SDF_FILE),
 
   savePdbFile: (content: string, defaultName?: string) =>
     ipcRenderer.invoke(IpcChannels.SAVE_PDB_FILE, content, defaultName),
 
-  parseFragGenCsv: (csvPath: string) =>
-    ipcRenderer.invoke(IpcChannels.PARSE_FRAGGEN_CSV, csvPath),
-
-  checkGninaInstalled: () => ipcRenderer.invoke(IpcChannels.CHECK_GNINA_INSTALLED),
-
-  downloadGnina: () => ipcRenderer.invoke(IpcChannels.DOWNLOAD_GNINA),
-
-  runGninaDocking: (
+  runVinaDocking: (
     receptorPdb: string,
     referenceLigand: string,
     ligandSdfPaths: string[],
     outputDir: string,
-    config: GninaDockingConfig
+    config: DockConfig
   ) => ipcRenderer.invoke(
-    IpcChannels.RUN_GNINA_DOCKING,
+    IpcChannels.RUN_VINA_DOCKING,
     receptorPdb,
     referenceLigand,
     ligandSdfPaths,
@@ -263,8 +268,10 @@ const electronAPI = {
     config
   ),
 
-  parseGninaResults: (outputDir: string) =>
-    ipcRenderer.invoke(IpcChannels.PARSE_GNINA_RESULTS, outputDir),
+  cancelVinaDocking: () => ipcRenderer.invoke(IpcChannels.CANCEL_VINA_DOCKING),
+
+  parseDockResults: (outputDir: string) =>
+    ipcRenderer.invoke(IpcChannels.PARSE_DOCK_RESULTS, outputDir),
 
   listSdfInDirectory: (dirPath: string) =>
     ipcRenderer.invoke(IpcChannels.LIST_SDF_IN_DIRECTORY, dirPath),
@@ -278,8 +285,8 @@ const electronAPI = {
   prepareReceptor: (pdbPath: string, ligandId: string, outputPath: string, waterDistance: number = 0) =>
     ipcRenderer.invoke(IpcChannels.PREPARE_RECEPTOR, pdbPath, ligandId, outputPath, waterDistance),
 
-  exportGninaCsv: (outputDir: string, csvOutput: string, bestOnly: boolean) =>
-    ipcRenderer.invoke(IpcChannels.EXPORT_GNINA_CSV, outputDir, csvOutput, bestOnly),
+  exportDockCsv: (outputDir: string, csvOutput: string, bestOnly: boolean) =>
+    ipcRenderer.invoke(IpcChannels.EXPORT_DOCK_CSV, outputDir, csvOutput, bestOnly),
 
   exportComplexPdb: (receptorPdb: string, ligandSdf: string, poseIndex: number, outputPath: string) =>
     ipcRenderer.invoke(IpcChannels.EXPORT_COMPLEX_PDB, receptorPdb, ligandSdf, poseIndex, outputPath),
@@ -330,31 +337,25 @@ const electronAPI = {
   // CORDIAL rescoring
   checkCordialInstalled: () => ipcRenderer.invoke(IpcChannels.CHECK_CORDIAL_INSTALLED),
 
-  runCordialScoring: (gninaOutputDir: string, batchSize: number) =>
-    ipcRenderer.invoke(IpcChannels.RUN_CORDIAL_SCORING, gninaOutputDir, batchSize),
+  runCordialScoring: (dockOutputDir: string, batchSize: number) =>
+    ipcRenderer.invoke(IpcChannels.RUN_CORDIAL_SCORING, dockOutputDir, batchSize),
 
-  // GNINA event listeners
-  onGninaOutput: (callback: (data: OutputData) => void) => {
+  // Dock event listener
+  onDockOutput: (callback: (data: OutputData) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: OutputData) => callback(data);
-    ipcRenderer.on(IpcChannels.GNINA_OUTPUT, listener);
-    return () => ipcRenderer.removeListener(IpcChannels.GNINA_OUTPUT, listener);
-  },
-
-  onGninaDownloadProgress: (callback: (progress: GninaDownloadProgress) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, progress: GninaDownloadProgress) => callback(progress);
-    ipcRenderer.on(IpcChannels.GNINA_DOWNLOAD_PROGRESS, listener);
-    return () => ipcRenderer.removeListener(IpcChannels.GNINA_DOWNLOAD_PROGRESS, listener);
+    ipcRenderer.on(IpcChannels.DOCK_OUTPUT, listener);
+    return () => ipcRenderer.removeListener(IpcChannels.DOCK_OUTPUT, listener);
   },
 
   // MD simulation operations
-  loadGninaOutputForMd: (dirPath: string) =>
-    ipcRenderer.invoke(IpcChannels.LOAD_GNINA_OUTPUT_FOR_MD, dirPath),
+  loadDockOutputForMd: (dirPath: string) =>
+    ipcRenderer.invoke(IpcChannels.LOAD_DOCK_OUTPUT_FOR_MD, dirPath),
 
   runMdBenchmark: (
     receptorPdb: string | null,
     ligandSdf: string,
     outputDir: string,
-    forceFieldPreset: 'fast' | 'accurate' = 'accurate',
+    forceFieldPreset: string = 'ff19sb-opc',
     ligandOnly: boolean = false
   ) => ipcRenderer.invoke(
     IpcChannels.RUN_MD_BENCHMARK,
@@ -379,6 +380,11 @@ const electronAPI = {
     config,
     ligandOnly
   ),
+
+  cancelMdBenchmark: () => ipcRenderer.invoke(IpcChannels.CANCEL_MD_BENCHMARK),
+  cancelMdSimulation: () => ipcRenderer.invoke(IpcChannels.CANCEL_MD_SIMULATION),
+  pauseMdSimulation: () => ipcRenderer.invoke(IpcChannels.PAUSE_MD_SIMULATION),
+  resumeMdSimulation: () => ipcRenderer.invoke(IpcChannels.RESUME_MD_SIMULATION),
 
   // MD event listener
   onMdOutput: (callback: (data: OutputData) => void) => {
@@ -414,6 +420,27 @@ const electronAPI = {
   generateMdReport: (options: MdReportOptions) =>
     ipcRenderer.invoke(IpcChannels.GENERATE_MD_REPORT, options),
 
+  mapBindingSite: (options: BindingSiteMapOptions) =>
+    ipcRenderer.invoke(IpcChannels.MAP_BINDING_SITE, options),
+
+  computeSurfaceProps: (pdbPath: string, outputDir: string) =>
+    ipcRenderer.invoke(IpcChannels.COMPUTE_SURFACE_PROPS, pdbPath, outputDir),
+
+  // FEP scoring
+  runFepScoring: (options: {
+    topologyPath: string;
+    trajectoryPath: string;
+    startNs: number;
+    endNs: number;
+    numSnapshots: number;
+    speedPreset: 'fast' | 'accurate';
+    outputDir: string;
+    forceFieldPreset: string;
+    ligandSdf?: string;
+  }) => ipcRenderer.invoke(IpcChannels.RUN_FEP_SCORING, options),
+
+  cancelFepScoring: () => ipcRenderer.invoke(IpcChannels.CANCEL_FEP_SCORING),
+
   // Image reading
   readImageAsDataUrl: (imagePath: string) =>
     ipcRenderer.invoke(IpcChannels.READ_IMAGE_AS_DATA_URL, imagePath),
@@ -429,6 +456,12 @@ const electronAPI = {
   // Get default output directory (user's Desktop)
   getDefaultOutputDir: () =>
     ipcRenderer.invoke('get-default-output-dir'),
+
+  // Project browser
+  scanProjects: () =>
+    ipcRenderer.invoke(IpcChannels.SCAN_PROJECTS),
+  scanRunFiles: (runDir: string) =>
+    ipcRenderer.invoke(IpcChannels.SCAN_RUN_FILES, runDir),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

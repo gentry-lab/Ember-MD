@@ -15,19 +15,17 @@ import type {
   GenerationStats,
 } from './ipc';
 import type {
-  GninaDockingConfig,
-  GninaDockingResult,
-  ParseCsvResult,
-  GninaDownloadProgress,
+  DockConfig,
+  DockResult,
   DetectedLigand,
-  GninaMolecule,
+  DockMolecule,
   SingleMoleculeResult,
-} from './gnina';
+} from './dock';
 import type {
   MDConfig,
   MDForceFieldPreset,
   MDBenchmarkResult,
-  MDGninaOutput,
+  MDDockOutput,
 } from './md';
 import type {
   TrajectoryInfoResult,
@@ -40,6 +38,13 @@ import type {
   MdReportResult,
   ScanClusterDirectoryResult,
   LoadedClusterPdb,
+  ProjectInfo,
+  RunFilesResult,
+  BindingSiteMapOptions,
+  BindingSiteMapResult,
+  SurfacePropsResult,
+  FepScoringOptions,
+  FepScoringResult,
 } from './ipc';
 
 export interface ElectronAPI {
@@ -97,32 +102,30 @@ export interface ElectronAPI {
   onSurfaceOutput: (callback: (data: OutputData) => void) => () => void;
   onGenerationOutput: (callback: (data: OutputData) => void) => () => void;
 
-  // GNINA docking operations
+  // Docking operations
   selectCsvFile: () => Promise<string | null>;
   selectSdfFile: () => Promise<string | null>;
   savePdbFile: (content: string, defaultName?: string) => Promise<string | null>;
-  parseFragGenCsv: (csvPath: string) => Promise<Result<ParseCsvResult, AppError>>;
-  checkGninaInstalled: () => Promise<boolean>;
-  downloadGnina: () => Promise<Result<string, AppError>>;
-  runGninaDocking: (
+  runVinaDocking: (
     receptorPdb: string,
     referenceLigand: string,
     ligandSdfPaths: string[],
     outputDir: string,
-    config: GninaDockingConfig
+    config: DockConfig
   ) => Promise<Result<string, AppError>>;
-  parseGninaResults: (outputDir: string) => Promise<Result<GninaDockingResult[], AppError>>;
+  cancelVinaDocking: () => Promise<void>;
+  parseDockResults: (outputDir: string) => Promise<Result<DockResult[], AppError>>;
   listSdfInDirectory: (dirPath: string) => Promise<string[]>;
   detectPdbLigands: (pdbPath: string) => Promise<Result<DetectedLigand[], AppError>>;
   extractLigand: (pdbPath: string, ligandId: string, outputPath: string) => Promise<Result<string, AppError>>;
   prepareReceptor: (pdbPath: string, ligandId: string, outputPath: string, waterDistance?: number) => Promise<Result<string, AppError>>;
-  exportGninaCsv: (outputDir: string, csvOutput: string, bestOnly: boolean) => Promise<Result<string, AppError>>;
+  exportDockCsv: (outputDir: string, csvOutput: string, bestOnly: boolean) => Promise<Result<string, AppError>>;
   exportComplexPdb: (receptorPdb: string, ligandSdf: string, poseIndex: number, outputPath: string) => Promise<Result<string, AppError>>;
 
   // Multi-input ligand source operations
   selectFolder: () => Promise<string | null>;
-  scanSdfDirectory: (dirPath: string, outputDir: string) => Promise<Result<GninaMolecule[], AppError>>;
-  parseSmilesCsv: (csvPath: string, outputDir: string) => Promise<Result<GninaMolecule[], AppError>>;
+  scanSdfDirectory: (dirPath: string, outputDir: string) => Promise<Result<DockMolecule[], AppError>>;
+  parseSmilesCsv: (csvPath: string, outputDir: string) => Promise<Result<DockMolecule[], AppError>>;
   convertSingleMolecule: (input: string, outputDir: string, inputType: 'smiles' | 'mol_file') => Promise<Result<SingleMoleculeResult, AppError>>;
   extractXrayLigand: (pdbPath: string, ligandId: string, outputDir: string, smiles?: string) => Promise<Result<SingleMoleculeResult & { needsSmiles?: boolean; ligandPdb?: string }, AppError>>;
   enumerateProtonation: (
@@ -142,16 +145,15 @@ export interface ElectronAPI {
   // CORDIAL rescoring
   checkCordialInstalled: () => Promise<boolean>;
   runCordialScoring: (
-    gninaOutputDir: string,
+    dockOutputDir: string,
     batchSize: number
   ) => Promise<Result<{ scoresFile: string; count: number }, AppError>>;
 
-  // GNINA event listeners
-  onGninaOutput: (callback: (data: OutputData) => void) => () => void;
-  onGninaDownloadProgress: (callback: (progress: GninaDownloadProgress) => void) => () => void;
+  // Dock event listener
+  onDockOutput: (callback: (data: OutputData) => void) => () => void;
 
   // MD simulation operations
-  loadGninaOutputForMd: (dirPath: string) => Promise<Result<MDGninaOutput, AppError>>;
+  loadDockOutputForMd: (dirPath: string) => Promise<Result<MDDockOutput, AppError>>;
   runMdBenchmark: (
     receptorPdb: string | null,
     ligandSdf: string,
@@ -166,6 +168,10 @@ export interface ElectronAPI {
     config: MDConfig,
     ligandOnly?: boolean
   ) => Promise<Result<string, AppError>>;
+  cancelMdBenchmark: () => Promise<void>;
+  cancelMdSimulation: () => Promise<void>;
+  pauseMdSimulation: () => Promise<void>;
+  resumeMdSimulation: () => Promise<void>;
 
   // MD event listener
   onMdOutput: (callback: (data: OutputData) => void) => () => void;
@@ -187,6 +193,12 @@ export interface ElectronAPI {
   exportTrajectoryFrame: (options: ExportFrameOptions) => Promise<Result<{ pdbPath: string }, AppError>>;
   analyzeTrajectory: (options: AnalysisOptions) => Promise<Result<AnalysisResult, AppError>>;
   generateMdReport: (options: MdReportOptions) => Promise<Result<MdReportResult, AppError>>;
+  mapBindingSite: (options: BindingSiteMapOptions) => Promise<Result<BindingSiteMapResult, AppError>>;
+  computeSurfaceProps: (pdbPath: string, outputDir: string) => Promise<Result<SurfacePropsResult, AppError>>;
+
+  // FEP scoring
+  runFepScoring: (options: FepScoringOptions) => Promise<Result<FepScoringResult, AppError>>;
+  cancelFepScoring: () => Promise<void>;
 
   // Image reading
   readImageAsDataUrl: (imagePath: string) => Promise<string | null>;
@@ -199,6 +211,10 @@ export interface ElectronAPI {
 
   // Get default output directory
   getDefaultOutputDir: () => Promise<string>;
+
+  // Project browser
+  scanProjects: () => Promise<ProjectInfo[]>;
+  scanRunFiles: (runDir: string) => Promise<RunFilesResult>;
 }
 
 declare global {

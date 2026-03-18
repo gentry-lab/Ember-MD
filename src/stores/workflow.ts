@@ -9,14 +9,29 @@ import {
   MDLoadedLigand,
   DEFAULT_MD_CONFIG,
 } from '../../shared/types/md';
+import {
+  DockConfig,
+  DockResult,
+  DockMolecule,
+  CordialConfig,
+  ProtonationConfig,
+  ConformerConfig,
+  DEFAULT_DOCK_CONFIG,
+  DEFAULT_CORDIAL_CONFIG,
+  DEFAULT_PROTONATION_CONFIG,
+  DEFAULT_CONFORMER_CONFIG,
+  LigandSource,
+  DetectedLigand as DockDetectedLigand,
+} from '../../shared/types/dock';
 
-export type WorkflowMode = 'md' | 'viewer';
-export type MDStep = 'md-load' | 'md-configure' | 'md-progress' | 'md-results';
+export type WorkflowMode = 'dock' | 'md' | 'viewer';
+export type DockStep = 'dock-load' | 'dock-configure' | 'dock-progress' | 'dock-results';
+export type MDStep = 'md-home' | 'md-load' | 'md-configure' | 'md-progress' | 'md-results';
 
 // Viewer state types
 export type ProteinRepresentation = 'cartoon' | 'ribbon' | 'spacefill';
 export type LigandRepresentation = 'ball+stick' | 'stick' | 'spacefill';
-export type SurfaceColorScheme = 'chainid' | 'hydrophobicity' | 'electrostatic' | 'electrostatic-muted' | 'residueindex' | 'uniform-grey';
+export type SurfaceColorScheme = 'uniform-grey' | 'hydrophobic' | 'electrostatic';
 export type PlaybackSpeed = 0.25 | 0.5 | 1 | 2 | 4;
 export type CenterTarget = 'ligand' | 'protein' | 'none';
 
@@ -61,15 +76,32 @@ export const CLUSTER_COLORS = [
 ];
 
 export interface DetectedLigand {
+  id: string;
   resname: string;
   resnum: number;
   chain: string;
-  numAtoms: number;
+  num_atoms: number;
 }
 
 export interface ViewerQueueItem {
   pdbPath: string;
   label: string;
+}
+
+export interface BindingSiteMapChannel {
+  visible: boolean;
+  isolevel: number;
+  opacity: number;
+}
+
+export interface BindingSiteMapState {
+  hydrophobic: BindingSiteMapChannel;
+  hbondDonor: BindingSiteMapChannel;
+  hbondAcceptor: BindingSiteMapChannel;
+  hydrophobicDx: string;
+  hbondDonorDx: string;
+  hbondAcceptorDx: string;
+  hotspots: Array<{ type: string; position: number[]; direction: number[]; score: number }>;
 }
 
 export interface ViewerState {
@@ -107,6 +139,8 @@ export interface ViewerState {
   isClustering: boolean;
   loadedClusters: LoadedCluster[];
   isLoadingClusters: boolean;
+  bindingSiteMap: BindingSiteMapState | null;
+  isComputingBindingSiteMap: boolean;
 }
 
 export interface PdbFile {
@@ -116,17 +150,39 @@ export interface PdbFile {
 
 export type MDInputMode = 'protein_ligand' | 'ligand_only';
 
+export interface DockState {
+  receptorPdbPath: string | null;
+  receptorPrepared: string | null;
+  referenceLigandId: string | null;
+  referenceLigandPath: string | null;
+  detectedLigands: DockDetectedLigand[];
+  ligandSource: LigandSource;
+  ligandSdfPaths: string[];
+  ligandMolecules: DockMolecule[];
+  config: DockConfig;
+  cordialConfig: CordialConfig;
+  protonationConfig: ProtonationConfig;
+  conformerConfig: ConformerConfig;
+  dockingOutputDir: string | null;
+  totalLigands: number;
+  completedLigands: number;
+  results: DockResult[];
+  cordialAvailable: boolean;
+  cordialScored: boolean;
+}
+
 export interface MDState {
   inputMode: MDInputMode;
-  gninaOutputDir: string | null;
+  dockOutputDir: string | null;
   loadedLigands: MDLoadedLigand[];
   selectedLigandIndex: number | null;
   receptorPdb: string | null;
   ligandSdf: string | null;
   ligandName: string | null;
+  pdbPath: string | null;
+  thumbnailDataUrl: string | null;
   singleMoleculeInput: string | null;
   singleMoleculeThumbnail: string | null;
-  jobName: string;
   config: MDConfig;
   outputDir: string | null;
   result: MDResult | null;
@@ -139,29 +195,54 @@ export interface MDState {
 
 export interface WorkflowState {
   mode: WorkflowMode;
+  dockStep: DockStep;
   mdStep: MDStep;
   pdbFile: PdbFile | null;
   customOutputDir: string | null;
   jobName: string;
   isRunning: boolean;
+  isPaused: boolean;
   currentPhase: 'idle' | 'generation' | 'complete' | 'error';
   logs: string;
   errorMessage: string | null;
+  dock: DockState;
   md: MDState;
   viewer: ViewerState;
 }
 
+const defaultDockState: DockState = {
+  receptorPdbPath: null,
+  receptorPrepared: null,
+  referenceLigandId: null,
+  referenceLigandPath: null,
+  detectedLigands: [],
+  ligandSource: 'sdf_directory',
+  ligandSdfPaths: [],
+  ligandMolecules: [],
+  config: { ...DEFAULT_DOCK_CONFIG },
+  cordialConfig: { ...DEFAULT_CORDIAL_CONFIG },
+  protonationConfig: { ...DEFAULT_PROTONATION_CONFIG },
+  conformerConfig: { ...DEFAULT_CONFORMER_CONFIG },
+  dockingOutputDir: null,
+  totalLigands: 0,
+  completedLigands: 0,
+  results: [],
+  cordialAvailable: false,
+  cordialScored: false,
+};
+
 const defaultMDState: MDState = {
   inputMode: 'protein_ligand',
-  gninaOutputDir: null,
+  dockOutputDir: null,
   loadedLigands: [],
   selectedLigandIndex: null,
   receptorPdb: null,
   ligandSdf: null,
   ligandName: null,
+  pdbPath: null,
+  thumbnailDataUrl: null,
   singleMoleculeInput: null,
   singleMoleculeThumbnail: null,
-  jobName: '',
   config: { ...DEFAULT_MD_CONFIG },
   outputDir: null,
   result: null,
@@ -189,8 +270,8 @@ const defaultViewerState: ViewerState = {
   selectedLigandId: null,
   proteinRep: 'cartoon',
   proteinSurface: false,
-  proteinSurfaceOpacity: 0.7,
-  surfaceColorScheme: 'electrostatic',
+  proteinSurfaceOpacity: 0.9,
+  surfaceColorScheme: 'uniform-grey',
   proteinCarbonColor: '#909090',
   showPocketResidues: true,
   showPocketLabels: false,
@@ -215,6 +296,8 @@ const defaultViewerState: ViewerState = {
   isClustering: false,
   loadedClusters: [],
   isLoadingClusters: false,
+  bindingSiteMap: null,
+  isComputingBindingSiteMap: false,
 };
 
 function createWorkflowStore() {
@@ -222,20 +305,24 @@ function createWorkflowStore() {
 
   const [state, setState] = createSignal<WorkflowState>({
     mode: 'md',
-    mdStep: 'md-load',
+    dockStep: 'dock-load',
+    mdStep: 'md-home',
     pdbFile: null,
     customOutputDir: null,
     jobName: initialJobName,
     isRunning: false,
+    isPaused: false,
     currentPhase: 'idle',
     logs: '',
     errorMessage: null,
+    dock: { ...defaultDockState },
     md: { ...defaultMDState },
     viewer: { ...defaultViewerState },
   });
 
   // Mode selection
   const setMode = (mode: WorkflowMode) => setState((s) => ({ ...s, mode }));
+  const setDockStep = (dockStep: DockStep) => setState((s) => ({ ...s, dockStep }));
   const setMdStep = (mdStep: MDStep) => setState((s) => ({ ...s, mdStep }));
 
   const setPdbFile = (pdbFile: PdbFile | null) =>
@@ -253,8 +340,14 @@ function createWorkflowStore() {
   const setIsRunning = (isRunning: boolean) =>
     setState((s) => ({ ...s, isRunning }));
 
+  const setIsPaused = (isPaused: boolean) =>
+    setState((s) => ({ ...s, isPaused }));
+
   const appendLog = (text: string) =>
-    setState((s) => ({ ...s, logs: s.logs + text }));
+    setState((s) => {
+      const combined = s.logs + text;
+      return { ...s, logs: combined.length > 50000 ? combined.slice(-50000) : combined };
+    });
 
   const clearLogs = () => setState((s) => ({ ...s, logs: '' }));
 
@@ -263,6 +356,72 @@ function createWorkflowStore() {
 
   const setError = (errorMessage: string | null) =>
     setState((s) => ({ ...s, errorMessage }));
+
+  // Dock state setters
+  const setDockReceptorPdbPath = (receptorPdbPath: string | null) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, receptorPdbPath } }));
+
+  const setDockReceptorPrepared = (receptorPrepared: string | null) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, receptorPrepared } }));
+
+  const setDockReferenceLigandId = (referenceLigandId: string | null) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, referenceLigandId } }));
+
+  const setDockReferenceLigandPath = (referenceLigandPath: string | null) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, referenceLigandPath } }));
+
+  const setDockDetectedLigands = (detectedLigands: DockDetectedLigand[]) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, detectedLigands } }));
+
+  const setDockLigandSource = (ligandSource: LigandSource) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, ligandSource } }));
+
+  const setDockLigandSdfPaths = (ligandSdfPaths: string[]) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, ligandSdfPaths } }));
+
+  const setDockLigandMolecules = (ligandMolecules: DockMolecule[]) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, ligandMolecules } }));
+
+  const setDockConfig = (config: Partial<DockConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, config: { ...s.dock.config, ...config } } }));
+
+  const setDockCordialConfig = (cordialConfig: Partial<CordialConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, cordialConfig: { ...s.dock.cordialConfig, ...cordialConfig } } }));
+
+  const setDockProtonationConfig = (protonationConfig: Partial<ProtonationConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, protonationConfig: { ...s.dock.protonationConfig, ...protonationConfig } } }));
+
+  const setDockConformerConfig = (conformerConfig: Partial<ConformerConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, conformerConfig: { ...s.dock.conformerConfig, ...conformerConfig } } }));
+
+  const setDockOutputDir = (dockingOutputDir: string | null) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, dockingOutputDir } }));
+
+  const setDockTotalLigands = (totalLigands: number) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, totalLigands } }));
+
+  const setDockCompletedLigands = (completedLigands: number) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, completedLigands } }));
+
+  const setDockResults = (results: DockResult[]) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, results } }));
+
+  const setDockCordialAvailable = (cordialAvailable: boolean) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, cordialAvailable } }));
+
+  const setDockCordialScored = (cordialScored: boolean) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, cordialScored } }));
+
+  const resetDock = () =>
+    setState((s) => ({
+      ...s,
+      dockStep: 'dock-load' as DockStep,
+      currentPhase: 'idle',
+      logs: '',
+      errorMessage: null,
+      isRunning: false,
+      dock: { ...defaultDockState },
+    }));
 
   // MD state setters
   const setMdInputMode = (inputMode: MDInputMode) =>
@@ -274,8 +433,8 @@ function createWorkflowStore() {
   const setMdSingleMoleculeThumbnail = (singleMoleculeThumbnail: string | null) =>
     setState((s) => ({ ...s, md: { ...s.md, singleMoleculeThumbnail } }));
 
-  const setMdGninaOutputDir = (gninaOutputDir: string | null) =>
-    setState((s) => ({ ...s, md: { ...s.md, gninaOutputDir } }));
+  const setMdDockOutputDir = (dockOutputDir: string | null) =>
+    setState((s) => ({ ...s, md: { ...s.md, dockOutputDir } }));
 
   const setMdLoadedLigands = (loadedLigands: MDLoadedLigand[]) =>
     setState((s) => ({ ...s, md: { ...s.md, loadedLigands } }));
@@ -292,8 +451,11 @@ function createWorkflowStore() {
   const setMdLigandName = (ligandName: string | null) =>
     setState((s) => ({ ...s, md: { ...s.md, ligandName } }));
 
-  const setMdJobName = (jobName: string) =>
-    setState((s) => ({ ...s, md: { ...s.md, jobName } }));
+  const setMdPdbPath = (pdbPath: string | null) =>
+    setState((s) => ({ ...s, md: { ...s.md, pdbPath } }));
+
+  const setMdThumbnailDataUrl = (thumbnailDataUrl: string | null) =>
+    setState((s) => ({ ...s, md: { ...s.md, thumbnailDataUrl } }));
 
   const setMdConfig = (config: Partial<MDConfig>) =>
     setState((s) => ({ ...s, md: { ...s.md, config: { ...s.md.config, ...config } } }));
@@ -436,6 +598,30 @@ function createWorkflowStore() {
       },
     }));
 
+  const setViewerBindingSiteMap = (bindingSiteMap: BindingSiteMapState | null) =>
+    setState((s) => ({ ...s, viewer: { ...s.viewer, bindingSiteMap } }));
+
+  const setViewerIsComputingBindingSiteMap = (isComputingBindingSiteMap: boolean) =>
+    setState((s) => ({ ...s, viewer: { ...s.viewer, isComputingBindingSiteMap } }));
+
+  const setViewerBindingSiteChannel = (
+    channel: 'hydrophobic' | 'hbondDonor' | 'hbondAcceptor',
+    updates: Partial<BindingSiteMapChannel>
+  ) =>
+    setState((s) => {
+      if (!s.viewer.bindingSiteMap) return s;
+      return {
+        ...s,
+        viewer: {
+          ...s.viewer,
+          bindingSiteMap: {
+            ...s.viewer.bindingSiteMap,
+            [channel]: { ...s.viewer.bindingSiteMap[channel], ...updates },
+          },
+        },
+      };
+    });
+
   const resetViewer = () =>
     setState((s) => ({
       ...s,
@@ -445,7 +631,8 @@ function createWorkflowStore() {
   const resetMd = () =>
     setState((s) => ({
       ...s,
-      mdStep: 'md-load',
+      mdStep: 'md-home',
+      currentPhase: 'idle',
       logs: '',
       errorMessage: null,
       isRunning: false,
@@ -455,14 +642,17 @@ function createWorkflowStore() {
   const reset = () =>
     setState((s) => ({
       mode: s.mode,
-      mdStep: 'md-load',
+      dockStep: 'dock-load' as DockStep,
+      mdStep: 'md-home',
       pdbFile: null,
       customOutputDir: null,
       jobName: '',
       isRunning: false,
+      isPaused: false,
       currentPhase: 'idle',
       logs: '',
       errorMessage: null,
+      dock: { ...defaultDockState },
       md: { ...defaultMDState },
       viewer: { ...defaultViewerState },
     }));
@@ -470,27 +660,49 @@ function createWorkflowStore() {
   return {
     state,
     setMode,
+    setDockStep,
     setMdStep,
     setPdbFile,
     setCustomOutputDir,
     setJobName,
     regenerateJobName,
     setIsRunning,
+    setIsPaused,
     setCurrentPhase,
     appendLog,
     clearLogs,
     setError,
+    // Dock state
+    setDockReceptorPdbPath,
+    setDockReceptorPrepared,
+    setDockReferenceLigandId,
+    setDockReferenceLigandPath,
+    setDockDetectedLigands,
+    setDockLigandSource,
+    setDockLigandSdfPaths,
+    setDockLigandMolecules,
+    setDockConfig,
+    setDockCordialConfig,
+    setDockProtonationConfig,
+    setDockConformerConfig,
+    setDockOutputDir,
+    setDockTotalLigands,
+    setDockCompletedLigands,
+    setDockResults,
+    setDockCordialAvailable,
+    setDockCordialScored,
     // MD state
     setMdInputMode,
     setMdSingleMoleculeInput,
     setMdSingleMoleculeThumbnail,
-    setMdGninaOutputDir,
+    setMdDockOutputDir,
     setMdLoadedLigands,
     setMdSelectedLigandIndex,
     setMdReceptorPdb,
     setMdLigandSdf,
     setMdLigandName,
-    setMdJobName,
+    setMdPdbPath,
+    setMdThumbnailDataUrl,
     setMdConfig,
     setMdOutputDir,
     setMdResult,
@@ -535,8 +747,18 @@ function createWorkflowStore() {
     setViewerLoadedClusters,
     setViewerIsLoadingClusters,
     setViewerClusterVisibility,
+    setViewerBindingSiteMap,
+    setViewerIsComputingBindingSiteMap,
+    setViewerBindingSiteChannel,
+    // Utilities
+    getBaseOutputDir: async () => {
+      const custom = state().customOutputDir;
+      if (custom) return custom;
+      return window.electronAPI.getDefaultOutputDir();
+    },
     // Resets
     reset,
+    resetDock,
     resetMd,
     resetViewer,
   };

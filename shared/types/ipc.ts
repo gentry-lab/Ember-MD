@@ -149,19 +149,17 @@ export const IpcChannels = {
   CHECK_JOB_EXISTS: 'check-job-exists',
   VALIDATE_ANCHOR_SDF: 'validate-anchor-sdf',
 
-  // GNINA docking channels
+  // Docking channels
   SELECT_CSV_FILE: 'select-csv-file',
   SELECT_SDF_FILE: 'select-sdf-file',
-  PARSE_FRAGGEN_CSV: 'parse-fraggen-csv',
-  CHECK_GNINA_INSTALLED: 'check-gnina-installed',
-  DOWNLOAD_GNINA: 'download-gnina',
-  RUN_GNINA_DOCKING: 'run-gnina-docking',
-  PARSE_GNINA_RESULTS: 'parse-gnina-results',
+  RUN_VINA_DOCKING: 'dock:run-vina',
+  CANCEL_VINA_DOCKING: 'dock:cancel',
+  PARSE_DOCK_RESULTS: 'dock:parse-results',
   LIST_SDF_IN_DIRECTORY: 'list-sdf-in-directory',
   DETECT_PDB_LIGANDS: 'detect-pdb-ligands',
   EXTRACT_LIGAND: 'extract-ligand',
   PREPARE_RECEPTOR: 'prepare-receptor',
-  EXPORT_GNINA_CSV: 'export-gnina-csv',
+  EXPORT_DOCK_CSV: 'dock:export-csv',
   EXPORT_COMPLEX_PDB: 'export-complex-pdb',
   GET_CPU_COUNT: 'get-cpu-count',
   // Multi-input ligand source channels
@@ -183,9 +181,13 @@ export const IpcChannels = {
   WRITE_TEXT_FILE: 'write-text-file',
 
   // MD simulation channels
-  LOAD_GNINA_OUTPUT_FOR_MD: 'md:load-gnina-output',
+  LOAD_DOCK_OUTPUT_FOR_MD: 'md:load-dock-output',
   RUN_MD_BENCHMARK: 'md:benchmark',
+  CANCEL_MD_BENCHMARK: 'md:cancel-benchmark',
   RUN_MD_SIMULATION: 'md:simulate',
+  CANCEL_MD_SIMULATION: 'md:cancel',
+  PAUSE_MD_SIMULATION: 'md:pause',
+  RESUME_MD_SIMULATION: 'md:resume',
 
   // Trajectory viewer channels
   SELECT_DCD_FILE: 'select-dcd-file',
@@ -198,13 +200,22 @@ export const IpcChannels = {
   EXPORT_TRAJECTORY_FRAME: 'export-trajectory-frame',
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
+  MAP_BINDING_SITE: 'map-binding-site',
+  COMPUTE_SURFACE_PROPS: 'compute-surface-props',
+
+  // FEP scoring channels
+  RUN_FEP_SCORING: 'fep:run',
+  CANCEL_FEP_SCORING: 'fep:cancel',
+
+  // Project browser channels
+  SCAN_PROJECTS: 'scan-projects',
+  SCAN_RUN_FILES: 'scan-run-files',
 
   // Send channels (main -> renderer)
   PREP_OUTPUT: 'prep-output',
   SURFACE_OUTPUT: 'surface-output',
   GENERATION_OUTPUT: 'generation-output',
-  GNINA_OUTPUT: 'gnina-output',
-  GNINA_DOWNLOAD_PROGRESS: 'gnina-download-progress',
+  DOCK_OUTPUT: 'dock:output',
   MD_OUTPUT: 'md:output',
 } as const;
 
@@ -290,15 +301,24 @@ export interface MdReportOptions {
   topologyPath: string;
   trajectoryPath: string;
   outputDir: string;
-  includeRmsd?: boolean;
-  includeRmsf?: boolean;
-  includeHbonds?: boolean;
-  includeContacts?: boolean;
+  ligandSelection?: string;
+  simInfo?: {
+    jobName?: string;
+    atoms?: string;
+    waters?: string;
+    temperature?: string;
+    duration?: string;
+    forceField?: string;
+    platform?: string;
+    performance?: string;
+  };
 }
 
 export interface MdReportResult {
-  reportPath: string;       // Path to generated HTML report
+  reportPath: string;       // Path to generated full_report.pdf
   analysisDir: string;      // Directory containing analysis outputs
+  sectionPdfs: string[];    // Paths to individual section PDFs
+  clusteringResults?: ClusterResultData[];  // Clustering results if available
 }
 
 // Cluster directory scanning types
@@ -318,4 +338,98 @@ export interface LoadedClusterPdb {
   pdbPath: string;          // Original PDB path
   alignedPath: string;      // Path to aligned PDB file
   population: number;
+}
+
+// === Project browser types ===
+
+export interface ProjectRunInfo {
+  folderName: string;
+  path: string;
+  lastModified: number;
+  hasTrajectory: boolean;
+  hasFinalPdb: boolean;
+}
+
+export interface ProjectInfo {
+  name: string;
+  path: string;
+  runs: ProjectRunInfo[];
+  lastModified: number;
+}
+
+export interface RunFilesResult {
+  systemPdb: string | null;
+  trajectory: string | null;
+  finalPdb: string | null;
+  equilibratedPdb: string | null;
+  energyCsv: string | null;
+}
+
+// === Binding site interaction map types ===
+
+export interface BindingSiteMapOptions {
+  pdbPath: string;
+  ligandResname: string;
+  ligandResnum: number;
+  outputDir: string;
+  boxPadding?: number;
+  gridSpacing?: number;
+}
+
+export interface BindingSiteHotspot {
+  type: 'hydrophobic' | 'hbond_donor' | 'hbond_acceptor';
+  position: [number, number, number];
+  direction: [number, number, number];
+  score: number;
+}
+
+export interface BindingSiteMapResult {
+  hydrophobicDx: string;
+  hbondDonorDx: string;
+  hbondAcceptorDx: string;
+  hotspots: BindingSiteHotspot[];
+  gridDimensions: [number, number, number];
+  ligandCom: [number, number, number];
+}
+
+// === Computed surface property types ===
+
+export interface SurfacePropsResult {
+  atomCount: number;
+  hydrophobic: number[];    // per-atom, [-1, 1]
+  electrostatic: number[];  // Coulombic potential (epsilon=4r), [-1, 1]
+  cachedPath: string;       // where the JSON was stored
+}
+
+// === FEP scoring types ===
+
+export type FepSpeedPreset = 'fast' | 'accurate';
+
+export interface FepScoringOptions {
+  topologyPath: string;
+  trajectoryPath: string;
+  startNs: number;
+  endNs: number;
+  numSnapshots: number;        // 3, 5, or 7
+  speedPreset: FepSpeedPreset;
+  outputDir: string;
+  forceFieldPreset: string;
+  ligandSdf?: string;
+}
+
+export interface FepSnapshotResult {
+  snapshotIndex: number;
+  frameIndex: number;
+  timeNs: number;
+  deltaG_complex: number;
+  deltaG_solvent: number;
+  deltaG_bind: number;
+  uncertainty: number;
+}
+
+export interface FepScoringResult {
+  snapshots: FepSnapshotResult[];
+  meanDeltaG: number;
+  sem: number;
+  outputDir: string;
 }

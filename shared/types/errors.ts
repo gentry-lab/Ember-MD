@@ -29,6 +29,10 @@ export type AppError =
   | { type: 'NO_CLUSTERS_FOUND'; message: string }
   | { type: 'SCAN_FAILED'; message: string }
   | { type: 'ALIGNMENT_FAILED'; message: string }
+  | { type: 'BINDING_SITE_MAP_FAILED'; message: string }
+  | { type: 'SURFACE_PROPS_FAILED'; message: string }
+  | { type: 'FEP_SCORING_FAILED'; message: string }
+  | { type: 'FEP_SCORING_CANCELLED'; message: string }
   | { type: 'UNKNOWN'; message: string };
 
 export function createError(
@@ -93,6 +97,8 @@ export function formatError(error: AppError): string {
       return `Scan failed: ${error.message}`;
     case 'ALIGNMENT_FAILED':
       return `Alignment failed: ${error.message}`;
+    case 'BINDING_SITE_MAP_FAILED':
+      return `Binding site mapping failed: ${error.message}`;
     default:
       return error.message;
   }
