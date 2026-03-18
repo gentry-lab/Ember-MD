@@ -45,14 +45,16 @@
 
 /* Terminal output styling */
 .terminal-output {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 11px;
-  line-height: 1.4;
+  font-family: 'JetBrains Mono', Menlo, Monaco, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Styled text - dark for readability */
 .gradient-text {
-  @apply text-base-content font-semibold;
+  @apply text-base-content font-bold;
 }
 
 /* Styled background - uses theme primary */
