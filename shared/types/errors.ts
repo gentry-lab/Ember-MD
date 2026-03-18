@@ -32,6 +32,7 @@ export type AppError =
   | { type: 'BINDING_SITE_MAP_FAILED'; message: string }
   | { type: 'SURFACE_PROPS_FAILED'; message: string }
   | { type: 'FEP_SCORING_FAILED'; message: string }
+  | { type: 'IMPORT_FAILED'; message: string }
   | { type: 'FEP_SCORING_CANCELLED'; message: string }
   | { type: 'UNKNOWN'; message: string };
 

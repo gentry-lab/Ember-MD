@@ -75,8 +75,8 @@ const DockStepProgress: Component = () => {
           ligandPaths, protonDir,
           dock.protonationConfig.phMin, dock.protonationConfig.phMax
         );
-        if (protonResult.ok && protonResult.value.outputPaths.length > 0) {
-          ligandPaths = protonResult.value.outputPaths;
+        if (protonResult.ok && protonResult.value.protonatedPaths.length > 0) {
+          ligandPaths = protonResult.value.protonatedPaths;
           appendLog(`  ${ligandPaths.length} protonation variants generated\n\n`);
         } else {
           appendLog('  Protonation unchanged (Dimorphite-DL may not be installed)\n\n');
@@ -93,8 +93,8 @@ const DockStepProgress: Component = () => {
           dock.conformerConfig.rmsdCutoff,
           dock.conformerConfig.energyWindow
         );
-        if (confResult.ok && confResult.value.outputPaths.length > 0) {
-          ligandPaths = confResult.value.outputPaths;
+        if (confResult.ok && confResult.value.conformerPaths.length > 0) {
+          ligandPaths = confResult.value.conformerPaths;
           appendLog(`  ${ligandPaths.length} conformers generated\n\n`);
         } else {
           appendLog('  Conformer generation skipped\n\n');
@@ -104,6 +104,7 @@ const DockStepProgress: Component = () => {
       // Update total count after preprocessing may have expanded the ligand set
       setDockTotalLigands(ligandPaths.length);
 
+      console.log(`[Dock] Starting Vina docking: ${ligandPaths.length} ligands → ${outputDir}`);
       const result = await api.runVinaDocking(
         dock.receptorPrepared,
         dock.referenceLigandPath,
@@ -230,7 +231,7 @@ const DockStepProgress: Component = () => {
                 <path d="M6 6h12v12H6z" />
               </svg>
             </button>
-            <span class="loading loading-spinner loading-sm text-primary"></span>
+            <span class="loading loading-spinner loading-sm text-primary" />
           </Show>
           <Show when={state().currentPhase === 'complete'}>
             <span class="badge badge-success badge-sm">Done</span>
@@ -259,11 +260,11 @@ const DockStepProgress: Component = () => {
           }`}
           value={dockProgress()}
           max="100"
-        ></progress>
+         />
         {/* CORDIAL secondary indicator */}
         <Show when={cordialRunning()}>
           <div class="mt-2 flex items-center gap-2">
-            <span class="loading loading-dots loading-xs text-secondary"></span>
+            <span class="loading loading-dots loading-xs text-secondary" />
             <span class="text-xs text-secondary">Rescoring with CORDIAL...</span>
           </div>
         </Show>

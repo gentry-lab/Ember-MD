@@ -21,10 +21,11 @@ import {
   DEFAULT_PROTONATION_CONFIG,
   DEFAULT_CONFORMER_CONFIG,
   LigandSource,
+  DetectedLigand,
   DetectedLigand as DockDetectedLigand,
 } from '../../shared/types/dock';
 
-export type WorkflowMode = 'dock' | 'md' | 'viewer';
+export type WorkflowMode = 'dock' | 'md' | 'score' | 'viewer';
 export type DockStep = 'dock-load' | 'dock-configure' | 'dock-progress' | 'dock-results';
 export type MDStep = 'md-home' | 'md-load' | 'md-configure' | 'md-progress' | 'md-results';
 
@@ -75,16 +76,12 @@ export const CLUSTER_COLORS = [
   '#0891b2', '#c026d3', '#65a30d', '#0d9488', '#e11d48',
 ];
 
-export interface DetectedLigand {
-  id: string;
-  resname: string;
-  resnum: number;
-  chain: string;
-  num_atoms: number;
-}
+// Re-export DetectedLigand from dock.ts (single source of truth)
+export type { DetectedLigand };
 
 export interface ViewerQueueItem {
   pdbPath: string;
+  ligandPath?: string;
   label: string;
 }
 
@@ -195,6 +192,7 @@ export interface MDState {
 
 export interface WorkflowState {
   mode: WorkflowMode;
+  projectReady: boolean;
   dockStep: DockStep;
   mdStep: MDStep;
   pdbFile: PdbFile | null;
@@ -304,9 +302,10 @@ function createWorkflowStore() {
   const initialJobName = generateJobName();
 
   const [state, setState] = createSignal<WorkflowState>({
-    mode: 'md',
+    mode: 'viewer',
+    projectReady: false,
     dockStep: 'dock-load',
-    mdStep: 'md-home',
+    mdStep: 'md-load',
     pdbFile: null,
     customOutputDir: null,
     jobName: initialJobName,
@@ -321,9 +320,19 @@ function createWorkflowStore() {
   });
 
   // Mode selection
-  const setMode = (mode: WorkflowMode) => setState((s) => ({ ...s, mode }));
-  const setDockStep = (dockStep: DockStep) => setState((s) => ({ ...s, dockStep }));
-  const setMdStep = (mdStep: MDStep) => setState((s) => ({ ...s, mdStep }));
+  const setMode = (mode: WorkflowMode) => {
+    console.log(`[Store] setMode: ${state().mode} → ${mode}`);
+    setState((s) => ({ ...s, mode }));
+  };
+  const setProjectReady = (projectReady: boolean) => setState((s) => ({ ...s, projectReady }));
+  const setDockStep = (dockStep: DockStep) => {
+    console.log(`[Store] setDockStep: ${state().dockStep} → ${dockStep}`);
+    setState((s) => ({ ...s, dockStep }));
+  };
+  const setMdStep = (mdStep: MDStep) => {
+    console.log(`[Store] setMdStep: ${state().mdStep} → ${mdStep}`);
+    setState((s) => ({ ...s, mdStep }));
+  };
 
   const setPdbFile = (pdbFile: PdbFile | null) =>
     setState((s) => ({ ...s, pdbFile, errorMessage: null }));
@@ -489,7 +498,18 @@ function createWorkflowStore() {
     setState((s) => ({ ...s, viewer: { ...s.viewer, pdbQueue, pdbQueueIndex: 0 } }));
 
   const setViewerPdbQueueIndex = (pdbQueueIndex: number) =>
-    setState((s) => ({ ...s, viewer: { ...s.viewer, pdbQueueIndex, pdbPath: s.viewer.pdbQueue[pdbQueueIndex]?.pdbPath || s.viewer.pdbPath } }));
+    setState((s) => {
+      const item = s.viewer.pdbQueue[pdbQueueIndex];
+      return {
+        ...s,
+        viewer: {
+          ...s.viewer,
+          pdbQueueIndex,
+          pdbPath: item?.pdbPath || s.viewer.pdbPath,
+          ligandPath: item?.ligandPath ?? s.viewer.ligandPath,
+        },
+      };
+    });
 
   const setViewerLigandPath = (ligandPath: string | null) =>
     setState((s) => ({ ...s, viewer: { ...s.viewer, ligandPath } }));
@@ -622,11 +642,13 @@ function createWorkflowStore() {
       };
     });
 
-  const resetViewer = () =>
+  const resetViewer = () => {
+    console.log('[Store] resetViewer');
     setState((s) => ({
       ...s,
       viewer: { ...defaultViewerState },
     }));
+  };
 
   const resetMd = () =>
     setState((s) => ({
@@ -642,6 +664,7 @@ function createWorkflowStore() {
   const reset = () =>
     setState((s) => ({
       mode: s.mode,
+      projectReady: s.projectReady,
       dockStep: 'dock-load' as DockStep,
       mdStep: 'md-home',
       pdbFile: null,
@@ -649,7 +672,7 @@ function createWorkflowStore() {
       jobName: '',
       isRunning: false,
       isPaused: false,
-      currentPhase: 'idle',
+      currentPhase: 'idle' as const,
       logs: '',
       errorMessage: null,
       dock: { ...defaultDockState },
@@ -660,6 +683,7 @@ function createWorkflowStore() {
   return {
     state,
     setMode,
+    setProjectReady,
     setDockStep,
     setMdStep,
     setPdbFile,

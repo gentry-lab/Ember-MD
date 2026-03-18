@@ -3,10 +3,10 @@
 Score docked poses using CORDIAL (COnvolutional Representation of Distance-dependent
 Interactions with Attention Learning).
 
-Takes GNINA docking output directory and scores all docked poses.
+Takes docking output directory and scores all docked poses.
 
 Usage:
-    python score_cordial.py --gnina_dir /path/to/gnina_output --cordial_root /path/to/CORDIAL --output scores.csv
+    python score_cordial.py --dock_dir /path/to/dock_output --cordial_root /path/to/CORDIAL --output scores.csv
 
 Author: FragGen Team
 """
@@ -27,7 +27,7 @@ def setup_cordial_path(cordial_root):
 
 def main():
     parser = argparse.ArgumentParser(description='Score docked poses with CORDIAL')
-    parser.add_argument('--gnina_dir', required=True, help='GNINA output directory')
+    parser.add_argument('--dock_dir', required=True, help='Docking output directory')
     parser.add_argument('--cordial_root', required=True, help='Path to CORDIAL repository')
     parser.add_argument('--output', required=True, help='Output CSV file')
     parser.add_argument('--device', default='cuda', help='Device (cuda or cpu)')
@@ -47,18 +47,31 @@ def main():
     from modules.architectures.model_initializer import ModelInitializer
     from utils.arg_parser_utils import MasterArgumentParser
 
-    gnina_dir = Path(args.gnina_dir)
+    dock_dir = Path(args.dock_dir)
 
-    # Find receptor PDB
-    receptor_pdb = gnina_dir / 'receptor_prepared.pdb'
-    if not receptor_pdb.exists():
-        print(f"Error: receptor_prepared.pdb not found in {gnina_dir}", file=sys.stderr)
-        sys.exit(1)
+    # Find receptor PDB — Vina names it {project}_receptor_prepared.pdb
+    receptor_candidates = list(dock_dir.glob('*_receptor_prepared.pdb')) + list(dock_dir.glob('*_receptor*.pdb'))
+    if not receptor_candidates:
+        # Legacy fallback
+        receptor_pdb = dock_dir / 'receptor_prepared.pdb'
+        if not receptor_pdb.exists():
+            print(f"Error: No receptor PDB found in {dock_dir}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        receptor_pdb = receptor_candidates[0]
 
-    # Find all docked SDF files (both .sdf and .sdf.gz)
-    docked_sdfs = list(gnina_dir.glob('*_docked.sdf.gz')) + list(gnina_dir.glob('*_docked.sdf'))
+    # Find all docked SDF files — check poses/ subfolder first, then top-level (legacy)
+    poses_dir = dock_dir / 'poses'
+    search_dir = poses_dir if poses_dir.is_dir() else dock_dir
+    docked_sdfs = list(search_dir.glob('*_docked.sdf.gz')) + list(search_dir.glob('*_docked.sdf'))
     if not docked_sdfs:
-        print(f"Error: No docked SDF files found in {gnina_dir}", file=sys.stderr)
+        # Fallback: also check top-level if poses/ was empty
+        if search_dir != dock_dir:
+            docked_sdfs = list(dock_dir.glob('*_docked.sdf.gz')) + list(dock_dir.glob('*_docked.sdf'))
+    # Filter out the pooled _all_docked.sdf file (that's for portability, not scoring)
+    docked_sdfs = [s for s in docked_sdfs if '_all_docked' not in s.name]
+    if not docked_sdfs:
+        print(f"Error: No docked SDF files found in {dock_dir}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Found receptor: {receptor_pdb}")

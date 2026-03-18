@@ -5,7 +5,6 @@ import type { ProjectInfo } from '../../../shared/types/ipc';
 
 const MDStepHome: Component = () => {
   const {
-    state,
     setMdStep,
     setJobName,
   } = workflowStore;
@@ -27,10 +26,11 @@ const MDStepHome: Component = () => {
     setIsLoading(false);
   });
 
-  const handleNewSimulation = () => {
+  const handleNewSimulation = async () => {
     const name = newProjectName().trim();
     if (!name) return;
     setJobName(name);
+    await api.ensureProject(name);
     setMdStep('md-load');
   };
 
@@ -38,8 +38,9 @@ const MDStepHome: Component = () => {
     setNewProjectName(generateJobName());
   };
 
-  const handleOpenProject = (project: ProjectInfo) => {
+  const handleOpenProject = async (project: ProjectInfo) => {
     setJobName(project.name);
+    await api.ensureProject(project.name);
     setMdStep('md-load');
   };
 
@@ -63,7 +64,7 @@ const MDStepHome: Component = () => {
 
       <Show when={!isLoading()} fallback={
         <div class="flex-1 flex items-center justify-center">
-          <span class="loading loading-spinner loading-md"></span>
+          <span class="loading loading-spinner loading-md" />
         </div>
       }>
         <div class="flex-1 flex items-center justify-center">
@@ -94,7 +95,7 @@ const MDStepHome: Component = () => {
                     )}
                   </For>
                 </div>
-                <div class="border-t border-base-300 mb-3"></div>
+                <div class="border-t border-base-300 mb-3" />
               </Show>
 
               {/* New project */}

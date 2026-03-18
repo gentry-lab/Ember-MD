@@ -1,10 +1,6 @@
 import { Component, Show, createEffect, onCleanup } from 'solid-js';
-import {
-  workflowStore,
-  TrajectoryInfo,
-  PlaybackSpeed,
-  CenterTarget,
-} from '../../stores/workflow';
+import { workflowStore } from '../../stores/workflow';
+import type { PlaybackSpeed, CenterTarget } from '../../stores/workflow';
 
 interface TrajectoryControlsProps {
   onSeek: (frame: number) => void;
@@ -121,7 +117,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
             <div class="btn-group">
               <button
                 class="btn btn-xs btn-ghost"
-                onClick={props.onFirstFrame}
+                onClick={() => props.onFirstFrame()}
                 title="First frame (Home)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
@@ -131,7 +127,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
               </button>
               <button
                 class="btn btn-xs btn-ghost"
-                onClick={props.onStepBackward}
+                onClick={() => props.onStepBackward()}
                 title="Previous frame (Left arrow)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
@@ -140,7 +136,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
               </button>
               <button
                 class={`btn btn-xs ${isPlaying() ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={isPlaying() ? props.onPause : props.onPlay}
+                onClick={() => isPlaying() ? props.onPause() : props.onPlay()}
                 title={isPlaying() ? 'Pause (Space)' : 'Play (Space)'}
               >
                 <Show when={isPlaying()} fallback={
@@ -155,7 +151,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
               </button>
               <button
                 class="btn btn-xs btn-ghost"
-                onClick={props.onStepForward}
+                onClick={() => props.onStepForward()}
                 title="Next frame (Right arrow)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
@@ -164,7 +160,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
               </button>
               <button
                 class="btn btn-xs btn-ghost"
-                onClick={props.onLastFrame}
+                onClick={() => props.onLastFrame()}
                 title="Last frame (End)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">

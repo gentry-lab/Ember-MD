@@ -13,6 +13,7 @@ export interface SingleMoleculeResult {
   qed: number;
   mw: number;
   thumbnail: string;  // Base64 PNG
+  method?: string;    // Extraction method (e.g., 'openbabel', 'biopython')
 }
 
 // Molecule data for docking
@@ -116,7 +117,7 @@ export interface DetectedLigand {
   id: string;           // e.g., "ATP_A_501"
   resname: string;      // e.g., "ATP"
   chain: string;        // e.g., "A"
-  resnum: string;       // e.g., "501"
+  resnum: string;       // e.g., "501" (string from PDB column)
   num_atoms: number;
-  centroid: { x: number; y: number; z: number };
+  centroid?: { x: number; y: number; z: number };
 }

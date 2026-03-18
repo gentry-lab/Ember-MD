@@ -45,6 +45,7 @@ import type {
   SurfacePropsResult,
   FepScoringOptions,
   FepScoringResult,
+  ProjectArtifact,
 } from './ipc';
 
 export interface ElectronAPI {
@@ -133,14 +134,14 @@ export interface ElectronAPI {
     outputDir: string,
     phMin: number,
     phMax: number
-  ) => Promise<Result<{ outputPaths: string[]; variantCounts: Record<string, number> }, AppError>>;
+  ) => Promise<Result<{ protonatedPaths: string[]; parentMapping: Record<string, string> }, AppError>>;
   generateConformers: (
     ligandSdfPaths: string[],
     outputDir: string,
     maxConformers: number,
     rmsdCutoff: number,
     energyWindow: number
-  ) => Promise<Result<{ outputPaths: string[]; conformerCounts: Record<string, number> }, AppError>>;
+  ) => Promise<Result<{ conformerPaths: string[]; parentMapping: Record<string, string> }, AppError>>;
 
   // CORDIAL rescoring
   checkCordialInstalled: () => Promise<boolean>;
@@ -213,8 +214,15 @@ export interface ElectronAPI {
   getDefaultOutputDir: () => Promise<string>;
 
   // Project browser
+  ensureProject: (projectName: string) => Promise<Result<string, AppError>>;
   scanProjects: () => Promise<ProjectInfo[]>;
   scanRunFiles: (runDir: string) => Promise<RunFilesResult>;
+  importStructure: (sourcePath: string, projectDir: string) => Promise<Result<string, AppError>>;
+  renameProject: (oldName: string, newName: string) => Promise<Result<void, AppError>>;
+  deleteProject: (projectName: string) => Promise<Result<void, AppError>>;
+  getProjectFileCount: (projectName: string) => Promise<{ fileCount: number; totalSizeMb: number }>;
+  prepareForViewing: (rawPdbPath: string, preparedPath: string) => Promise<Result<string, AppError>>;
+  scanProjectArtifacts: (projectName: string) => Promise<ProjectArtifact[]>;
 }
 
 declare global {

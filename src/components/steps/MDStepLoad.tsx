@@ -319,7 +319,7 @@ const MDStepLoad: Component = () => {
                         onClick={handleSmilesSubmit}
                         disabled={!smilesInput().trim() || isLoading()}
                       >
-                        {isLoading() ? <span class="loading loading-spinner loading-xs"></span> : 'Go'}
+                        {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Go'}
                       </button>
                     </div>
                   </div>
@@ -368,7 +368,7 @@ const MDStepLoad: Component = () => {
                     disabled={isProtonating()}
                   >
                     {isProtonating() ? (
-                      <span class="loading loading-spinner loading-xs"></span>
+                      <span class="loading loading-spinner loading-xs" />
                     ) : (
                       'Protonate pH 7.4'
                     )}
@@ -465,7 +465,7 @@ const MDStepLoad: Component = () => {
 
                   <Show when={!detectedLigands().length || statusText()}>
                     <button class="btn btn-primary btn-sm w-full" onClick={handleLoadPdb} disabled={isLoading()}>
-                      {isLoading() ? <span class="loading loading-spinner loading-xs"></span> : 'Browse PDB / CIF'}
+                      {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Browse PDB / CIF'}
                     </button>
                   </Show>
                 </div>

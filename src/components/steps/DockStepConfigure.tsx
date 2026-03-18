@@ -85,7 +85,7 @@ const DockStepConfigure: Component = () => {
                 when={cordialChecked()}
                 fallback={
                   <div class="flex items-center gap-2">
-                    <span class="loading loading-spinner loading-xs"></span>
+                    <span class="loading loading-spinner loading-xs" />
                     <span class="text-xs">Checking CORDIAL...</span>
                   </div>
                 }
@@ -175,7 +175,7 @@ const DockStepConfigure: Component = () => {
             </div>
 
             {/* Divider */}
-            <div class="border-t border-base-300 my-3"></div>
+            <div class="border-t border-base-300 my-3" />
 
             {/* Toggles */}
             <div class="space-y-2">

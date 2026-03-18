@@ -1,6 +1,6 @@
-import { Component, Show, createSignal, For } from 'solid-js';
+import { Component, Show, createSignal } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import type { AnalysisResult } from '../../../shared/types/ipc';
+import type { AnalysisResult, RmsdAnalysisResult, RmsfAnalysisResult, HbondAnalysisResult } from '../../../shared/types/ipc';
 
 interface AnalysisPanelProps {
   onOpenClustering: () => void;
@@ -130,7 +130,7 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
 
             <button
               class="btn btn-xs btn-outline"
-              onClick={props.onOpenClustering}
+              onClick={() => props.onOpenClustering()}
               disabled={isAnalyzing()}
               title="Cluster trajectory frames"
             >
@@ -196,17 +196,17 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
             <div class="text-xs flex flex-wrap gap-2 items-center">
               <Show when={rmsdResult()}>
                 <div class="badge badge-sm badge-success gap-1">
-                  RMSD: {rmsdResult()?.data?.stats?.proteinMean?.toFixed(2) || '?'} Å
+                  RMSD: {(rmsdResult()?.data as RmsdAnalysisResult | undefined)?.stats?.proteinMean?.toFixed(2) || '?'} Å
                 </div>
               </Show>
               <Show when={rmsfResult()}>
                 <div class="badge badge-sm badge-success gap-1">
-                  RMSF: {rmsfResult()?.data?.stats?.mean?.toFixed(2) || '?'} Å
+                  RMSF: {(rmsfResult()?.data as RmsfAnalysisResult | undefined)?.stats?.mean?.toFixed(2) || '?'} Å
                 </div>
               </Show>
               <Show when={hbondsResult()}>
                 <div class="badge badge-sm badge-success gap-1">
-                  H-bonds: {hbondsResult()?.data?.totalUnique || '?'}
+                  H-bonds: {(hbondsResult()?.data as HbondAnalysisResult | undefined)?.totalUnique || '?'}
                 </div>
               </Show>
               <Show when={reportPath()}>

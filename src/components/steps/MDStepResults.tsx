@@ -289,7 +289,7 @@ const MDStepResults: Component = () => {
             <Show when={isAnalyzing()}>
               <div class="flex-1 flex items-center justify-center">
                 <div class="w-full text-center">
-                  <span class="loading loading-spinner loading-sm text-primary"></span>
+                  <span class="loading loading-spinner loading-sm text-primary" />
                   <p class="text-[10px] text-base-content/80 mt-2 font-medium">{analysisStep()}</p>
                   <progress
                     class="progress progress-primary w-full mt-2"

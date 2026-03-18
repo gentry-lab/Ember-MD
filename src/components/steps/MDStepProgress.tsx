@@ -153,6 +153,7 @@ const MDStepProgress: Component = () => {
     const outputDir = paths.simulations(finalRunFolder);
 
     try {
+      console.log(`[MD] Starting simulation: ${state().md.config.forceFieldPreset}, ${state().md.config.productionNs}ns → ${outputDir}`);
       const result = await api.runMdSimulation(
         state().md.receptorPdb,
         state().md.ligandSdf!,
@@ -297,7 +298,7 @@ const MDStepProgress: Component = () => {
             </>
           )}
           {state().isRunning && !state().isPaused && (
-            <span class="loading loading-spinner loading-sm text-primary"></span>
+            <span class="loading loading-spinner loading-sm text-primary" />
           )}
           {state().isPaused && (
             <span class="badge badge-warning badge-sm">Paused</span>
@@ -361,7 +362,7 @@ const MDStepProgress: Component = () => {
           }`}
           value={overallProgress()}
           max="100"
-        ></progress>
+         />
         <div class="flex justify-between text-[10px] text-base-content/80 mt-1">
           <Show
             when={state().md.currentStage === 'production' && productionNs()}

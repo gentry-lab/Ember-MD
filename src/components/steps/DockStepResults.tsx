@@ -1,6 +1,5 @@
 import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { DockResult } from '../../../shared/types/dock';
 import path from 'path';
 
 type SortField = 'ligandName' | 'vinaAffinity' | 'cordialExpectedPkd' | 'cordialPHighAffinity' | 'qed' | 'coreRmsd';
@@ -52,7 +51,7 @@ const DockStepResults: Component = () => {
     const dir = sortDirection();
 
     items.sort((a, b) => {
-      let cmp = 0;
+      let cmp: number;
       if (field === 'ligandName') {
         cmp = a.ligandName.localeCompare(b.ligandName);
       } else {
@@ -104,7 +103,8 @@ const DockStepResults: Component = () => {
   const handleView3D = () => {
     const pose = selectedPose();
     if (!pose) return;
-    const { setViewerLigandPath } = workflowStore;
+    const { setViewerLigandPath, resetViewer } = workflowStore;
+    resetViewer();
     setViewerPdbPath(receptorPdb());
     setViewerLigandPath(pose.outputSdf);
     setMode('viewer');
@@ -136,7 +136,7 @@ const DockStepResults: Component = () => {
         <table class="table table-xs w-full">
           <thead class="sticky top-0 bg-base-200 z-10">
             <tr>
-              <th class="w-8"></th>
+              <th class="w-8" />
               <th class="cursor-pointer select-none" onClick={() => handleSort('ligandName')}>
                 Ligand{sortIndicator('ligandName')}
               </th>

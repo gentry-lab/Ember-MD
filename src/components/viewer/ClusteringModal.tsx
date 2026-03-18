@@ -239,12 +239,12 @@ const ClusteringModal: Component<ClusteringModalProps> = (props) => {
 
           {/* Modal actions */}
           <div class="modal-action">
-            <button class="btn btn-sm" onClick={props.onClose}>
+            <button class="btn btn-sm" onClick={() => props.onClose()}>
               Close
             </button>
           </div>
         </div>
-        <div class="modal-backdrop" onClick={props.onClose} />
+        <div class="modal-backdrop" onClick={() => props.onClose()} />
       </div>
     </Show>
   );

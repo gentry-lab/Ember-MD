@@ -1,6 +1,6 @@
 import { Component, Show, createMemo, createSignal, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { DetectedLigand, DockMolecule, LigandSource } from '../../../shared/types/dock';
+import { DockMolecule, LigandSource } from '../../../shared/types/dock';
 import { projectPaths } from '../../utils/projectPaths';
 import path from 'path';
 
@@ -314,7 +314,7 @@ const DockStepLoad: Component = () => {
 
                     <Show when={!detectedLigands().length || statusText()}>
                       <button class="btn btn-primary btn-sm w-full" onClick={handleLoadReceptor} disabled={isLoading()}>
-                        {isLoading() ? <span class="loading loading-spinner loading-xs"></span> : 'Browse PDB / CIF'}
+                        {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Browse PDB / CIF'}
                       </button>
                     </Show>
 
@@ -405,7 +405,7 @@ const DockStepLoad: Component = () => {
                           disabled={isLoadingLigands()}
                         >
                           {isLoadingLigands() ? (
-                            <span class="loading loading-spinner loading-xs"></span>
+                            <span class="loading loading-spinner loading-xs" />
                           ) : (
                             <>
                               <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -453,7 +453,7 @@ const DockStepLoad: Component = () => {
                           disabled={isLoadingLigands()}
                         >
                           {isLoadingLigands() ? (
-                            <span class="loading loading-spinner loading-xs"></span>
+                            <span class="loading loading-spinner loading-xs" />
                           ) : (
                             <>
                               <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -514,7 +514,7 @@ const DockStepLoad: Component = () => {
                               onClick={handleSingleSmiles}
                               disabled={!smilesInput().trim() || isLoadingLigands()}
                             >
-                              {isLoadingLigands() ? <span class="loading loading-spinner loading-xs"></span> : 'Go'}
+                              {isLoadingLigands() ? <span class="loading loading-spinner loading-xs" /> : 'Go'}
                             </button>
                           </div>
                         </div>

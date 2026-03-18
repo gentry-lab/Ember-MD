@@ -1,4 +1,4 @@
-import { Component, Show } from 'solid-js';
+import { Component, JSX, Show } from 'solid-js';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -12,7 +12,7 @@ const HelpModal: Component<HelpModalProps> = (props) => {
         {/* Backdrop */}
         <div
           class="absolute inset-0 bg-black/50"
-          onClick={props.onClose}
+          onClick={() => props.onClose()}
         />
 
         {/* Modal */}
@@ -22,7 +22,7 @@ const HelpModal: Component<HelpModalProps> = (props) => {
             <h3 class="text-lg font-bold">Ember Quick Reference</h3>
             <button
               class="btn btn-ghost btn-sm btn-circle"
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -109,7 +109,7 @@ const MDHelp: Component = () => (
 interface HelpSectionProps {
   title: string;
   icon: 'input' | 'output' | 'auto' | 'warning' | 'info';
-  children: any;
+  children: JSX.Element;
 }
 
 const HelpSection: Component<HelpSectionProps> = (props) => {

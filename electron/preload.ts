@@ -45,6 +45,7 @@ const IpcChannels = {
   CHECK_CORDIAL_INSTALLED: 'check-cordial-installed',
   RUN_CORDIAL_SCORING: 'run-cordial-scoring',
   // Viewer channels
+  PREPARE_FOR_VIEWING: 'prepare-for-viewing',
   SAVE_PDB_FILE: 'save-pdb-file',
   // File writing
   WRITE_TEXT_FILE: 'write-text-file',
@@ -73,8 +74,14 @@ const IpcChannels = {
   RUN_FEP_SCORING: 'fep:run',
   CANCEL_FEP_SCORING: 'fep:cancel',
   // Project browser channels
+  ENSURE_PROJECT: 'ensure-project',
   SCAN_PROJECTS: 'scan-projects',
   SCAN_RUN_FILES: 'scan-run-files',
+  IMPORT_STRUCTURE: 'import-structure',
+  RENAME_PROJECT: 'rename-project',
+  DELETE_PROJECT: 'delete-project',
+  GET_PROJECT_FILE_COUNT: 'get-project-file-count',
+  SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
   // Image reading channel
   READ_IMAGE_AS_DATA_URL: 'read-image-as-data-url',
   // Send channels
@@ -458,10 +465,24 @@ const electronAPI = {
     ipcRenderer.invoke('get-default-output-dir'),
 
   // Project browser
+  ensureProject: (projectName: string) =>
+    ipcRenderer.invoke(IpcChannels.ENSURE_PROJECT, projectName),
   scanProjects: () =>
     ipcRenderer.invoke(IpcChannels.SCAN_PROJECTS),
   scanRunFiles: (runDir: string) =>
     ipcRenderer.invoke(IpcChannels.SCAN_RUN_FILES, runDir),
+  importStructure: (sourcePath: string, projectDir: string) =>
+    ipcRenderer.invoke(IpcChannels.IMPORT_STRUCTURE, sourcePath, projectDir),
+  prepareForViewing: (rawPdbPath: string, preparedPath: string) =>
+    ipcRenderer.invoke(IpcChannels.PREPARE_FOR_VIEWING, rawPdbPath, preparedPath),
+  renameProject: (oldName: string, newName: string) =>
+    ipcRenderer.invoke(IpcChannels.RENAME_PROJECT, oldName, newName),
+  deleteProject: (projectName: string) =>
+    ipcRenderer.invoke(IpcChannels.DELETE_PROJECT, projectName),
+  getProjectFileCount: (projectName: string) =>
+    ipcRenderer.invoke(IpcChannels.GET_PROJECT_FILE_COUNT, projectName),
+  scanProjectArtifacts: (projectName: string) =>
+    ipcRenderer.invoke(IpcChannels.SCAN_PROJECT_ARTIFACTS, projectName),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

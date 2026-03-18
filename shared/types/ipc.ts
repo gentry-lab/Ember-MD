@@ -2,9 +2,6 @@
  * IPC channel types and payloads
  */
 
-import type { Result } from './result';
-import type { AppError } from './errors';
-
 // === Configuration types ===
 
 export interface SamplingThresholds {
@@ -175,6 +172,7 @@ export const IpcChannels = {
   RUN_CORDIAL_SCORING: 'run-cordial-scoring',
 
   // Viewer channels
+  PREPARE_FOR_VIEWING: 'prepare-for-viewing',
   SAVE_PDB_FILE: 'save-pdb-file',
 
   // File writing
@@ -208,8 +206,14 @@ export const IpcChannels = {
   CANCEL_FEP_SCORING: 'fep:cancel',
 
   // Project browser channels
+  ENSURE_PROJECT: 'ensure-project',
   SCAN_PROJECTS: 'scan-projects',
   SCAN_RUN_FILES: 'scan-run-files',
+  IMPORT_STRUCTURE: 'import-structure',
+  RENAME_PROJECT: 'rename-project',
+  DELETE_PROJECT: 'delete-project',
+  GET_PROJECT_FILE_COUNT: 'get-project-file-count',
+  SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
 
   // Send channels (main -> renderer)
   PREP_OUTPUT: 'prep-output',
@@ -270,16 +274,22 @@ export interface AnalysisOptions {
 }
 
 export interface RmsdAnalysisResult {
-  timeNs: number[];         // Time points
-  rmsdProtein: number[];    // Protein backbone RMSD
-  rmsdLigand?: number[];    // Ligand RMSD (if ligand present)
-  plotPath: string;         // Path to generated plot PNG
+  stats: {
+    proteinMean: number;
+    proteinStd: number;
+    ligandMean?: number;
+    ligandStd?: number;
+  };
 }
 
 export interface RmsfAnalysisResult {
   residueIndices: number[];
   rmsf: number[];
-  plotPath: string;
+  stats: {
+    mean: number;
+    std: number;
+    max: number;
+  };
 }
 
 export interface HbondAnalysisResult {
@@ -288,12 +298,14 @@ export interface HbondAnalysisResult {
     acceptor: string;
     occupancy: number;      // Percentage of frames with this H-bond
   }>;
-  plotPath: string;
-  csvPath: string;
+  totalUnique: number;
+  nFrames: number;
 }
 
 export interface AnalysisResult {
   type: 'rmsd' | 'rmsf' | 'hbonds' | 'contacts';
+  plotPath: string;
+  csvPath?: string;
   data: RmsdAnalysisResult | RmsfAnalysisResult | HbondAnalysisResult;
 }
 
@@ -363,6 +375,24 @@ export interface RunFilesResult {
   finalPdb: string | null;
   equilibratedPdb: string | null;
   energyCsv: string | null;
+}
+
+// === Project artifact types ===
+
+export interface ProjectArtifactPose {
+  name: string;
+  path: string;
+  affinity?: number;
+}
+
+export interface ProjectArtifact {
+  type: 'prepared' | 'docking' | 'simulation' | 'cluster' | 'trajectory';
+  label: string;
+  path: string;
+  receptorPdb?: string;
+  poses?: ProjectArtifactPose[];
+  clusterCount?: number;
+  systemPdb?: string;
 }
 
 // === Binding site interaction map types ===

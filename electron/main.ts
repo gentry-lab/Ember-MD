@@ -6,6 +6,26 @@ import * as fs from 'fs';
 // Prevent EPIPE crashes when stdout/stderr pipe is closed (e.g. npm start)
 process.stdout?.on('error', () => {});
 process.stderr?.on('error', () => {});
+
+// --- Session log file (~/Ember/logs/ember-<timestamp>.log) ---
+const logDir = path.join(require('os').homedir(), 'Ember', 'logs');
+fs.mkdirSync(logDir, { recursive: true });
+const sessionTs = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+const logPath = path.join(logDir, `ember-${sessionTs}.log`);
+const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+
+const formatLog = (level: string, args: any[]): string => {
+  const ts = new Date().toISOString();
+  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a, null, 0)).join(' ');
+  return `${ts} [${level}] ${msg}\n`;
+};
+
+const origLog = console.log.bind(console);
+const origWarn = console.warn.bind(console);
+const origError = console.error.bind(console);
+console.log = (...args: any[]) => { origLog(...args); logStream.write(formatLog('LOG', args)); };
+console.warn = (...args: any[]) => { origWarn(...args); logStream.write(formatLog('WARN', args)); };
+console.error = (...args: any[]) => { origError(...args); logStream.write(formatLog('ERROR', args)); };
 import * as yaml from 'yaml';
 import { Ok, Err, Result } from '../shared/types/result';
 import { AppError } from '../shared/types/errors';
@@ -21,6 +41,7 @@ import {
   GenerationStats,
 } from '../shared/types/ipc';
 import * as os from 'os';
+import * as zlib from 'zlib';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -400,6 +421,13 @@ function createWindow(): void {
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
   }
+
+  // Capture renderer console.log/warn/error into the session log file
+  mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    const tag = ['LOG', 'WARN', 'ERROR'][level] || 'LOG';
+    const src = sourceId ? `${sourceId}:${line}` : '';
+    logStream.write(formatLog(`RENDERER:${tag}`, [message, src ? `(${src})` : '']));
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -1661,6 +1689,45 @@ ipcMain.handle(
       return Err({ type: 'DOCKING_FAILED', message: 'All docking jobs failed' });
     }
 
+    // Post-processing: move docked files into poses/ and create pooled SDF
+    try {
+      const posesDir = path.join(outputDir, 'poses');
+      fs.mkdirSync(posesDir, { recursive: true });
+
+      const allFiles = fs.readdirSync(outputDir);
+      const dockedGzFiles = allFiles.filter((f) => f.endsWith('_docked.sdf.gz'));
+
+      // Move *_docked.sdf.gz into poses/
+      for (const f of dockedGzFiles) {
+        fs.renameSync(path.join(outputDir, f), path.join(posesDir, f));
+      }
+
+      // Create pooled SDF: extract first model from each .sdf.gz
+      const pooledParts: string[] = [];
+      for (const f of dockedGzFiles) {
+        try {
+          const gzData = fs.readFileSync(path.join(posesDir, f));
+          const sdfText = zlib.gunzipSync(gzData).toString('utf-8');
+          // First model ends at first $$$$
+          const delimIdx = sdfText.indexOf('$$$$');
+          if (delimIdx >= 0) {
+            pooledParts.push(sdfText.substring(0, delimIdx + 4));
+          }
+        } catch (e) {
+          console.error(`Failed to extract first model from ${f}:`, e);
+        }
+      }
+
+      if (pooledParts.length > 0) {
+        const pooledPath = path.join(outputDir, `${projectName}_all_docked.sdf`);
+        fs.writeFileSync(pooledPath, pooledParts.join('\n') + '\n');
+        console.log(`Pooled ${pooledParts.length} best poses into ${pooledPath}`);
+      }
+    } catch (e) {
+      console.error('Post-processing (pooling) failed:', e);
+      // Non-fatal — docking results are still available
+    }
+
     return Ok(outputDir);
   }
 );
@@ -1688,7 +1755,10 @@ ipcMain.handle(
         return Err({ type: 'DIRECTORY_ERROR', path: outputDir, message: 'Output directory not found' });
       }
 
-      const files = fs.readdirSync(outputDir);
+      // Look in poses/ first (new layout), then top-level (legacy)
+      const posesDir = path.join(outputDir, 'poses');
+      const searchDir = fs.existsSync(posesDir) ? posesDir : outputDir;
+      const files = fs.readdirSync(searchDir);
       const dockedFiles = files.filter((f) => f.endsWith('_docked.sdf.gz'));
 
       if (dockedFiles.length === 0) {
@@ -1697,7 +1767,7 @@ ipcMain.handle(
 
       // Parse all docked SDF files in parallel
       const parsePromises = dockedFiles.map(async (sdfFile) => {
-        const sdfPath = path.join(outputDir, sdfFile);
+        const sdfPath = path.join(searchDir, sdfFile);
         const name = sdfFile.replace('_docked.sdf.gz', '');
         const props = await parseSdfProperties(sdfPath);
         return {
@@ -1879,6 +1949,8 @@ ipcMain.handle(
         return;
       }
 
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
       const python = spawn(condaPythonPath, [
         scriptPath,
         '--pdb', pdbPath,
@@ -1942,6 +2014,8 @@ ipcMain.handle(
         return;
       }
 
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
       const prepArgs = [
         scriptPath,
         '--pdb', pdbPath,
@@ -1990,8 +2064,10 @@ ipcMain.handle(
   IpcChannels.EXPORT_DOCK_CSV,
   async (_event, outputDir: string, csvOutput: string, bestOnly: boolean): Promise<Result<string, AppError>> => {
     try {
-      // Re-parse results
-      const files = fs.readdirSync(outputDir);
+      // Re-parse results (check poses/ subfolder first)
+      const csvPosesDir = path.join(outputDir, 'poses');
+      const csvSearchDir = fs.existsSync(csvPosesDir) ? csvPosesDir : outputDir;
+      const files = fs.readdirSync(csvSearchDir);
       const dockedFiles = files.filter((f) => f.endsWith('_docked.sdf.gz'));
 
       const rows: string[] = [];
@@ -2007,7 +2083,7 @@ ipcMain.handle(
       rows.push(header.join(','));
 
       for (const sdfFile of dockedFiles) {
-        const sdfPath = path.join(outputDir, sdfFile);
+        const sdfPath = path.join(csvSearchDir, sdfFile);
         const name = sdfFile.replace('_docked.sdf.gz', '');
         const props = await parseSdfProperties(sdfPath);
 
@@ -2236,10 +2312,11 @@ ipcMain.handle(
         childProcesses.delete(python);
         if (code === 0) {
           try {
-            // Look for JSON output at the end
-            const jsonMatch = stdout.match(/\[[\s\S]*\]$/);
-            if (jsonMatch) {
-              const molecules = JSON.parse(jsonMatch[0]);
+            // JSON is always the last line of stdout (single-line json.dumps)
+            const lines = stdout.trim().split('\n');
+            const lastLine = lines[lines.length - 1];
+            if (lastLine && (lastLine.startsWith('[') || lastLine.startsWith('{'))) {
+              const molecules = JSON.parse(lastLine);
               resolve(Ok(molecules));
             } else {
               resolve(Err({
@@ -2426,9 +2503,8 @@ ipcMain.handle(
         return;
       }
 
-      // Create protonation output subdirectory
-      const protonationDir = path.join(outputDir, 'protonated');
-      fs.mkdirSync(protonationDir, { recursive: true });
+      // Ensure output directory exists (caller provides the full path)
+      fs.mkdirSync(outputDir, { recursive: true });
 
       // Write ligand list to JSON file for the script
       const ligandListPath = path.join(outputDir, 'ligand_list_for_protonation.json');
@@ -2437,7 +2513,7 @@ ipcMain.handle(
       const args = [
         scriptPath,
         '--ligand_list', ligandListPath,
-        '--output_dir', protonationDir,
+        '--output_dir', outputDir,
         '--ph_min', String(phMin),
         '--ph_max', String(phMax),
       ];
@@ -2472,10 +2548,11 @@ ipcMain.handle(
         childProcesses.delete(python);
         if (code === 0) {
           try {
-            // Look for JSON output at the end (allow trailing whitespace)
-            const jsonMatch = stdout.match(/\{[\s\S]*"protonated_paths"[\s\S]*\}\s*$/);
-            if (jsonMatch) {
-              const result = JSON.parse(jsonMatch[0]);
+            // JSON is always the last line of stdout (single-line json.dumps)
+            const lines = stdout.trim().split('\n');
+            const lastLine = lines[lines.length - 1];
+            if (lastLine && lastLine.startsWith('{')) {
+              const result = JSON.parse(lastLine);
               resolve(Ok({
                 protonatedPaths: result.protonated_paths || [],
                 parentMapping: result.parent_mapping || {},
@@ -2628,10 +2705,11 @@ ipcMain.handle(
         childProcesses.delete(python);
         if (code === 0) {
           try {
-            // Look for JSON output at the end (allow trailing whitespace)
-            const jsonMatch = stdout.match(/\{[\s\S]*"conformer_paths"[\s\S]*\}\s*$/);
-            if (jsonMatch) {
-              const result = JSON.parse(jsonMatch[0]);
+            // JSON is always the last line of stdout (single-line json.dumps)
+            const lines = stdout.trim().split('\n');
+            const lastLine = lines[lines.length - 1];
+            if (lastLine && lastLine.startsWith('{')) {
+              const result = JSON.parse(lastLine);
               resolve(Ok({
                 conformerPaths: result.conformer_paths || [],
                 parentMapping: result.parent_mapping || {},
@@ -2859,10 +2937,14 @@ ipcMain.handle(
         });
       }
 
-      // Find all *_docked.sdf.gz or *.sdf files
-      const files = fs.readdirSync(dirPath);
+      // Find all *_docked.sdf.gz or *.sdf files (check poses/ subfolder first)
+      const posesSubDir = path.join(dirPath, 'poses');
+      const sdfSearchDir = fs.existsSync(posesSubDir) ? posesSubDir : dirPath;
+      const files = fs.readdirSync(sdfSearchDir);
       const dockedFiles = files.filter((f) => f.endsWith('_docked.sdf.gz'));
-      const regularSdfFiles = files.filter((f) => f.endsWith('.sdf') && !f.endsWith('.sdf.gz'));
+      // Also check top-level for regular SDF files (legacy or manual)
+      const topFiles = sdfSearchDir !== dirPath ? fs.readdirSync(dirPath) : files;
+      const regularSdfFiles = topFiles.filter((f) => f.endsWith('.sdf') && !f.endsWith('.sdf.gz') && !f.includes('_all_docked'));
 
       // Use docked files if available, otherwise fall back to regular SDF files
       const sdfFiles = dockedFiles.length > 0 ? dockedFiles : regularSdfFiles;
@@ -2902,7 +2984,7 @@ ipcMain.handle(
         const name = isDockedFile
           ? sdfFile.replace('_docked.sdf.gz', '')
           : sdfFile.replace('.sdf', '');
-        const sdfPath = path.join(dirPath, sdfFile);
+        const sdfPath = path.join(isDockedFile ? sdfSearchDir : dirPath, sdfFile);
 
         // Parse SDF for all properties (SMILES, scores, QED, thumbnail)
         const props = await parseSdfProperties(sdfPath);
@@ -3250,7 +3332,116 @@ ipcMain.handle('get-default-output-dir', async (): Promise<string> => {
   return emberDir;
 });
 
+// Ensure a project directory exists with a .ember-project ID file
+ipcMain.handle(
+  IpcChannels.ENSURE_PROJECT,
+  async (_event: any, projectName: string): Promise<Result<string, AppError>> => {
+    try {
+      const emberDir = path.join(app.getPath('home'), 'Ember');
+      const projectDir = path.join(emberDir, projectName);
+      const idFile = path.join(projectDir, '.ember-project');
+
+      fs.mkdirSync(projectDir, { recursive: true });
+
+      if (!fs.existsSync(idFile)) {
+        fs.writeFileSync(idFile, JSON.stringify({
+          name: projectName,
+          created: new Date().toISOString(),
+        }, null, 2));
+      }
+
+      return Ok(projectDir);
+    } catch (err: any) {
+      return Err({
+        type: 'DIRECTORY_ERROR',
+        path: path.join(app.getPath('home'), 'Ember', projectName),
+        message: `Failed to create project: ${err.message}`,
+      });
+    }
+  }
+);
+
+// Import a PDB/CIF into a project's raw/ directory, return the raw path
+ipcMain.handle(
+  IpcChannels.IMPORT_STRUCTURE,
+  async (_event, sourcePath: string, projectDir: string): Promise<Result<string, AppError>> => {
+    try {
+      const rawDir = path.join(projectDir, 'raw');
+      fs.mkdirSync(rawDir, { recursive: true });
+      const filename = path.basename(sourcePath);
+      const destPath = path.join(rawDir, filename);
+      // Don't re-copy if already in the project
+      if (path.resolve(sourcePath) !== path.resolve(destPath)) {
+        fs.copyFileSync(sourcePath, destPath);
+      }
+      return Ok(destPath);
+    } catch (error) {
+      return Err({
+        type: 'IMPORT_FAILED',
+        message: `Failed to import structure: ${(error as Error).message}`,
+      });
+    }
+  }
+);
+
+// Prepare a PDB for viewing: add missing hydrogens via PDBFixer
+ipcMain.handle(
+  IpcChannels.PREPARE_FOR_VIEWING,
+  async (_event, rawPdbPath: string, preparedPath: string): Promise<Result<string, AppError>> => {
+    return new Promise((resolve) => {
+      if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+        // No Python — just use raw file
+        resolve(Ok(rawPdbPath));
+        return;
+      }
+
+      const scriptPath = path.join(fraggenRoot, 'detect_pdb_ligands.py');
+      if (!fs.existsSync(scriptPath)) {
+        resolve(Ok(rawPdbPath));
+        return;
+      }
+
+      fs.mkdirSync(path.dirname(preparedPath), { recursive: true });
+
+      const python = spawn(condaPythonPath, [
+        scriptPath,
+        '--pdb', rawPdbPath,
+        '--mode', 'add_hydrogens',
+        '--output', preparedPath,
+      ]);
+
+      let stdout = '';
+      let stderr = '';
+
+      python.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      python.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      python.on('close', (code: number | null) => {
+        if (code === 0 && fs.existsSync(preparedPath)) {
+          resolve(Ok(preparedPath));
+        } else {
+          // Fall back to raw file on any failure
+          console.error('[prepare-for-viewing] Failed:', stderr);
+          resolve(Ok(rawPdbPath));
+        }
+      });
+
+      python.on('error', () => {
+        resolve(Ok(rawPdbPath));
+      });
+    });
+  }
+);
+
 // Project browser: scan ~/Ember for projects and runs
+// Primary: .ember-project ID file → project detected regardless of run state
+// Secondary: scan simulations/ + docking/ for runs
+// Tertiary: legacy fallback for old directories without .ember-project
 ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
   const emberDir = path.join(app.getPath('home'), 'Ember');
   if (!fs.existsSync(emberDir)) return [];
@@ -3262,60 +3453,77 @@ ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
     const entries = fs.readdirSync(emberDir, { withFileTypes: true });
     const legacyGroups: Record<string, any[]> = {};
 
-    // Helper: check a directory for simulation output files and return run info
+    // Helper: check a directory for simulation or docking output files and return run info
     const scanRunDir = (runPath: string, folderName: string): any | null => {
       try {
         const runFiles = fs.readdirSync(runPath);
         const hasSimOutput = runFiles.some((f: string) => f.endsWith('_system.pdb') || f.endsWith('_trajectory.dcd') || f === 'simulation.log');
-        if (!hasSimOutput) return null;
+        const hasDockOutput = runFiles.some((f: string) => f.endsWith('_docked.sdf.gz') || f.endsWith('_docked.sdf'));
+        if (!hasSimOutput && !hasDockOutput) return null;
         const stat = fs.statSync(runPath);
         return {
           folderName,
           path: runPath,
           lastModified: stat.mtimeMs,
+          type: hasSimOutput ? 'simulation' : 'docking',
           hasTrajectory: runFiles.some((f: string) => f.endsWith('_trajectory.dcd')),
           hasFinalPdb: runFiles.some((f: string) => f.endsWith('_final.pdb')),
         };
       } catch { return null; }
     };
 
+    // Scan runs inside a project directory (simulations/, docking/, or legacy direct children)
+    const scanProjectRuns = (entryPath: string): any[] => {
+      const runs: any[] = [];
+      try {
+        const subEntries = fs.readdirSync(entryPath, { withFileTypes: true });
+        for (const sub of subEntries) {
+          if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
+
+          // New layout: runs live under simulations/ and docking/ subdirectories
+          if (sub.name === 'simulations' || sub.name === 'docking') {
+            const typeDir = path.join(entryPath, sub.name);
+            try {
+              const typeEntries = fs.readdirSync(typeDir, { withFileTypes: true });
+              for (const runEntry of typeEntries) {
+                if (!runEntry.isDirectory() || runEntry.name.startsWith('.')) continue;
+                const runInfo = scanRunDir(path.join(typeDir, runEntry.name), `${sub.name}/${runEntry.name}`);
+                if (runInfo) runs.push(runInfo);
+              }
+            } catch { /* skip unreadable */ }
+            continue;
+          }
+
+          // Legacy layout: runs directly under project dir
+          const runInfo = scanRunDir(path.join(entryPath, sub.name), sub.name);
+          if (runInfo) runs.push(runInfo);
+        }
+      } catch { /* skip unreadable */ }
+      return runs;
+    };
+
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
       const entryPath = path.join(emberDir, entry.name);
 
-      const subEntries = fs.readdirSync(entryPath, { withFileTypes: true });
-      const runs: any[] = [];
-      let isProjectDir = false;
-
-      for (const sub of subEntries) {
-        if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
-
-        // New layout: runs live under simulations/ and docking/ subdirectories
-        if (sub.name === 'simulations' || sub.name === 'docking') {
-          const typeDir = path.join(entryPath, sub.name);
-          try {
-            const typeEntries = fs.readdirSync(typeDir, { withFileTypes: true });
-            for (const runEntry of typeEntries) {
-              if (!runEntry.isDirectory() || runEntry.name.startsWith('.')) continue;
-              const runInfo = scanRunDir(path.join(typeDir, runEntry.name), `${sub.name}/${runEntry.name}`);
-              if (runInfo) {
-                isProjectDir = true;
-                runs.push(runInfo);
-              }
-            }
-          } catch { /* skip unreadable */ }
-          continue;
-        }
-
-        // Legacy layout: runs directly under project dir
-        const runInfo = scanRunDir(path.join(entryPath, sub.name), sub.name);
-        if (runInfo) {
-          isProjectDir = true;
-          runs.push(runInfo);
-        }
+      // Primary: .ember-project ID file → project always detected
+      const idFile = path.join(entryPath, '.ember-project');
+      if (fs.existsSync(idFile)) {
+        const runs = scanProjectRuns(entryPath);
+        runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
+        const stat = fs.statSync(entryPath);
+        projects.push({
+          name: entry.name,
+          path: entryPath,
+          runs,
+          lastModified: runs.length > 0 ? runs[0].lastModified : stat.mtimeMs,
+        });
+        continue;
       }
 
-      if (isProjectDir && runs.length > 0) {
+      // Fallback: detect by run output (for projects created before .ember-project)
+      const runs = scanProjectRuns(entryPath);
+      if (runs.length > 0) {
         runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
         projects.push({
           name: entry.name,
@@ -3324,6 +3532,7 @@ ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
           lastModified: runs[0].lastModified,
         });
       } else {
+        // Legacy grouped layout: folder name matches ff pattern
         const match = entry.name.match(legacyPattern);
         if (match) {
           const projectName = match[1];
@@ -3336,6 +3545,7 @@ ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
               folderName: entry.name,
               path: entryPath,
               lastModified: stat.mtimeMs,
+              type: 'simulation',
               hasTrajectory: files.some((f: string) => f.endsWith('_trajectory.dcd')),
               hasFinalPdb: files.some((f: string) => f.endsWith('_final.pdb')),
             });
@@ -3385,6 +3595,243 @@ ipcMain.handle(IpcChannels.SCAN_RUN_FILES, async (_event: any, runDir: string): 
   }
   return result;
 });
+
+// Get file count and total size for a project (for delete confirmation)
+ipcMain.handle(IpcChannels.GET_PROJECT_FILE_COUNT, async (_event: any, projectName: string): Promise<{ fileCount: number; totalSizeMb: number }> => {
+  const emberDir = path.join(app.getPath('home'), 'Ember');
+  const projectDir = path.join(emberDir, projectName);
+  if (!fs.existsSync(projectDir)) return { fileCount: 0, totalSizeMb: 0 };
+
+  let fileCount = 0;
+  let totalSize = 0;
+  const walk = (dir: string) => {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else {
+          fileCount++;
+          try { totalSize += fs.statSync(full).size; } catch { /* skip */ }
+        }
+      }
+    } catch { /* skip unreadable */ }
+  };
+  walk(projectDir);
+  return { fileCount, totalSizeMb: Math.round(totalSize / (1024 * 1024) * 10) / 10 };
+});
+
+// Rename a project directory
+ipcMain.handle(IpcChannels.RENAME_PROJECT, async (_event: any, oldName: string, newName: string): Promise<any> => {
+  const emberDir = path.join(app.getPath('home'), 'Ember');
+  const oldDir = path.join(emberDir, oldName);
+  const newDir = path.join(emberDir, newName);
+
+  if (!fs.existsSync(oldDir)) {
+    return { ok: false, error: { type: 'NOT_FOUND', message: `Project "${oldName}" not found` } };
+  }
+  if (fs.existsSync(newDir)) {
+    return { ok: false, error: { type: 'ALREADY_EXISTS', message: `Project "${newName}" already exists` } };
+  }
+
+  try {
+    // Rename the project directory
+    fs.renameSync(oldDir, newDir);
+
+    // Rename prefixed files inside the project (e.g., projectName_system.pdb → newName_system.pdb)
+    const renamePrefix = (dir: string) => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            renamePrefix(full);
+          } else if (entry.name.startsWith(oldName + '_')) {
+            const newFileName = newName + entry.name.substring(oldName.length);
+            fs.renameSync(full, path.join(dir, newFileName));
+          }
+        }
+      } catch { /* skip unreadable */ }
+    };
+    renamePrefix(newDir);
+
+    // Update .ember-project ID file with new name
+    const idFile = path.join(newDir, '.ember-project');
+    if (fs.existsSync(idFile)) {
+      try {
+        const idData = JSON.parse(fs.readFileSync(idFile, 'utf-8'));
+        idData.name = newName;
+        fs.writeFileSync(idFile, JSON.stringify(idData, null, 2));
+      } catch { /* non-critical — project still works without updated ID */ }
+    }
+
+    return { ok: true, value: undefined };
+  } catch (err: any) {
+    return { ok: false, error: { type: 'RENAME_FAILED', message: err.message || 'Failed to rename project' } };
+  }
+});
+
+// Delete a project directory entirely
+ipcMain.handle(IpcChannels.DELETE_PROJECT, async (_event: any, projectName: string): Promise<any> => {
+  const emberDir = path.join(app.getPath('home'), 'Ember');
+  const projectDir = path.join(emberDir, projectName);
+
+  if (!fs.existsSync(projectDir)) {
+    return { ok: false, error: { type: 'NOT_FOUND', message: `Project "${projectName}" not found` } };
+  }
+
+  try {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    return { ok: true, value: undefined };
+  } catch (err: any) {
+    return { ok: false, error: { type: 'DELETE_FAILED', message: err.message || 'Failed to delete project' } };
+  }
+});
+
+// Scan project artifacts: prepared PDBs, docking runs, simulation outputs, clusters, trajectories
+ipcMain.handle(
+  IpcChannels.SCAN_PROJECT_ARTIFACTS,
+  async (_event: any, projectName: string): Promise<any[]> => {
+    const emberDir = path.join(app.getPath('home'), 'Ember');
+    const projectDir = path.join(emberDir, projectName);
+    if (!fs.existsSync(projectDir)) return [];
+
+    const artifacts: any[] = [];
+
+    // Helper: extract Vina affinity from first model of an .sdf.gz file
+    const extractAffinity = (sdfGzPath: string): number | undefined => {
+      try {
+        const gzData = fs.readFileSync(sdfGzPath);
+        const text = zlib.gunzipSync(gzData).toString('utf-8');
+        // Look for > <minimizedAffinity> property
+        const match = text.match(/>  <minimizedAffinity>\s*\n([\-\d.]+)/);
+        if (match) return parseFloat(match[1]);
+      } catch { /* ignore */ }
+      return undefined;
+    };
+
+    // Strip project name prefix from filenames for cleaner labels
+    const stripPrefix = (name: string) => {
+      if (name.startsWith(projectName + '_')) return name.substring(projectName.length + 1);
+      return name;
+    };
+
+    // 1. Scan prepared/ for receptor PDBs
+    const preparedDir = path.join(projectDir, 'prepared');
+    if (fs.existsSync(preparedDir)) {
+      try {
+        const prepFiles = fs.readdirSync(preparedDir).filter((f) => f.endsWith('.pdb'));
+        for (const f of prepFiles) {
+          artifacts.push({
+            type: 'prepared',
+            label: stripPrefix(f.replace('.pdb', '')),
+            path: path.join(preparedDir, f),
+          });
+        }
+      } catch { /* skip */ }
+    }
+
+    // 2. Scan docking/ for docking run folders
+    const dockingDir = path.join(projectDir, 'docking');
+    if (fs.existsSync(dockingDir)) {
+      try {
+        const dockRuns = fs.readdirSync(dockingDir, { withFileTypes: true });
+        for (const run of dockRuns) {
+          if (!run.isDirectory() || run.name.startsWith('.')) continue;
+          const runPath = path.join(dockingDir, run.name);
+
+          // Find receptor PDB
+          const runFiles = fs.readdirSync(runPath);
+          const receptorFile = runFiles.find((f) => f.includes('_receptor_prepared') && f.endsWith('.pdb'));
+          const receptorPdb = receptorFile ? path.join(runPath, receptorFile) : undefined;
+
+          // Find docked files: poses/ subfolder first, then top-level
+          const posesSubDir = path.join(runPath, 'poses');
+          const posesSearchDir = fs.existsSync(posesSubDir) ? posesSubDir : runPath;
+          const poseFiles = fs.readdirSync(posesSearchDir).filter((f) => f.endsWith('_docked.sdf.gz'));
+
+          if (poseFiles.length > 0) {
+            const poses = poseFiles.map((f) => {
+              const posePath = path.join(posesSearchDir, f);
+              const name = f.replace('_docked.sdf.gz', '');
+              return {
+                name: stripPrefix(name),
+                path: posePath,
+                affinity: extractAffinity(posePath),
+              };
+            });
+
+            // Sort by affinity (best = most negative first)
+            poses.sort((a, b) => (a.affinity ?? 0) - (b.affinity ?? 0));
+
+            artifacts.push({
+              type: 'docking',
+              label: `${run.name} (${poses.length} poses)`,
+              path: runPath,
+              receptorPdb,
+              poses,
+            });
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    // 3. Scan simulations/ for MD run folders
+    const simsDir = path.join(projectDir, 'simulations');
+    if (fs.existsSync(simsDir)) {
+      try {
+        const simRuns = fs.readdirSync(simsDir, { withFileTypes: true });
+        for (const run of simRuns) {
+          if (!run.isDirectory() || run.name.startsWith('.')) continue;
+          const runPath = path.join(simsDir, run.name);
+          const runFiles = fs.readdirSync(runPath);
+
+          // Final PDB
+          const finalPdb = runFiles.find((f) => f.endsWith('_final.pdb'));
+          if (finalPdb) {
+            artifacts.push({
+              type: 'simulation',
+              label: `${run.name} (final)`,
+              path: path.join(runPath, finalPdb),
+            });
+          }
+
+          // Trajectory: system.pdb + trajectory.dcd
+          const systemPdb = runFiles.find((f) => f.endsWith('_system.pdb'));
+          const trajectoryDcd = runFiles.find((f) => f.endsWith('_trajectory.dcd'));
+          if (systemPdb && trajectoryDcd) {
+            artifacts.push({
+              type: 'trajectory',
+              label: `${run.name} (trajectory)`,
+              path: path.join(runPath, trajectoryDcd),
+              systemPdb: path.join(runPath, systemPdb),
+            });
+          }
+
+          // Clusters: look in clustering/ subfolder
+          const clusterDir = path.join(runPath, 'clustering');
+          if (fs.existsSync(clusterDir)) {
+            const clusterFiles = fs.readdirSync(clusterDir).filter((f) => f.match(/cluster_\d+_centroid\.pdb/));
+            // Also check for pooled clusters file
+            const pooledFile = fs.readdirSync(clusterDir).find((f) => f.endsWith('_all_clusters.pdb'));
+
+            if (clusterFiles.length > 0) {
+              artifacts.push({
+                type: 'cluster',
+                label: `${run.name} (${clusterFiles.length} clusters)`,
+                path: pooledFile ? path.join(clusterDir, pooledFile) : path.join(clusterDir, clusterFiles[0]),
+                clusterCount: clusterFiles.length,
+              });
+            }
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    return artifacts;
+  }
+);
 
 // Read image file and return as data URL (for thumbnail display in Electron)
 ipcMain.handle(

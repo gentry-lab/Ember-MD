@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createSignal, onCleanup } from 'solid-js';
+import { Component, Show, createMemo, createSignal, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { useMdOutput } from '../../hooks/useElectronApi';
 import { MD_COMMON_PARAMS, MD_PRESET_PARAMS, MDForceFieldPreset } from '../../../shared/types/md';
@@ -262,7 +262,7 @@ const MDStepConfigure: Component = () => {
                         class="btn btn-error btn-sm"
                         onClick={handleCancelBenchmark}
                       >
-                        <span class="loading loading-spinner loading-xs"></span>
+                        <span class="loading loading-spinner loading-xs" />
                         Cancel
                       </button>
                     }
@@ -313,11 +313,11 @@ const MDStepConfigure: Component = () => {
                 value={state().md.config.forceFieldPreset}
                 onChange={(e) => setMdConfig({ forceFieldPreset: e.currentTarget.value as MDForceFieldPreset })}
               >
-                {(Object.keys(MD_PRESET_PARAMS) as MDForceFieldPreset[]).map((id) => (
+                <For each={Object.keys(MD_PRESET_PARAMS) as MDForceFieldPreset[]}>{(id) => (
                   <option value={id}>
                     {MD_PRESET_PARAMS[id].label}{MD_PRESET_PARAMS[id].recommended ? ' ★' : ''}
                   </option>
-                ))}
+                )}</For>
               </select>
               <p class="text-[10px] text-base-content/85 mt-1">
                 {MD_PRESET_PARAMS[state().md.config.forceFieldPreset].description}

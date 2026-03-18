@@ -9,12 +9,12 @@ const AboutModal: Component<AboutModalProps> = (props) => {
   return (
     <Show when={props.isOpen}>
       <div class="fixed inset-0 z-50 flex items-center justify-center">
-        <div class="absolute inset-0 bg-black/50" onClick={props.onClose} />
+        <div class="absolute inset-0 bg-black/50" onClick={() => props.onClose()} />
         <div class="relative bg-base-100 rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
           {/* Header */}
           <div class="flex items-center justify-between px-4 py-3 border-b border-base-300">
             <h3 class="text-lg font-bold">About Ember</h3>
-            <button class="btn btn-ghost btn-sm btn-circle" onClick={props.onClose}>
+            <button class="btn btn-ghost btn-sm btn-circle" onClick={() => props.onClose()}>
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>

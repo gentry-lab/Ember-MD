@@ -7,6 +7,7 @@ interface TerminalOutputProps {
 
 const TerminalOutput: Component<TerminalOutputProps> = (props) => {
   const [copied, setCopied] = createSignal(false);
+  // eslint-disable-next-line no-unassigned-vars -- SolidJS ref pattern
   let outputRef: HTMLPreElement | undefined;
 
   const handleCopyLogs = async () => {
@@ -29,9 +30,9 @@ const TerminalOutput: Component<TerminalOutputProps> = (props) => {
       <div class="flex items-center justify-between px-3 py-1.5 bg-base-200 border-b border-base-100">
         <span class="font-mono text-xs text-base-content/90">{props.title}</span>
         <div class="flex gap-1">
-          <div class="w-2.5 h-2.5 rounded-full bg-error/60"></div>
-          <div class="w-2.5 h-2.5 rounded-full bg-warning/60"></div>
-          <div class="w-2.5 h-2.5 rounded-full bg-success/60"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-error/60" />
+          <div class="w-2.5 h-2.5 rounded-full bg-warning/60" />
+          <div class="w-2.5 h-2.5 rounded-full bg-success/60" />
         </div>
       </div>
       <button

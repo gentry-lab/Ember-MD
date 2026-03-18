@@ -1,6 +1,5 @@
-import { Component, Match, Switch } from 'solid-js';
+import { Component, Match, Switch, Show } from 'solid-js';
 import WizardLayout from './components/layout/WizardLayout';
-import MDStepHome from './components/steps/MDStepHome';
 import MDStepLoad from './components/steps/MDStepLoad';
 import MDStepConfigure from './components/steps/MDStepConfigure';
 import MDStepProgress from './components/steps/MDStepProgress';
@@ -10,6 +9,7 @@ import DockStepConfigure from './components/steps/DockStepConfigure';
 import DockStepProgress from './components/steps/DockStepProgress';
 import DockStepResults from './components/steps/DockStepResults';
 import ViewerMode from './components/viewer/ViewerMode';
+import FepScoringPanel from './components/viewer/FepScoringPanel';
 import { workflowStore } from './stores/workflow';
 
 const App: Component = () => {
@@ -17,6 +17,15 @@ const App: Component = () => {
 
   return (
     <WizardLayout>
+      {/* ViewerMode stays mounted (CSS-hidden) to preserve NGL Stage + WebGL context.
+          Destroying/recreating the stage on every mode switch causes OOM from re-parsing structures. */}
+      <div
+        class="h-full"
+        style={{ display: state().mode === 'viewer' ? 'block' : 'none' }}
+      >
+        <ViewerMode />
+      </div>
+
       <Switch>
         {/* Dock mode steps */}
         <Match when={state().mode === 'dock' && state().dockStep === 'dock-load'}>
@@ -33,9 +42,6 @@ const App: Component = () => {
         </Match>
 
         {/* MD mode steps */}
-        <Match when={state().mode === 'md' && state().mdStep === 'md-home'}>
-          <MDStepHome />
-        </Match>
         <Match when={state().mode === 'md' && state().mdStep === 'md-load'}>
           <MDStepLoad />
         </Match>
@@ -49,9 +55,9 @@ const App: Component = () => {
           <MDStepResults />
         </Match>
 
-        {/* Viewer mode (single view, no steps) */}
-        <Match when={state().mode === 'viewer'}>
-          <ViewerMode />
+        {/* Score mode (FEP scoring, single view) */}
+        <Match when={state().mode === 'score'}>
+          <FepScoringPanel />
         </Match>
       </Switch>
     </WizardLayout>

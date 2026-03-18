@@ -5,7 +5,7 @@ import type { FepSnapshotResult, FepScoringResult } from '../../../shared/types/
 type FepStep = 'range' | 'configure' | 'progress' | 'results';
 
 interface FepScoringPanelProps {
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
@@ -38,6 +38,7 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
   const [error, setError] = createSignal<string | null>(null);
 
   // Canvas ref for RMSD plot
+  // eslint-disable-next-line no-unassigned-vars -- SolidJS ref pattern
   let canvasRef: HTMLCanvasElement | undefined;
 
   // Load RMSD data on mount
@@ -213,6 +214,7 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
       ? `${projectDir}/fep`
       : `${trajDir}/fep_scoring`;
 
+    // eslint-disable-next-line solid/reactivity -- callback registered once at run start, not reactive
     const removeListener = api.onMdOutput((data) => {
       const text = data.data;
       // Cap logs to last 50KB to avoid unbounded DOM growth during multi-hour runs
@@ -242,7 +244,7 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
           try {
             const result = JSON.parse(line.substring(11));
             setIncrementalResults((prev) => [...prev, result]);
-          } catch (e) {
+          } catch (_e) {
             console.warn('[FEP] Failed to parse result line:', line);
           }
         }
@@ -250,6 +252,7 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
     });
 
     try {
+      console.log(`[FEP] Starting scoring: ${speedPreset()}, ${numSnapshots()} snapshots, ${startNs()}-${endNs()}ns → ${outputDir}`);
       const result = await api.runFepScoring({
         topologyPath: pdbPath,
         trajectoryPath: trajPath,
@@ -282,7 +285,7 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
   const handleCancel = async () => {
     try {
       await api.cancelFepScoring();
-    } catch {}
+    } catch { /* cancel is best-effort */ }
   };
 
   const handleOpenFolder = () => {
@@ -304,23 +307,22 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
   };
 
   return (
-    <div class="absolute inset-0 z-20 bg-base-100 overflow-auto flex flex-col">
+    <div class="h-full overflow-auto flex flex-col">
       {/* Header */}
       <div class="flex items-center gap-3 p-3 border-b border-base-300">
-        <button
-          class="btn btn-sm btn-ghost"
-          onClick={props.onBack}
-          disabled={isRunning()}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-          Back
-        </button>
+        <Show when={props.onBack}>
+          <button
+            class="btn btn-sm btn-ghost"
+            onClick={() => props.onBack?.()}
+            disabled={isRunning()}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back
+          </button>
+        </Show>
         <h2 class="text-sm font-bold flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 3h6v5l3 3-3 3v7H9v-7l-3-3 3-3V3z" />
-          </svg>
           ABFE Free Energy Scoring
           <span class="badge badge-warning badge-xs">experimental</span>
         </h2>
@@ -561,10 +563,12 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
             </Show>
 
             <Show when={!isRunning() && error()}>
-              <div class="flex justify-between">
-                <button class="btn btn-sm btn-ghost" onClick={props.onBack}>
-                  Close
-                </button>
+              <div class="flex justify-end gap-2">
+                <Show when={props.onBack}>
+                  <button class="btn btn-sm btn-ghost" onClick={() => props.onBack?.()}>
+                    Close
+                  </button>
+                </Show>
                 <button class="btn btn-sm btn-primary" onClick={() => { setError(null); setStep('configure'); }}>
                   Retry
                 </button>
@@ -615,10 +619,12 @@ const FepScoringPanel: Component<FepScoringPanelProps> = (props) => {
                     </table>
                   </div>
 
-                  <div class="flex justify-between">
-                    <button class="btn btn-sm btn-ghost" onClick={props.onBack}>
-                      Close
-                    </button>
+                  <div class="flex justify-end gap-2">
+                    <Show when={props.onBack}>
+                      <button class="btn btn-sm btn-ghost" onClick={() => props.onBack?.()}>
+                        Close
+                      </button>
+                    </Show>
                     <button class="btn btn-sm btn-primary" onClick={handleOpenFolder}>
                       Open Folder
                     </button>
