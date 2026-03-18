@@ -3,6 +3,7 @@
 Desktop app for GPU-accelerated molecular dynamics on Apple Silicon. Two modes: **Simulate** (AMBER MD) and **Viewer** (NGL molecular viewer with trajectory playback).
 
 **Repo**: `pseudo-control/Ember-MD` (private, GitHub)
+**Metal Backend Repo**: `pseudo-control/Ember-Metal` (private, GitHub) — native Metal GPU backend for OpenMM, forked from Turner's openmm-metal. Branch `codex/nonbonded-buffer-bindings` is the active development branch.
 
 **Note**: `README.md` and `deps/README.md` are stale — they still reference FragGen/OpenSBDD, Linux, CUDA, and GNINA. Do not use them as a source of truth for architecture or packaging. Use this file (CLAUDE.md) instead.
 
@@ -12,17 +13,17 @@ Desktop app for GPU-accelerated molecular dynamics on Apple Silicon. Two modes: 
 - **Frontend**: SolidJS + TypeScript + Tailwind/DaisyUI (wireframe theme, system fonts)
 - **Desktop**: Electron 27, Webpack
 - **MD Engine**: OpenMM 8.1.2 (AMBER ff19SB/ff14SB + OPC/TIP3P + OpenFF Sage 2.0)
-- **GPU**: Apple OpenCL (cl2Metal) + openmm-metal plugin (HIP platform)
+- **GPU**: Native Metal backend (registers as "Metal" platform) + Apple OpenCL (cl2Metal) fallback
 - **Visualization**: NGL (WebGL molecular viewer)
 - **Cheminformatics**: RDKit, OpenBabel, PDBFixer, MDAnalysis, AmberTools
 
 ## GPU Platform Cascade
 ```
-CUDA → HIP (openmm-metal plugin) → OpenCL (cl2Metal) → CPU
+CUDA → Metal (native MSL) → OpenCL (cl2Metal) → CPU
 ```
-- **HIP/Metal**: Philip Turner's openmm-metal plugin, registers as "HIP" to bypass OpenMM's energy minimizer checks. Fixed for macOS 26 by disabling VENDOR_APPLE SIMD paths (2 line change in MetalContext.cpp + MetalNonbondedUtilities.cpp). All 34 tests pass.
-- **OpenCL**: Apple's cl2Metal translates OpenCL to Metal GPU instructions. ~2.5% slower than HIP but zero maintenance. Works across all macOS versions (Ventura through Tahoe).
-- **Performance**: ~210 ns/day on M4 for 22K atom protein-ligand system. ~51 ns/day for 92K atom ApoA1.
+- **Metal**: Native MSL backend (`pseudo-control/Ember-Metal`), registers as "Metal" platform. 46/47 tests pass (1 expected: `TestMetalCustomIntegrator` bitwise force equality). Command buffer batching, blit clears, register hoisting, float atomics. ~193 ns/day on M4 for 22K atom system.
+- **OpenCL**: Apple's cl2Metal translates OpenCL to Metal GPU instructions. ~210 ns/day on M4 (slightly faster due to cl2Metal IR-level optimizations). Works across all macOS versions (Ventura through Tahoe).
+- **Performance gap**: Metal is ~8% slower than OpenCL on 22K atoms. Float atomics optimization (v0.1.11) closed the gap from 16% to 8% by switching nonbonded force writes from 64-bit emulated atomics (2x 32-bit ops + carry) to native 32-bit float atomics.
 - **SIMD note**: macOS 26 blocks `__asm("air....")` inline assembly in cl2Metal. No subgroup extensions available. SIMD intrinsics only accessible via native Metal Shading Language (not implemented).
 
 ## Project Structure
@@ -186,9 +187,11 @@ From `run_md_simulation.py`:
 - iPhone 17 (A19): 100+ ns/day — first production MD on a phone
 - SIMD intrinsics: `simd_sum()`, `simd_ballot()`, `ctz()` — native, no `__asm` needed
 
-**Validation**: All 45 native Metal tests must pass (27 short + 12 long + 6 very-long). Force deviation vs CPU Reference < 0.01 kJ/mol/nm per atom.
+**Validation**: All 47 native Metal tests must pass (27 short + 12 long + 6 very-long). Force deviation vs CPU Reference < 0.01 kJ/mol/nm per atom.
 
-**Current status (2026-03-16)**: 45/45 tests pass. Correctness locked. **130.7 ns/day** on M4 (22K atoms, ff19SB/OPC) — 62% of 210 ns/day OpenCL baseline. Performance optimization in progress.
+**Current status (2026-03-17)**: 46/47 tests pass (1 expected fail: `TestMetalCustomIntegrator` bitwise force equality). **~193 ns/day** on M4 (22K atoms, ff19SB/OPC) — 92% of 210 ns/day OpenCL baseline. Float atomics optimization (v0.1.11) closed the gap from 16% to 8% by switching nonbonded force writes from 64-bit emulated atomics to native 32-bit float atomics. Code lives at `pseudo-control/Ember-Metal` (branch `codex/nonbonded-buffer-bindings`).
+
+**Safe revert point**: `git checkout f313c99 -- .` restores 47/47 tests + 176 ns/day (pre-float-atomics). Current: `git checkout 2709c6a -- .` for 46/47 tests + 193 ns/day.
 
 **Resolved blockers**:
 - `TestMetalDispersionPME` — fixed by switching from Abramowitz-Stegun 5-term erfc polynomial (max error 1.5e-7, systematic bias accumulated across PME grid) to Numerical Recipes 9-term Chebyshev rational approximation (max error ~1.2e-7, better bias distribution). Energy now within 5e-5 tolerance.
@@ -213,19 +216,45 @@ From `run_md_simulation.py`:
 
 ### Performance Optimization Roadmap
 
-Remaining gap: 130.7 → ≥210 ns/day (38%). Ordered by impact:
+Remaining gap: 170 → ≥210 ns/day (19%). Root cause: **kernel execution quality**, not scheduling.
 
-1. **VkFFT command buffer integration** — VkFFT's `launchParams` accepts an existing `MTLCommandBuffer`. Currently we flush before every FFT and VkFFT creates its own. Passing in the persistent buffer eliminates multiple commit/wait cycles per PME step. Biggest remaining scheduling win.
-2. **Blit operation integration** — fold `clearBuffer`/`clearAutoclearBuffers` into the persistent command buffer (end compute encoder → blit encoder → resume compute encoder on same command buffer). Eliminates flush-per-clear.
-3. **Dynamic threadgroup sizes** — query `threadExecutionWidth` (32 on Apple Silicon) and `maxTotalThreadsPerThreadgroup` at pipeline creation. Use 128 instead of hardcoded `ThreadBlockSize=64`. ~10-20% gain from better occupancy.
-4. **Private buffers + MTLHeap** — switch big arrays (posq, forces, neighbor lists) from `MTLResourceStorageModeShared` to `MTLResourceStorageModePrivate` with explicit blit for host reads. ~5-10%.
-5. **Half-precision floats** — safe for nonbonded kernels on Apple Silicon, halves bandwidth. Incremental.
+**Evidence — scaling benchmark** (Metal vs OpenCL, same hardware, same system):
+| System | Metal ms/step | OpenCL ms/step | Result |
+|--------|-------------|--------------|--------|
+| 2,640 atoms | 0.441 | 0.466 | **Metal 5% FASTER** |
+| 7,209 atoms | 1.067 | 0.727 | Metal 47% slower |
+| 16,269 atoms | 1.612 | 1.196 | Metal 35% slower |
+| 22,609 atoms | 2.033 | 1.646 | Metal 19% slower |
+
+Metal wins on small systems (dispatch/encoding is faster thanks to command buffer batching) but loses as atom count grows and kernel execution dominates. The MSL compiler produces less efficient GPU code than cl2Metal's IR-level path for the hot kernels (`computeNonbonded` at 36% GPU time, `findBlocksWithInteractions` at 15%).
+
+**GPU counter profiling results** (Instruments, Performance Limiters counter set):
+| Limiter | Avg % | Meaning |
+|---------|-------|---------|
+| **Texture Write Limiter** | **20.2%** | **#1 bottleneck — atomic force writes** |
+| Texture Read Cache Limiter | 15.1% | Read cache misses |
+| Texture Read Utilization | 10.9% | Read bandwidth |
+| GPU Bandwidth | 8.4% | Overall bandwidth |
+| ALU Limiter | not listed | NOT a bottleneck |
+
+Root cause: 64-bit fixed-point atomic force writes via `_mm_atomic_add(device unsigned long*, ...)` in `common.metal`. Each force component does TWO 32-bit `atomic_fetch_add` (low word + carry). 12 atomic writes per atom per off-diagonal tile.
+
+**Completed**: Blit integration, ThreadBlockSize 64→128, deferred interaction count, debug cleanup, register hoisting of box vectors in hot kernels (+5-8%), **float atomics** (v0.1.11, +9.6% — 176→193 ns/day).
+
+**Next optimization**: Remaining 8% gap to OpenCL (193 vs 210 ns/day). Profile with GPU counters to identify new bottleneck after float atomics reduced Texture Write Limiter pressure.
+
+**Dead ends** (investigated, no gain):
+- VkFFT flush overhead — VkFFT DISABLED, native FFT uses batched dispatch
+- SIMD force reduction — each thread writes to different atom, can't sum
+- SIMD energy reduction — negligible (<0.3%)
+- Memory barriers — 0% impact on Apple Silicon
+- Automated transformer hoisting — hurts cold kernels; manual hot-kernel targeting is better
 
 **Hardware detection**: Use runtime MTL queries (`threadExecutionWidth`, `maxTotalThreadsPerThreadgroup`, `isLowPowerDevice`, `recommendedMaxWorkingSetSize`) — no static chip tables. Same binary runs on M-series desktops and A-series phones.
 
 ### Test Suite Architecture
 
-The native Metal backend (`.build-metal/`) has **45 tests** across 3 tiers, controlled by CMake flags. Turner's original HIP build (`.build/`) had 34 tests — the 7-test difference is AMOEBA/Drude/WCA plugin tests that don't apply to native Metal.
+The native Metal backend (`.build-metal/`) has **47 tests** across 3 tiers, controlled by CMake flags. Turner's original HIP build (`.build/`) had 34 tests — the difference is AMOEBA/Drude/WCA plugin tests that don't apply to native Metal, plus ATMForce and CustomCPPForce added for native Metal.
 
 **Short tests (27)** — `platforms/metal/tests/` — built by default:
 ```
@@ -304,6 +333,50 @@ When porting OpenCL kernels to native MSL, these are non-obvious differences tha
 
 **Test file format:**
 - `TestMetalNonbondedForce` was renamed from `.cpp` to `.mm` because it uses `#import <Metal/Metal.h>` for GPU memory queries. The `long_tests/CMakeLists.txt` glob includes `"*Test*.mm"` to pick it up.
+
+### Performance Profiling Protocol
+
+**Step 1: Per-kernel GPU timing** (built-in, no Xcode needed):
+```bash
+OPENMM_METAL_PROFILE_KERNELS=1 ~/miniconda3/envs/openmm-metal/bin/python /tmp/gpu_profile_target.py 2>&1
+```
+Falls back to per-dispatch sync (much slower). Output is Chrome Tracing JSON. Parse with:
+```bash
+grep '"ph":"X"' output.txt | \
+  sed 's/.*"dur"://;s/,.*"name":"/\t/;s/".*//' | \
+  awk -F'\t' '{sum[$2]+=$1; count[$2]++; total+=$1} END{for(k in sum) printf "%6.1f%%  %10.0f us  %5d calls  %8.1f avg  %s\n", 100*sum[k]/total, sum[k], count[k], sum[k]/count[k], k}' | sort -rn
+```
+
+**Step 2: Metal vs OpenCL comparison** (determines scheduling vs kernel bottleneck):
+```bash
+# Same system, both platforms — compare ns/day
+python benchmark.py Metal
+python benchmark.py OpenCL
+```
+If per-step gap (ms) is constant across system sizes → scheduling overhead. If gap scales with atoms → kernel execution speed.
+
+**Step 3: Xcode Metal System Trace** (GPU counters, occupancy, idle gaps):
+Requires full Xcode.app (`sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`).
+```bash
+# Launch method (may crash under instrumentation):
+xctrace record --template "Metal System Trace" --time-limit 15s --output /tmp/trace.trace \
+  --launch -- ~/miniconda3/envs/openmm-metal/bin/python script.py
+
+# Attach method (more reliable — start script first, then attach):
+python script_with_pause.py &  # prints PID, sleeps 10s before stepping
+xctrace record --template "Metal System Trace" --time-limit 8s --output /tmp/trace.trace \
+  --attach <PID>
+
+open /tmp/trace.trace  # opens in Instruments GUI
+```
+**Note**: CLI-captured traces have GPU counters disabled by default ("Counter Set: (null)"). For ALU/memory utilization data, open Instruments GUI → Metal Application instrument → configure GPU counter set before recording.
+
+**Step 4: Metal shader compiler analysis** (register pressure, occupancy):
+Requires Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`):
+```bash
+xcrun metal -std=metal3.1 -O2 -o kernel.metallib /tmp/metal_kernel_N.metal
+xcrun metallib-stats kernel.metallib  # register count, threadgroup memory
+```
 
 ### Debug Environment Variables
 
