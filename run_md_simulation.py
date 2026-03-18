@@ -3,9 +3,11 @@
 OpenMM MD simulation for FragGen GUI.
 Builds system from GNINA docking output and runs simulation.
 
-Two force field presets:
-  - Fast: ff14SB + TIP3P (classic validated combination)
-  - Accurate: ff19SB + OPC (modern, higher accuracy)
+Force field presets:
+  - ff14sb-tip3p: ff14SB + TIP3P (classic validated combination)
+  - ff19sb-opc: ff19SB + OPC (modern, higher accuracy, default)
+  - ff19sb-opc3: ff19SB + OPC3 (fast modern, nearly OPC accuracy)
+  - charmm36-mtip3p: CHARMM36 + mTIP3P (cross-family validation)
 
 AMBER-style equilibration protocol with positional restraints:
 1. Restrained minimization (heavy atoms, 10 kcal/mol/A²)
@@ -40,6 +42,17 @@ except ImportError as e:
     print(f"ERROR:Missing dependency: {e}", file=sys.stderr)
     print("Please install: conda install -c conda-forge openmm openmmforcefields openff-toolkit pdbfixer", file=sys.stderr)
     sys.exit(1)
+
+# Force field presets
+PRESETS = {
+    'ff14sb-tip3p':    {'protein_ff': ['amber14-all.xml'],              'water_ff': ['amber14/tip3p.xml'],         'water_model': 'tip3p',   'water_label': 'TIP3P'},
+    'ff19sb-opc':      {'protein_ff': ['amber/protein.ff19SB.xml'],     'water_ff': ['amber/opc_standard.xml'],    'water_model': 'tip4pew', 'water_label': 'OPC'},
+    'ff19sb-opc3':     {'protein_ff': ['amber/protein.ff19SB.xml'],     'water_ff': ['amber/opc3_standard.xml'],   'water_model': 'tip3p',   'water_label': 'OPC3'},
+    'charmm36-mtip3p': {'protein_ff': ['charmm36.xml'],                 'water_ff': ['charmm36/water.xml'],        'water_model': 'tip3p',   'water_label': 'mTIP3P'},
+}
+
+# Backward compat mapping for old preset names
+_PRESET_ALIASES = {'fast': 'ff14sb-tip3p', 'accurate': 'ff19sb-opc'}
 
 # Force constant unit
 KCAL_MOL_A2 = kilocalories_per_mole / angstroms**2
@@ -148,7 +161,7 @@ def add_backbone_restraints(system, positions, topology, force_constant):
     return restraint, backbone_indices
 
 
-def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='accurate'):
+def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='ff19sb-opc'):
     """Build solvated ligand-only system (no protein).
 
     For studying small molecule dynamics in solution.
@@ -181,16 +194,11 @@ def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='accurat
     print('PROGRESS:building:20', flush=True)
 
     # 2. Setup force field (water model + OpenFF Sage 2.0 for ligand)
-    if force_field_preset == 'accurate':
-        print(f'[{time.time()-t_start:.1f}s] Setting up force fields (OPC + OpenFF Sage 2.0)...', file=sys.stderr)
-        ff = ForceField('amber/opc_standard.xml')
-        water_model = 'tip4pew'
-        water_label = 'OPC'
-    else:
-        print(f'[{time.time()-t_start:.1f}s] Setting up force fields (TIP3P + OpenFF Sage 2.0)...', file=sys.stderr)
-        ff = ForceField('amber14/tip3p.xml')
-        water_model = 'tip3p'
-        water_label = 'TIP3P'
+    preset = PRESETS[force_field_preset]
+    water_model = preset['water_model']
+    water_label = preset['water_label']
+    print(f'[{time.time()-t_start:.1f}s] Setting up force fields ({water_label} + OpenFF Sage 2.0)...', file=sys.stderr)
+    ff = ForceField(*preset['water_ff'])
 
     smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand])
     ff.registerTemplateGenerator(smirnoff.generator)
@@ -271,7 +279,7 @@ def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='accurat
     return system, modeller, ff, job_name
 
 
-def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='accurate'):
+def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='ff19sb-opc'):
     """Build solvated protein-ligand system.
 
     Force field presets:
@@ -317,7 +325,7 @@ def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='accur
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
-    fixer.addMissingHydrogens(7.0)  # pH 7.0
+    fixer.addMissingHydrogens(7.4)  # pH 7.4 (matches receptor preparation in docking pipeline)
 
     # Remove water and heterogens (we'll re-add the ligand with correct coordinates)
     fixer.removeHeterogens(keepWater=False)
@@ -416,12 +424,11 @@ def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='accur
                 print(f'  Ligand COM after correction: distance to protein = {np.linalg.norm(new_com - prot_com):.1f} A', file=sys.stderr)
 
     # 3. Setup force field with ligand parameters (OpenFF Sage 2.0)
-    if force_field_preset == 'accurate':
-        print('Setting up force fields (ff19SB + OPC + OpenFF Sage 2.0)...', file=sys.stderr)
-        ff = ForceField('amber/protein.ff19SB.xml', 'amber/opc_standard.xml')
-    else:
-        print('Setting up force fields (ff14SB + TIP3P + OpenFF Sage 2.0)...', file=sys.stderr)
-        ff = ForceField('amber14-all.xml', 'amber14/tip3p.xml')
+    preset = PRESETS[force_field_preset]
+    water_model = preset['water_model']
+    water_label = preset['water_label']
+    print(f'Setting up force fields ({", ".join(preset["protein_ff"])} + {water_label} + OpenFF Sage 2.0)...', file=sys.stderr)
+    ff = ForceField(*preset['protein_ff'], *preset['water_ff'])
 
     smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand])
     ff.registerTemplateGenerator(smirnoff.generator)
@@ -442,15 +449,6 @@ def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='accur
 
     modeller.add(lig_top, lig_pos)
     print('PROGRESS:building:50', flush=True)
-
-    # 5. Add solvent (dodecahedron = ~30% less water than cube)
-    if force_field_preset == 'accurate':
-        # OPC is a 4-site model; use tip4pew template geometry (topologically identical)
-        water_model = 'tip4pew'
-        water_label = 'OPC'
-    else:
-        water_model = 'tip3p'
-        water_label = 'TIP3P'
 
     print(f'Adding solvent ({water_label} water, dodecahedron)...', file=sys.stderr)
     modeller.addSolvent(
@@ -826,26 +824,40 @@ def run_equilibration(simulation, modeller, output_dir, job_name, target_temp=30
         PDBFile.writeFile(topology, state.getPositions(), f)
 
     pe = state.getPotentialEnergy().value_in_unit(kilocalories_per_mole)
-    print(f'Equilibration complete: PE = {pe:.1f} kcal/mol', file=sys.stderr)
+    box_vectors = state.getPeriodicBoxVectors()
+    import numpy as np
+    box_a = np.array([box_vectors[0].x, box_vectors[0].y, box_vectors[0].z]) * 10  # nm → Å
+    box_b = np.array([box_vectors[1].x, box_vectors[1].y, box_vectors[1].z]) * 10
+    box_c = np.array([box_vectors[2].x, box_vectors[2].y, box_vectors[2].z]) * 10
+    volume_A3 = abs(np.dot(box_a, np.cross(box_b, box_c)))
+    total_mass = sum([a.element.mass.value_in_unit(amu) for a in topology.atoms() if a.element is not None])
+    density_g_cm3 = (total_mass * 1.66054e-24) / (volume_A3 * 1e-24)
+    print(f'Equilibration complete: PE = {pe:.1f} kcal/mol, density = {density_g_cm3:.4f} g/cm³, volume = {volume_A3:.0f} Å³', file=sys.stderr)
     log_stage_diagnostics(simulation, "Stage 6: Unrestrained Equil Complete (FINAL)", topology, initial_lig_com)
     return state, platform_name
 
 
-def run_production(system, modeller, equilibrated_state, output_dir, job_name, production_ns, platform_name):
+def run_production(system, modeller, equilibrated_state, output_dir, job_name, production_ns, platform_name, restrain_ligand_ns=0):
     """Run production MD and save trajectory.
 
     Creates a new simulation with 4fs timestep (HMR enabled in system).
     Saves trajectory every 10 ps (2500 steps at 4fs).
     Saves energy every 2 ps (500 steps).
+
+    If restrain_ligand_ns > 0, applies a weak (1 kcal/mol/Å²) harmonic restraint
+    on ligand heavy atoms for the first N ns, then releases. This is useful for
+    IFD-MD workflows where you want the protein to adapt around a docked pose.
     """
     print('PROGRESS:production:0', flush=True)
     print(f'Running production MD ({production_ns} ns) with 4fs timestep (HMR)...', file=sys.stderr)
+    if restrain_ligand_ns > 0:
+        print(f'  Ligand restraint: {restrain_ligand_ns} ns at 1.0 kcal/mol/Å² then release', file=sys.stderr)
 
     # Create new integrator with 4fs timestep for production (HMR enabled in system)
     integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
 
     # Create new simulation with 4fs integrator
-    # Platform cascade: CUDA → Metal (native) → OpenCL (cl2Metal) → CPU
+    # Platform dispatch: uses whichever platform was selected during equilibration
     if platform_name == 'CUDA':
         platform = Platform.getPlatformByName('CUDA')
         properties = {'CudaPrecision': 'mixed'}
@@ -865,10 +877,32 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
     simulation.context.setVelocities(equilibrated_state.getVelocities())
     simulation.context.setPeriodicBoxVectors(*equilibrated_state.getPeriodicBoxVectors())
 
-    # Ensure all restraint forces are OFF for production
+    # Ensure all equilibration restraint forces are OFF for production
     # (new Context resets global parameters to their initial values)
     simulation.context.setParameter('k_heavy', 0)
     simulation.context.setParameter('k', 0)
+
+    # Add ligand restraint if requested (IFD-MD mode)
+    has_ligand_restraint = False
+    if restrain_ligand_ns > 0:
+        lig_indices, lig_resnames = _find_ligand_indices(modeller.topology)
+        if lig_indices:
+            lig_restraint = CustomExternalForce('k_lig*periodicdistance(x,y,z,x0,y0,z0)^2')
+            lig_restraint.addGlobalParameter('k_lig', 1.0 * KCAL_MOL_A2)
+            lig_restraint.addPerParticleParameter('x0')
+            lig_restraint.addPerParticleParameter('y0')
+            lig_restraint.addPerParticleParameter('z0')
+            eq_positions = equilibrated_state.getPositions()
+            for idx in lig_indices:
+                pos = eq_positions[idx]
+                lig_restraint.addParticle(idx, [pos.x, pos.y, pos.z])
+            system.addForce(lig_restraint)
+            # Must reinitialize context after adding force
+            simulation.context.reinitialize(preserveState=True)
+            has_ligand_restraint = True
+            print(f'  Ligand restraint active: {len(lig_indices)} heavy atoms ({",".join(sorted(lig_resnames))})', file=sys.stderr)
+        else:
+            print('  Warning: no ligand atoms found, skipping ligand restraint', file=sys.stderr)
 
     # Setup trajectory reporter (save every 10 ps = 2500 steps at 4fs)
     # Use job name for self-contained filenames
@@ -887,11 +921,23 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
     # Run production with 4fs timestep: 250000 steps/ns
     # Report every 0.1 ns (25000 steps at 4fs)
     total_steps = int(production_ns * 250000)
+    restrain_steps = int(restrain_ligand_ns * 250000) if has_ligand_restraint else 0
     steps_per_report = 25000  # 0.1 ns at 4fs
 
     steps_completed = 0
     while steps_completed < total_steps:
+        # Release ligand restraint at the boundary
+        if has_ligand_restraint and steps_completed >= restrain_steps:
+            simulation.context.setParameter('k_lig', 0)
+            has_ligand_restraint = False
+            ns_released = steps_completed / 250000
+            print(f'  Ligand restraint released at {ns_released:.1f} ns', file=sys.stderr)
+
         steps_to_run = min(steps_per_report, total_steps - steps_completed)
+        # Don't overshoot the restraint boundary
+        if has_ligand_restraint and steps_completed + steps_to_run > restrain_steps:
+            steps_to_run = restrain_steps - steps_completed
+
         simulation.step(steps_to_run)
         steps_completed += steps_to_run
 
@@ -922,9 +968,7 @@ def run_benchmark(system, modeller, output_dir):
     # Create simulation for benchmark (4fs timestep, HMR enabled in system)
     integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
 
-    # Try to use CUDA/HIP(Metal)/OpenCL if available
-    # The openmm-metal plugin registers as "HIP" to bypass OpenMM's energy minimizer checks.
-    # Cascade: CUDA → Metal (native) → OpenCL (cl2Metal) → CPU
+    # Platform cascade: CUDA → OpenCL (cl2Metal) → Metal (native) → CPU
     try:
         platform = Platform.getPlatformByName('CUDA')
         properties = {'CudaPrecision': 'mixed'}
@@ -932,14 +976,14 @@ def run_benchmark(system, modeller, output_dir):
         print('Using CUDA platform', file=sys.stderr)
     except Exception:
         try:
-            platform = Platform.getPlatformByName('Metal')
+            platform = Platform.getPlatformByName('OpenCL')
             simulation = Simulation(modeller.topology, system, integrator, platform)
-            print('Using Metal (native) platform', file=sys.stderr)
+            print('Using OpenCL platform (Apple GPU via cl2Metal)', file=sys.stderr)
         except Exception:
             try:
-                platform = Platform.getPlatformByName('OpenCL')
+                platform = Platform.getPlatformByName('Metal')
                 simulation = Simulation(modeller.topology, system, integrator, platform)
-                print('Using OpenCL platform', file=sys.stderr)
+                print('Using Metal platform (Apple GPU)', file=sys.stderr)
             except Exception:
                 platform = Platform.getPlatformByName('CPU')
                 simulation = Simulation(modeller.topology, system, integrator, platform)
@@ -979,12 +1023,19 @@ def main():
     parser.add_argument('--ligand', required=True, help='Ligand SDF file')
     parser.add_argument('--output_dir', required=True, help='Output directory')
     parser.add_argument('--production_ns', type=float, default=10, help='Production duration in ns')
-    parser.add_argument('--force_field_preset', choices=['fast', 'accurate'], default='accurate',
-                        help='Force field preset: fast (ff14SB+TIP3P) or accurate (ff19SB+OPC)')
+    parser.add_argument('--force_field_preset',
+                        choices=list(PRESETS.keys()) + ['fast', 'accurate'],
+                        default='ff19sb-opc',
+                        help='Force field preset (default: ff19sb-opc)')
     parser.add_argument('--ligand_only', action='store_true',
                         help='Ligand-only mode (no protein, small molecule in solvent)')
     parser.add_argument('--benchmark_only', action='store_true', help='Only run benchmark')
+    parser.add_argument('--restrain_ligand_ns', type=float, default=0,
+                        help='Restrain ligand heavy atoms for first N ns of production (0=off, IFD-MD mode)')
     args = parser.parse_args()
+
+    # Map legacy preset names
+    args.force_field_preset = _PRESET_ALIASES.get(args.force_field_preset, args.force_field_preset)
 
     if not args.ligand_only and not args.receptor:
         parser.error('--receptor is required unless --ligand_only is specified')
@@ -1033,8 +1084,7 @@ def main():
     # List available platforms
     print(f'Available platforms: {[Platform.getPlatform(i).getName() for i in range(Platform.getNumPlatforms())]}', file=sys.stderr)
 
-    # Platform cascade: CUDA → Metal (native) → OpenCL (cl2Metal) → CPU
-    # The openmm-metal plugin registers as "HIP" to bypass OpenMM's energy minimizer checks.
+    # Platform cascade: CUDA → OpenCL (cl2Metal) → Metal (native) → CPU
     platform_name = 'CPU'
     try:
         platform = Platform.getPlatformByName('CUDA')
@@ -1049,24 +1099,24 @@ def main():
     except Exception as cuda_err:
         print(f'CUDA not available: {cuda_err}', file=sys.stderr)
         try:
-            platform = Platform.getPlatformByName('Metal')
-            simulation = Simulation(modeller.topology, system, integrator, platform)
-            platform_name = 'Metal'
-            print('Using Metal (native) platform', file=sys.stderr)
-        except Exception as hip_err:
-            print(f'HIP not available: {hip_err}', file=sys.stderr)
+            platform = Platform.getPlatformByName('OpenCL')
+            properties = {'Precision': 'single'}
+            simulation = Simulation(modeller.topology, system, integrator, platform, properties)
+            platform_name = 'OpenCL'
             try:
-                platform = Platform.getPlatformByName('OpenCL')
-                properties = {'Precision': 'single'}
-                simulation = Simulation(modeller.topology, system, integrator, platform, properties)
-                platform_name = 'OpenCL'
-                try:
-                    device_name = platform.getPropertyValue(simulation.context, 'DeviceName')
-                    print(f'Using OpenCL platform: {device_name}', file=sys.stderr)
-                except:
-                    print('Using OpenCL platform', file=sys.stderr)
-            except Exception as ocl_err:
-                print(f'OpenCL not available: {ocl_err}', file=sys.stderr)
+                device_name = platform.getPropertyValue(simulation.context, 'DeviceName')
+                print(f'Using OpenCL platform: {device_name}', file=sys.stderr)
+            except:
+                print('Using OpenCL platform', file=sys.stderr)
+        except Exception as ocl_err:
+            print(f'OpenCL not available: {ocl_err}', file=sys.stderr)
+            try:
+                platform = Platform.getPlatformByName('Metal')
+                simulation = Simulation(modeller.topology, system, integrator, platform)
+                platform_name = 'Metal'
+                print('Using Metal (native) platform', file=sys.stderr)
+            except Exception as metal_err:
+                print(f'Metal not available: {metal_err}', file=sys.stderr)
                 platform = Platform.getPlatformByName('CPU')
                 simulation = Simulation(modeller.topology, system, integrator, platform)
                 print('Using CPU platform', file=sys.stderr)
@@ -1077,7 +1127,7 @@ def main():
     equilibrated_state, actual_platform = run_equilibration(simulation, modeller, args.output_dir, job_name, platform_name=platform_name)
 
     print(f'Running production ({args.production_ns} ns) on {actual_platform}...', file=sys.stderr)
-    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform)
+    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform, args.restrain_ligand_ns)
 
     print(f'SUCCESS:{trajectory}', flush=True)
 

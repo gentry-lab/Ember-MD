@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
     parser.add_argument('--output_dir', required=True, help='Output directory')
     parser.add_argument('--ligand_selection', default=None, help='Custom ligand selection string')
+    parser.add_argument('--output_format', default='png', choices=['png', 'pdf'], help='Plot output format')
     args = parser.parse_args()
 
     try:
@@ -219,31 +220,62 @@ def main():
 
     # Generate plot
     print("Generating plot...")
-    plot_path = os.path.join(args.output_dir, 'rmsd_plot.png')
+    fmt = args.output_format
+    plot_path = os.path.join(args.output_dir, f'rmsd.{fmt}')
+    # Also keep legacy path for backward compat
+    plot_path_legacy = os.path.join(args.output_dir, 'rmsd_plot.png')
     if plt is not None and time_ns is not None and len(time_ns) > 0:
-        fig, ax = plt.subplots(figsize=(10, 5))
+        has_both = rmsd_protein is not None and rmsd_ligand is not None
 
-        stats_parts = []
-        if rmsd_protein is not None:
-            ax.plot(time_ns, rmsd_protein, label='Protein Backbone', color='#2563eb', linewidth=0.8)
-            stats_parts.append(f'Protein: {np.mean(rmsd_protein):.2f} ± {np.std(rmsd_protein):.2f} Å')
-        if rmsd_ligand is not None:
-            ax.plot(time_ns, rmsd_ligand, label='Ligand', color='#dc2626', linewidth=0.8)
-            stats_parts.append(f'Ligand: {np.mean(rmsd_ligand):.2f} ± {np.std(rmsd_ligand):.2f} Å')
+        if has_both:
+            # Dual Y-axis: protein on left, ligand on right
+            fig, ax1 = plt.subplots(figsize=(10, 5))
+            ax2 = ax1.twinx()
 
-        ax.set_xlabel('Time (ns)')
-        ax.set_ylabel('RMSD (Å)')
-        ax.set_title('RMSD over Time')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+            l1, = ax1.plot(time_ns, rmsd_protein, label='Protein Backbone', color='#2563eb', linewidth=0.8)
+            l2, = ax2.plot(time_ns, rmsd_ligand, label='Ligand', color='#dc2626', linewidth=0.8)
 
-        if stats_parts:
-            stats_text = '\n'.join(stats_parts)
-            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=9,
-                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            ax1.set_xlabel('Time (ns)')
+            ax1.set_ylabel('Protein Cα RMSD (Å)', color='#2563eb')
+            ax2.set_ylabel('Ligand RMSD (Å)', color='#dc2626')
+            ax1.tick_params(axis='y', labelcolor='#2563eb')
+            ax2.tick_params(axis='y', labelcolor='#dc2626')
+            ax1.set_title('RMSD over Time')
+            ax1.grid(True, alpha=0.3)
+
+            lines = [l1, l2]
+            labels = [l.get_label() for l in lines]
+            ax1.legend(lines, labels, loc='upper left')
+
+            stats_text = (f'Protein: {np.mean(rmsd_protein):.2f} ± {np.std(rmsd_protein):.2f} Å\n'
+                          f'Ligand: {np.mean(rmsd_ligand):.2f} ± {np.std(rmsd_ligand):.2f} Å')
+            ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes, fontsize=9,
+                     verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        else:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            stats_parts = []
+            if rmsd_protein is not None:
+                ax.plot(time_ns, rmsd_protein, label='Protein Backbone', color='#2563eb', linewidth=0.8)
+                stats_parts.append(f'Protein: {np.mean(rmsd_protein):.2f} ± {np.std(rmsd_protein):.2f} Å')
+            if rmsd_ligand is not None:
+                ax.plot(time_ns, rmsd_ligand, label='Ligand', color='#dc2626', linewidth=0.8)
+                stats_parts.append(f'Ligand: {np.mean(rmsd_ligand):.2f} ± {np.std(rmsd_ligand):.2f} Å')
+
+            ax.set_xlabel('Time (ns)')
+            ax.set_ylabel('RMSD (Å)')
+            ax.set_title('RMSD over Time')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+
+            if stats_parts:
+                stats_text = '\n'.join(stats_parts)
+                ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=9,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150)
+        if fmt == 'pdf':
+            plt.savefig(plot_path_legacy, dpi=150)
         plt.close()
         print(f"Plot saved to: {plot_path}")
 

@@ -11,7 +11,52 @@ import json
 import math
 import os
 import sys
+import tempfile
 from collections import defaultdict
+
+
+def convert_cif_to_pdb(cif_path):
+    """Convert mmCIF (.cif) file to PDB format.
+
+    Uses BioPython's MMCIF parser which preserves HETATM records (ligands, waters, ions).
+    Falls back to PDBFixer if BioPython isn't available (PDBFixer may drop ligands).
+
+    Returns the path to the converted PDB file.
+    """
+    pdb_path = cif_path.rsplit('.', 1)[0] + '_converted.pdb'
+
+    # Prefer BioPython — it preserves all residues including HETATM
+    try:
+        from Bio.PDB import MMCIFParser, PDBIO
+        print(f"  Converting CIF to PDB (BioPython): {os.path.basename(cif_path)}", file=sys.stderr)
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure('struct', cif_path)
+        io = PDBIO()
+        io.set_structure(structure)
+        io.save(pdb_path)
+        print(f"  Converted to: {os.path.basename(pdb_path)}", file=sys.stderr)
+        return pdb_path
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"  WARNING: BioPython CIF conversion failed: {e}, trying PDBFixer", file=sys.stderr)
+
+    # Fallback to PDBFixer (may drop ligands)
+    try:
+        from pdbfixer import PDBFixer
+        from openmm.app import PDBFile
+    except ImportError:
+        print("ERROR: Neither BioPython nor PDBFixer available for CIF support", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Converting CIF to PDB (PDBFixer): {os.path.basename(cif_path)}", file=sys.stderr)
+    fixer = PDBFixer(filename=cif_path)
+
+    with open(pdb_path, 'w') as f:
+        PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)
+
+    print(f"  Converted to: {os.path.basename(pdb_path)}", file=sys.stderr)
+    return pdb_path
 
 # Common non-ligand HETATM residues to exclude
 EXCLUDE_RESIDUES = {
@@ -41,6 +86,85 @@ STANDARD_RESIDUES = {
     # DNA/RNA
     'DA', 'DT', 'DG', 'DC', 'A', 'U', 'G', 'C',
 }
+
+
+def parse_cif_ligands(cif_path):
+    """Parse mmCIF file and identify ligands using BioPython's MMCIF parser.
+
+    This avoids PDB column-width overflow issues with long residue names (>3 chars).
+    """
+    try:
+        from Bio.PDB import MMCIFParser
+    except ImportError:
+        print("ERROR: BioPython required for CIF ligand detection", file=sys.stderr)
+        sys.exit(1)
+
+    parser = MMCIFParser(QUIET=True)
+    structure = parser.get_structure('struct', cif_path)
+    model = structure[0]
+
+    ligands = {}
+    for chain in model:
+        for residue in chain:
+            het_flag = residue.get_id()[0]
+            resname = residue.get_resname().strip()
+            resnum = str(residue.get_id()[1])
+            chain_id = chain.id.strip() or '_'
+
+            # Only HETATM residues (het_flag starts with 'H_') or
+            # non-standard ATOM residues
+            is_hetatm = het_flag.startswith('H_')
+            is_nonstandard = (het_flag == ' ' and
+                              resname.upper() not in STANDARD_RESIDUES and
+                              resname.upper() not in EXCLUDE_RESIDUES)
+
+            if not is_hetatm and not is_nonstandard:
+                continue
+
+            if resname.upper() in EXCLUDE_RESIDUES:
+                continue
+
+            lig_id = f"{resname}_{chain_id}_{resnum}"
+
+            if lig_id not in ligands:
+                ligands[lig_id] = {
+                    'atoms': [], 'coords': [],
+                    'resname': resname, 'chain': chain_id, 'resnum': resnum,
+                }
+
+            for atom in residue:
+                coord = atom.get_vector().get_array()
+                x, y, z = float(coord[0]), float(coord[1]), float(coord[2])
+                ligands[lig_id]['atoms'].append({
+                    'name': atom.get_name(),
+                    'resname': resname,
+                    'chain': chain_id,
+                    'resnum': resnum,
+                    'x': x, 'y': y, 'z': z,
+                    'line': '',  # CIF doesn't have PDB lines
+                })
+                ligands[lig_id]['coords'].append((x, y, z))
+
+    # Filter out small molecules
+    valid_ligands = {}
+    for lig_id, data in ligands.items():
+        if len(data['atoms']) >= MIN_LIGAND_ATOMS:
+            coords = data['coords']
+            cx = sum(c[0] for c in coords) / len(coords)
+            cy = sum(c[1] for c in coords) / len(coords)
+            cz = sum(c[2] for c in coords) / len(coords)
+
+            valid_ligands[lig_id] = {
+                'id': lig_id,
+                'resname': data['resname'],
+                'chain': data['chain'],
+                'resnum': data['resnum'],
+                'num_atoms': len(data['atoms']),
+                'centroid': {'x': cx, 'y': cy, 'z': cz},
+                'atoms': data['atoms']
+            }
+
+    return valid_ligands
 
 
 def parse_pdb_ligands(pdb_path):
@@ -386,8 +510,22 @@ def main():
         print(f"ERROR: PDB file not found: {args.pdb}", file=sys.stderr)
         sys.exit(1)
 
+    # For CIF files: use native CIF parser for detect mode (avoids PDB column overflow
+    # with long residue names like A1AAK). For extract/prepare modes, convert to PDB.
+    is_cif = args.pdb.lower().endswith('.cif')
+
+    if args.mode == 'detect' and is_cif:
+        ligands = parse_cif_ligands(args.pdb)
+    elif is_cif:
+        input_path = convert_cif_to_pdb(args.pdb)
+        args.pdb = input_path
+        ligands = None  # not used for detect
+    else:
+        ligands = None  # will be set below
+
     if args.mode == 'detect':
-        ligands = parse_pdb_ligands(args.pdb)
+        if ligands is None:
+            ligands = parse_pdb_ligands(args.pdb)
         # Output as JSON for easy parsing
         result = []
         for lig_id, data in ligands.items():

@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
     parser.add_argument('--output_dir', required=True, help='Output directory')
     parser.add_argument('--ligand_selection', default=None, help='Custom ligand selection string')
+    parser.add_argument('--contact_residues', default=None, help='JSON list of residue numbers that contact ligand')
+    parser.add_argument('--output_format', default='png', choices=['png', 'pdf'], help='Plot output format')
     args = parser.parse_args()
 
     try:
@@ -105,10 +107,27 @@ def main():
             f.write(f'{residue_indices[i]},{resnums[i]},{resnames[i]},{rmsf_values[i]:.4f}\n')
     print(f"Data saved to: {csv_path}")
 
+    # Parse contact residues if provided
+    contact_resnums = set()
+    if args.contact_residues:
+        try:
+            contact_resnums = set(json.loads(args.contact_residues))
+        except (json.JSONDecodeError, TypeError):
+            print(f"Warning: Could not parse contact_residues, ignoring", file=sys.stderr)
+
     # Generate plot
-    plot_path = os.path.join(args.output_dir, 'rmsf_plot.png')
+    fmt = args.output_format
+    plot_path = os.path.join(args.output_dir, f'rmsf.{fmt}')
+    plot_path_legacy = os.path.join(args.output_dir, 'rmsf_plot.png')
     if plt is not None:
         fig, ax = plt.subplots(figsize=(12, 5))
+
+        # Overlay green bars for ligand contact residues
+        if contact_resnums:
+            for i, rn in enumerate(resnums):
+                if rn in contact_resnums:
+                    ax.axvspan(residue_indices[i] - 0.4, residue_indices[i] + 0.4,
+                               alpha=0.15, color='#22c55e', zorder=0)
 
         ax.fill_between(residue_indices, 0, rmsf_values, alpha=0.3, color='#2563eb')
         ax.plot(residue_indices, rmsf_values, color='#2563eb', linewidth=0.8)
@@ -123,7 +142,6 @@ def main():
         mean_rmsf = np.mean(rmsf_values)
         ax.axhline(y=mean_rmsf, color='#dc2626', linestyle='--', linewidth=1, alpha=0.7,
                    label=f'Mean: {mean_rmsf:.2f} Å')
-        ax.legend()
 
         # Highlight flexible regions (> mean + 1 std)
         threshold = mean_rmsf + np.std(rmsf_values)
@@ -134,8 +152,18 @@ def main():
             ax.scatter(flexible_indices, flexible_rmsf, color='#dc2626', s=20, zorder=5,
                        label='Flexible regions')
 
+        # Build legend
+        from matplotlib.patches import Patch
+        handles, labels = ax.get_legend_handles_labels()
+        if contact_resnums:
+            handles.append(Patch(facecolor='#22c55e', alpha=0.3, label='Ligand contacts'))
+            labels.append('Ligand contacts')
+        ax.legend(handles, labels)
+
         plt.tight_layout()
         plt.savefig(plot_path, dpi=150)
+        if fmt == 'pdf':
+            plt.savefig(plot_path_legacy, dpi=150)
         plt.close()
         print(f"Plot saved to: {plot_path}")
 

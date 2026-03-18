@@ -5,7 +5,7 @@ Extracts pocket and ligand from a protein-ligand complex PDB file.
 """
 import argparse
 import os
-from Bio.PDB import PDBParser, PDBIO, Select, NeighborSearch
+from Bio.PDB import PDBParser, MMCIFParser, PDBIO, Select, NeighborSearch
 from Bio.PDB.Polypeptide import is_aa
 import numpy as np
 
@@ -98,8 +98,11 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Parse structure
-    parser_pdb = PDBParser(QUIET=True)
+    # Parse structure (CIF or PDB)
+    if args.input_pdb.lower().endswith('.cif'):
+        parser_pdb = MMCIFParser(QUIET=True)
+    else:
+        parser_pdb = PDBParser(QUIET=True)
     structure = parser_pdb.get_structure('complex', args.input_pdb)
 
     # Find ligand

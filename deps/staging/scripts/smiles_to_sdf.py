@@ -84,9 +84,14 @@ def load_mol_file(mol_path):
     return mol, None
 
 
-def generate_thumbnail(mol, size=300):
-    """Generate a 2D PNG thumbnail as base64 string."""
-    # Make a 2D copy for drawing
+def generate_thumbnail(mol, pixels_per_angstrom=32, min_size=150, max_size=600):
+    """Generate a 2D PNG thumbnail scaled to molecule size.
+
+    Uses MolDraw2DCairo with fixed bond length so the image grows
+    proportionally with the molecule.
+    """
+    from rdkit.Chem.Draw import rdMolDraw2D
+
     mol_2d = Chem.RWMol(mol)
     try:
         Chem.RemoveAllHs(mol_2d)
@@ -95,13 +100,30 @@ def generate_thumbnail(mol, size=300):
 
     AllChem.Compute2DCoords(mol_2d)
 
-    img = Draw.MolToImage(mol_2d, size=(size, size))
+    # Compute bounding box of 2D coordinates
+    conf = mol_2d.GetConformer()
+    xs = [conf.GetAtomPosition(i).x for i in range(mol_2d.GetNumAtoms())]
+    ys = [conf.GetAtomPosition(i).y for i in range(mol_2d.GetNumAtoms())]
+    span_x = max(xs) - min(xs) if xs else 1.0
+    span_y = max(ys) - min(ys) if ys else 1.0
 
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    buf.seek(0)
+    padding = 3.0
+    w = int((span_x + padding) * pixels_per_angstrom)
+    h = int((span_y + padding) * pixels_per_angstrom)
 
-    return base64.b64encode(buf.read()).decode('utf-8')
+    w = max(min_size, min(max_size, w))
+    h = max(min_size, min(max_size, h))
+
+    drawer = rdMolDraw2D.MolDraw2DCairo(w, h)
+    opts = drawer.drawOptions()
+    opts.clearBackground = True
+    opts.backgroundColour = (1, 1, 1, 1)
+    opts.fixedBondLength = pixels_per_angstrom * 1.5
+    drawer.DrawMolecule(mol_2d)
+    drawer.FinishDrawing()
+
+    png_data = drawer.GetDrawingText()
+    return base64.b64encode(png_data).decode('utf-8'), w, h
 
 
 def main():
@@ -147,7 +169,7 @@ def main():
     writer.close()
 
     # Generate 2D thumbnail
-    thumbnail = generate_thumbnail(mol)
+    thumbnail, thumb_w, thumb_h = generate_thumbnail(mol)
 
     # Output result as JSON
     result = {
@@ -157,6 +179,8 @@ def main():
         "qed": round(qed, 3),
         "mw": round(mw, 1),
         "thumbnail": thumbnail,
+        "thumbnailWidth": thumb_w,
+        "thumbnailHeight": thumb_h,
     }
     print(json.dumps(result))
 

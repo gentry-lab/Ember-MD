@@ -20,6 +20,48 @@ import os
 import sys
 import tempfile
 
+
+def convert_cif_to_pdb(cif_path):
+    """Convert mmCIF (.cif) file to PDB format.
+
+    Prefers BioPython (preserves all HETATM records including ligands).
+    Falls back to PDBFixer (may drop some non-standard residues).
+    """
+    pdb_path = cif_path.rsplit('.', 1)[0] + '_converted.pdb'
+
+    # Prefer BioPython — preserves all residues including HETATM
+    try:
+        from Bio.PDB import MMCIFParser, PDBIO
+        print(f"  Converting CIF to PDB (BioPython): {os.path.basename(cif_path)}", file=sys.stderr)
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure('struct', cif_path)
+        io = PDBIO()
+        io.set_structure(structure)
+        io.save(pdb_path)
+        print(f"  Converted to: {os.path.basename(pdb_path)}", file=sys.stderr)
+        return pdb_path
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"  WARNING: BioPython CIF conversion failed: {e}, trying PDBFixer", file=sys.stderr)
+
+    # Fallback to PDBFixer
+    try:
+        from pdbfixer import PDBFixer
+        from openmm.app import PDBFile
+    except ImportError:
+        print("ERROR: Neither BioPython nor PDBFixer available for CIF support", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Converting CIF to PDB (PDBFixer): {os.path.basename(cif_path)}", file=sys.stderr)
+    fixer = PDBFixer(filename=cif_path)
+
+    with open(pdb_path, 'w') as f:
+        PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)
+
+    print(f"  Converted to: {os.path.basename(pdb_path)}", file=sys.stderr)
+    return pdb_path
+
 try:
     import rdkit.Chem as Chem
     from rdkit.Chem import AllChem, Draw, Descriptors
@@ -131,8 +173,15 @@ def assign_bond_orders_from_smiles(pdb_path, smiles):
         return None, f"Bond order assignment failed: {e}"
 
 
-def generate_thumbnail(mol, size=300):
-    """Generate a 2D PNG thumbnail as base64 string."""
+def generate_thumbnail(mol, pixels_per_angstrom=32, min_size=150, max_size=600):
+    """Generate a 2D PNG thumbnail scaled to molecule size.
+
+    Uses MolDraw2DCairo with fixed bond length so the image grows
+    proportionally with the molecule. Small fragments get small images;
+    large macrocycles get larger ones.
+    """
+    from rdkit.Chem.Draw import rdMolDraw2D
+
     mol_2d = Chem.RWMol(mol)
     try:
         mol_2d = Chem.RemoveAllHs(mol_2d)
@@ -140,12 +189,33 @@ def generate_thumbnail(mol, size=300):
         pass
 
     AllChem.Compute2DCoords(mol_2d)
-    img = Draw.MolToImage(mol_2d, size=(size, size))
 
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode('utf-8')
+    # Compute bounding box of 2D coordinates
+    conf = mol_2d.GetConformer()
+    xs = [conf.GetAtomPosition(i).x for i in range(mol_2d.GetNumAtoms())]
+    ys = [conf.GetAtomPosition(i).y for i in range(mol_2d.GetNumAtoms())]
+    span_x = max(xs) - min(xs) if xs else 1.0
+    span_y = max(ys) - min(ys) if ys else 1.0
+
+    # Add padding (roughly 2 bond lengths on each side)
+    padding = 3.0  # angstroms
+    w = int((span_x + padding) * pixels_per_angstrom)
+    h = int((span_y + padding) * pixels_per_angstrom)
+
+    # Clamp to min/max
+    w = max(min_size, min(max_size, w))
+    h = max(min_size, min(max_size, h))
+
+    drawer = rdMolDraw2D.MolDraw2DCairo(w, h)
+    opts = drawer.drawOptions()
+    opts.clearBackground = True
+    opts.backgroundColour = (1, 1, 1, 1)
+    opts.fixedBondLength = pixels_per_angstrom * 1.5  # 1.5 A avg bond length
+    drawer.DrawMolecule(mol_2d)
+    drawer.FinishDrawing()
+
+    png_data = drawer.GetDrawingText()
+    return base64.b64encode(png_data).decode('utf-8'), w, h
 
 
 def main():
@@ -157,6 +227,10 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
+
+    # Auto-convert CIF to PDB
+    if args.pdb.lower().endswith('.cif'):
+        args.pdb = convert_cif_to_pdb(args.pdb)
 
     # Step 1: Extract ligand PDB
     ligand_pdb = os.path.join(args.output_dir, f'{args.ligand_id}_extracted.pdb')
@@ -214,8 +288,8 @@ def main():
     qed = Descriptors.qed(mol_no_h)
     mw = Descriptors.MolWt(mol_no_h)
 
-    # Step 5: Generate thumbnail
-    thumbnail = generate_thumbnail(mol)
+    # Step 5: Generate thumbnail (scaled to molecule size)
+    thumbnail, thumb_w, thumb_h = generate_thumbnail(mol)
 
     result = {
         "sdfPath": sdf_path,
@@ -225,6 +299,8 @@ def main():
         "qed": round(qed, 3),
         "mw": round(mw, 1),
         "thumbnail": thumbnail,
+        "thumbnailWidth": thumb_w,
+        "thumbnailHeight": thumb_h,
         "method": method,
     }
     print(json.dumps(result))
