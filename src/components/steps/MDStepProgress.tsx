@@ -1,9 +1,10 @@
-import { Component, onMount, createEffect, createSignal, createMemo, For, Show } from 'solid-js';
+import { Component, onMount, createSignal, createMemo, For, Show } from 'solid-js';
 import path from 'path';
 import { workflowStore } from '../../stores/workflow';
 import { useMdOutput } from '../../hooks/useElectronApi';
-import { MDStage, MD_COMMON_PARAMS } from '../../../shared/types/md';
-import { buildMdFolderName } from '../../utils/jobName';
+import { MDStage } from '../../../shared/types/md';
+import { buildMdRunFolderName, estimateChargeTime } from '../../utils/jobName';
+import TerminalOutput from '../shared/TerminalOutput';
 
 interface StageInfo {
   id: MDStage;
@@ -33,16 +34,15 @@ const MDStepProgress: Component = () => {
     setMdSystemInfo,
     setMdResult,
     setIsRunning,
+    setIsPaused,
     setCurrentPhase,
     setError,
     clearLogs,
   } = workflowStore;
 
-  const [copied, setCopied] = createSignal(false);
   const [hasStarted, setHasStarted] = createSignal(false);
   const [productionNs, setProductionNs] = createSignal<{ current: number; total: number } | null>(null);
   const [chargeEstimate, setChargeEstimate] = createSignal<string | null>(null);
-  let outputRef: HTMLPreElement | undefined;
 
   const api = window.electronAPI;
 
@@ -74,8 +74,7 @@ const MDStepProgress: Component = () => {
           setMdStageProgress(parseFloat(fullMatch[1]));
           const atoms = parseInt(fullMatch[2]);
           // Estimate based on empirical sqm profiling
-          const est = atoms <= 20 ? '< 10s' : atoms <= 30 ? '~10-30s' : atoms <= 40 ? '~30s-2min' : atoms <= 50 ? '~1-4min' : atoms <= 65 ? '~2-6min' : '~5min+';
-          setChargeEstimate(`${atoms} atoms, est. ${est}`);
+          setChargeEstimate(`${atoms} atoms, est. ${estimateChargeTime(atoms)}`);
         } else {
           setMdStageProgress(parseFloat(value));
         }
@@ -128,18 +127,28 @@ const MDStepProgress: Component = () => {
     setMdCurrentStage('building');
     setMdStageProgress(0);
 
-    // Use global job name and build folder name
+    // Use global job name as project folder, run folder inside it
     const globalJobName = state().jobName.trim();
     const defaultDir = await api.getDefaultOutputDir();
     const baseOutputDir = state().customOutputDir || defaultDir;
+    const projectDir = path.join(baseOutputDir, globalJobName);
 
-    // Build folder name: {jobName}-{ff}-MD_{temp}K_{ns}ns
-    const folderName = buildMdFolderName(globalJobName, {
+    const compoundId = state().md.config.compoundId?.trim() || '';
+    const runFolder = buildMdRunFolderName({
       forceFieldPreset: state().md.config.forceFieldPreset,
-      temperatureK: MD_COMMON_PARAMS.temperature,
+      temperatureK: state().md.config.temperatureK,
       productionNs: state().md.config.productionNs,
+      compoundId,
     });
-    const outputDir = path.join(baseOutputDir, folderName);
+
+    // Deduplicate: append _run2, _run3, etc. if folder exists
+    let finalRunFolder = runFolder;
+    let n = 1;
+    while (await api.fileExists(path.join(projectDir, finalRunFolder))) {
+      n++;
+      finalRunFolder = `${runFolder}_run${n}`;
+    }
+    const outputDir = path.join(projectDir, finalRunFolder);
 
     try {
       const result = await api.runMdSimulation(
@@ -151,31 +160,21 @@ const MDStepProgress: Component = () => {
       );
 
       if (!result.ok) {
-        setError(result.error.message);
-        setCurrentPhase('error');
+        // Don't overwrite if user already cancelled
+        if (state().currentPhase !== 'idle') {
+          setError(result.error.message);
+          setCurrentPhase('error');
+        }
         setIsRunning(false);
       }
     } catch (err) {
-      setError((err as Error).message);
-      setCurrentPhase('error');
+      if (state().currentPhase !== 'idle') {
+        setError((err as Error).message);
+        setCurrentPhase('error');
+      }
       setIsRunning(false);
     }
   };
-
-  const handleCopyLogs = async () => {
-    try {
-      await navigator.clipboard.writeText(state().logs);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  createEffect(() => {
-    const _ = state().logs;
-    if (outputRef) outputRef.scrollTop = outputRef.scrollHeight;
-  });
 
   onMount(() => {
     if (!state().isRunning && !hasStarted()) {
@@ -185,7 +184,15 @@ const MDStepProgress: Component = () => {
   });
 
   const handleBack = () => {
-    if (!state().isRunning) setMdStep('md-configure');
+    if (!state().isRunning) {
+      setCurrentPhase('idle');
+      setError(null);
+      clearLogs();
+      setMdCurrentStage(null);
+      setMdStageProgress(0);
+      setMdResult(null);
+      setMdStep('md-configure');
+    }
   };
 
   const currentStageIndex = createMemo(() => {
@@ -232,20 +239,72 @@ const MDStepProgress: Component = () => {
                     : 'Initializing...'}
           </p>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
           <Show when={state().md.systemInfo}>
-            <div class="text-right text-xs">
-              <span class="text-base-content/80">{state().md.systemInfo!.atomCount.toLocaleString()} atoms</span>
-            </div>
+            <span class="text-xs text-base-content/80">{state().md.systemInfo!.atomCount.toLocaleString()} atoms</span>
           </Show>
           {state().isRunning && (
+            <>
+              <Show
+                when={!state().isPaused}
+                fallback={
+                  <button
+                    class="btn btn-circle btn-xs btn-info"
+                    title="Resume"
+                    onClick={async () => {
+                      await window.electronAPI.resumeMdSimulation();
+                      setIsPaused(false);
+                      appendLog('\n--- Simulation resumed ---\n');
+                    }}
+                  >
+                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </button>
+                }
+              >
+                <button
+                  class="btn btn-circle btn-xs btn-ghost"
+                  title="Pause"
+                  onClick={async () => {
+                    await window.electronAPI.pauseMdSimulation();
+                    setIsPaused(true);
+                    appendLog('\n--- Simulation paused ---\n');
+                  }}
+                >
+                  <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 4h4v16H6zm8 0h4v16h-4z" />
+                  </svg>
+                </button>
+              </Show>
+              <button
+                class="btn btn-circle btn-xs btn-ghost text-error"
+                title="Stop"
+                onClick={async () => {
+                  await window.electronAPI.cancelMdSimulation();
+                  setIsRunning(false);
+                  setIsPaused(false);
+                  setCurrentPhase('idle');
+                  appendLog('\n--- Simulation cancelled by user ---\n');
+                }}
+              >
+                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6 6h12v12H6z" />
+                </svg>
+              </button>
+            </>
+          )}
+          {state().isRunning && !state().isPaused && (
             <span class="loading loading-spinner loading-sm text-primary"></span>
           )}
+          {state().isPaused && (
+            <span class="badge badge-warning badge-sm">Paused</span>
+          )}
           {state().currentPhase === 'complete' && (
-            <span class="badge badge-success gap-1">Done</span>
+            <span class="badge badge-success badge-sm">Done</span>
           )}
           {state().currentPhase === 'error' && (
-            <span class="badge badge-error">Error</span>
+            <span class="badge badge-error badge-sm">Error</span>
           )}
         </div>
       </div>
@@ -294,6 +353,8 @@ const MDStepProgress: Component = () => {
               ? 'progress-error'
               : state().currentPhase === 'complete'
               ? 'progress-success'
+              : state().isPaused
+              ? 'progress-warning'
               : 'progress-primary'
           }`}
           value={overallProgress()}
@@ -327,45 +388,7 @@ const MDStepProgress: Component = () => {
         </div>
       )}
 
-      {/* Terminal output */}
-      <div class="flex-1 card bg-base-300 overflow-hidden relative">
-        <div class="flex items-center justify-between px-3 py-1.5 bg-base-200 border-b border-base-100">
-          <span class="font-mono text-xs text-base-content/90">OpenMM Output</span>
-          <div class="flex gap-1">
-            <div class="w-2.5 h-2.5 rounded-full bg-error/60"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-warning/60"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-success/60"></div>
-          </div>
-        </div>
-        {/* Copy button */}
-        <button
-          class={`absolute top-10 right-2 btn btn-xs ${copied() ? 'btn-success' : 'btn-ghost'} gap-1`}
-          onClick={handleCopyLogs}
-          title="Copy logs"
-        >
-          {copied() ? (
-            <>
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Copied
-            </>
-          ) : (
-            <>
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              Copy
-            </>
-          )}
-        </button>
-        <pre
-          ref={outputRef}
-          class="terminal-output flex-1 p-3 overflow-auto text-info whitespace-pre-wrap"
-        >
-          {state().logs || 'Waiting for output...'}
-        </pre>
-      </div>
+      <TerminalOutput title="OpenMM Output" logs={state().logs} />
 
       {/* Navigation */}
       <div class="flex justify-between mt-3">

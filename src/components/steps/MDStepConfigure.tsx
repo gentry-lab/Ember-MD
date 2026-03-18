@@ -1,9 +1,8 @@
 import { Component, Show, createMemo, createSignal, onCleanup } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { useElectronApi } from '../../hooks/useElectronApi';
 import { useMdOutput } from '../../hooks/useElectronApi';
-import { MD_COMMON_PARAMS, MD_PRESET_PARAMS } from '../../../shared/types/md';
-import { buildMdFolderName } from '../../utils/jobName';
+import { MD_COMMON_PARAMS, MD_PRESET_PARAMS, MDForceFieldPreset } from '../../../shared/types/md';
+import { buildMdRunFolderName, sanitizeCompoundId, estimateChargeTime } from '../../utils/jobName';
 
 const MDStepConfigure: Component = () => {
   const {
@@ -14,7 +13,7 @@ const MDStepConfigure: Component = () => {
     setMdIsBenchmarking,
     setMdSystemInfo,
   } = workflowStore;
-  const api = useElectronApi();
+  const api = window.electronAPI;
   const [benchmarkStatus, setBenchmarkStatus] = createSignal<string | null>(null);
   const [showProtocol, setShowProtocol] = createSignal(false);
   // Track inputs used for last benchmark to enable caching
@@ -42,8 +41,7 @@ const MDStepConfigure: Component = () => {
         // Parse atom count from PROGRESS:parameterizing:0:59
         const atomMatch = text.match(/PROGRESS:parameterizing:\d+:(\d+)/);
         const atoms = atomMatch ? parseInt(atomMatch[1]) : 0;
-        const est = atoms <= 20 ? '< 10s' : atoms <= 30 ? '~10-30s' : atoms <= 40 ? '~30s-2min' : atoms <= 50 ? '~1-4min' : atoms <= 65 ? '~2-6min' : '~5min+';
-        setBenchmarkStatus(atoms ? `Computing AM1-BCC charges (${atoms} atoms, est. ${est})...` : 'Computing AM1-BCC charges...');
+        setBenchmarkStatus(atoms ? `Computing AM1-BCC charges (${atoms} atoms, est. ${estimateChargeTime(atoms)})...` : 'Computing AM1-BCC charges...');
       }
       else if (stage === 'benchmark') setBenchmarkStatus('Running benchmark...');
     }
@@ -55,16 +53,24 @@ const MDStepConfigure: Component = () => {
     }
   });
 
-  // Compute the output folder name reactively
+  // Compute the output folder name reactively (project/run structure)
   const outputFolderName = createMemo(() => {
-    return buildMdFolderName(state().jobName, {
+    const runFolder = buildMdRunFolderName({
       forceFieldPreset: state().md.config.forceFieldPreset,
-      temperatureK: MD_COMMON_PARAMS.temperature,
+      temperatureK: state().md.config.temperatureK,
       productionNs: state().md.config.productionNs,
+      compoundId: state().md.config.compoundId,
     });
+    return `${state().jobName}/${runFolder}`;
   });
 
   const isLigandOnly = () => state().md.inputMode === 'ligand_only';
+
+  const handleCancelBenchmark = async () => {
+    await api.cancelMdBenchmark();
+    setMdIsBenchmarking(false);
+    setBenchmarkStatus(null);
+  };
 
   const handleRunBenchmark = async () => {
     if (!state().md.ligandSdf) return;
@@ -103,7 +109,7 @@ const MDStepConfigure: Component = () => {
       // Create temp output dir for benchmark using working directory
       const defaultDir = await api.getDefaultOutputDir();
       const baseOutputDir = state().customOutputDir || defaultDir;
-      const benchmarkDir = `${baseOutputDir}/.md_benchmark_temp`;
+      const benchmarkDir = `${baseOutputDir}/${state().jobName}/.md_benchmark_temp`;
 
       console.log('[Benchmark] Starting with:', {
         receptorPdb: state().md.receptorPdb,
@@ -149,10 +155,16 @@ const MDStepConfigure: Component = () => {
   };
 
   const handleBack = () => {
+    if (state().md.isBenchmarking) {
+      handleCancelBenchmark();
+    }
+    setMdBenchmarkResult(null);
+    setMdSystemInfo(null);
     setMdStep('md-load');
   };
 
   const handleContinue = () => {
+    if (state().md.isBenchmarking) return;
     setMdStep('md-progress');
   };
 
@@ -207,6 +219,23 @@ const MDStepConfigure: Component = () => {
             </div>
           </div>
 
+          {/* Compound Identifier */}
+          <div class="card bg-base-200 shadow-lg">
+            <div class="card-body p-4">
+              <h3 class="text-sm font-semibold mb-2">Compound Identifier (optional)</h3>
+              <input
+                type="text"
+                class="input input-bordered input-sm w-full font-mono text-xs"
+                placeholder="e.g., imatinib, compound-7a"
+                value={state().md.config.compoundId}
+                onInput={(e) => setMdConfig({ compoundId: sanitizeCompoundId(e.currentTarget.value) })}
+              />
+              <p class="text-[10px] text-base-content/80 mt-1">
+                Added to the run folder name for identification
+              </p>
+            </div>
+          </div>
+
           {/* Production Duration + Benchmark */}
           <div class="card bg-base-200 shadow-lg flex-1">
             <div class="card-body p-4">
@@ -226,20 +255,25 @@ const MDStepConfigure: Component = () => {
                       onInput={(e) => setMdConfig({ productionNs: Number(e.currentTarget.value) || 10 })}
                     />
                   </div>
-                  <button
-                    class="btn btn-secondary btn-sm"
-                    onClick={handleRunBenchmark}
-                    disabled={state().md.isBenchmarking}
-                  >
-                    {state().md.isBenchmarking ? (
-                      <>
+                  <Show
+                    when={!state().md.isBenchmarking}
+                    fallback={
+                      <button
+                        class="btn btn-error btn-sm"
+                        onClick={handleCancelBenchmark}
+                      >
                         <span class="loading loading-spinner loading-xs"></span>
-                        Estimating...
-                      </>
-                    ) : (
-                      'Estimate Runtime'
-                    )}
-                  </button>
+                        Cancel
+                      </button>
+                    }
+                  >
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      onClick={handleRunBenchmark}
+                    >
+                      Estimate Runtime
+                    </button>
+                  </Show>
                 </div>
                 <Show when={benchmarkStatus()}>
                   <p class="text-[10px] text-base-content/60 mt-1">
@@ -268,36 +302,60 @@ const MDStepConfigure: Component = () => {
           </div>
         </div>
 
-        {/* Right column - Fixed parameters */}
+        {/* Right column - Parameters */}
         <div class="card bg-base-200 shadow-lg">
           <div class="card-body p-4">
-            {/* Force Field Preset Toggle */}
+            {/* Force Field Preset Dropdown */}
             <div class="mb-4">
               <h3 class="text-sm font-semibold mb-2">Force Field Preset</h3>
-              <div class="join w-full">
-                <button
-                  class={`join-item btn btn-sm flex-1 ${state().md.config.forceFieldPreset === 'fast' ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setMdConfig({ forceFieldPreset: 'fast' })}
-                >
-                  <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Fast
-                </button>
-                <button
-                  class={`join-item btn btn-sm flex-1 ${state().md.config.forceFieldPreset === 'accurate' ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setMdConfig({ forceFieldPreset: 'accurate' })}
-                >
-                  <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Accurate
-                </button>
-              </div>
+              <select
+                class="select select-sm w-full"
+                value={state().md.config.forceFieldPreset}
+                onChange={(e) => setMdConfig({ forceFieldPreset: e.currentTarget.value as MDForceFieldPreset })}
+              >
+                {(Object.keys(MD_PRESET_PARAMS) as MDForceFieldPreset[]).map((id) => (
+                  <option value={id}>
+                    {MD_PRESET_PARAMS[id].label}{MD_PRESET_PARAMS[id].recommended ? ' ★' : ''}
+                  </option>
+                ))}
+              </select>
               <p class="text-[10px] text-base-content/85 mt-1">
                 {MD_PRESET_PARAMS[state().md.config.forceFieldPreset].description}
               </p>
             </div>
+
+            {/* Ligand Restraint (IFD-MD) */}
+            <Show when={!isLigandOnly()}>
+              <div class="mb-4">
+                <div class="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm checkbox-primary"
+                    checked={state().md.config.restrainLigandNs > 0}
+                    onChange={(e) => setMdConfig({
+                      restrainLigandNs: e.currentTarget.checked ? 2 : 0
+                    })}
+                  />
+                  <span class="text-sm">Restrain ligand pose</span>
+                  <Show when={state().md.config.restrainLigandNs > 0}>
+                    <input
+                      type="number"
+                      class="input input-bordered input-xs w-16"
+                      value={state().md.config.restrainLigandNs}
+                      min={0.5}
+                      step={0.5}
+                      onInput={(e) => setMdConfig({ restrainLigandNs: Number(e.currentTarget.value) || 2 })}
+                    />
+                    <span class="text-xs text-base-content/70">ns</span>
+                  </Show>
+                </div>
+                <p class="text-[10px] text-base-content/60 mt-1 ml-7">
+                  {state().md.config.restrainLigandNs > 0
+                    ? `Weak restraint (1 kcal/mol/\u00C5\u00B2) on ligand for ${state().md.config.restrainLigandNs} ns, then release (IFD-MD)`
+                    : 'Hold docked pose while protein adapts (induced fit)'}
+                </p>
+              </div>
+            </Show>
 
             <h3 class="text-sm font-semibold mb-3">Simulation Parameters</h3>
             <div class="space-y-2 text-xs">
@@ -315,25 +373,58 @@ const MDStepConfigure: Component = () => {
                 <span class="text-base-content/90">Ligand FF</span>
                 <span class="font-mono">{MD_COMMON_PARAMS.forceFieldLigand}</span>
               </div>
+              <div class="flex justify-between items-center py-1.5 border-b border-base-300">
+                <span class="text-base-content/90">Temperature</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    type="number"
+                    class="input input-bordered input-xs w-20 text-right font-mono"
+                    value={state().md.config.temperatureK}
+                    min={200}
+                    max={500}
+                    step={10}
+                    onInput={(e) => setMdConfig({ temperatureK: Number(e.currentTarget.value) || 300 })}
+                  />
+                  <span class="font-mono">K</span>
+                </div>
+              </div>
+              <div class="flex justify-between items-center py-1.5 border-b border-base-300">
+                <span class="text-base-content/90">Salt</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    type="number"
+                    class="input input-bordered input-xs w-20 text-right font-mono"
+                    value={state().md.config.saltConcentrationM * 1000}
+                    min={0}
+                    max={1000}
+                    step={10}
+                    onInput={(e) => setMdConfig({ saltConcentrationM: (Number(e.currentTarget.value) || 150) / 1000 })}
+                  />
+                  <span class="font-mono">mM NaCl</span>
+                </div>
+              </div>
+              <div class="flex justify-between items-center py-1.5 border-b border-base-300">
+                <span class="text-base-content/90">Padding</span>
+                <div class="flex items-center gap-1">
+                  <input
+                    type="number"
+                    class="input input-bordered input-xs w-20 text-right font-mono"
+                    value={state().md.config.paddingNm}
+                    min={0.8}
+                    max={3.0}
+                    step={0.1}
+                    onInput={(e) => setMdConfig({ paddingNm: Number(e.currentTarget.value) || 1.2 })}
+                  />
+                  <span class="font-mono">nm</span>
+                </div>
+              </div>
               <div class="flex justify-between py-1.5 border-b border-base-300">
                 <span class="text-base-content/90">Timestep</span>
                 <span class="font-mono">{MD_COMMON_PARAMS.timestepFs} fs (HMR)</span>
               </div>
               <div class="flex justify-between py-1.5 border-b border-base-300">
-                <span class="text-base-content/90">Temperature</span>
-                <span class="font-mono">{MD_COMMON_PARAMS.temperature} K</span>
-              </div>
-              <div class="flex justify-between py-1.5 border-b border-base-300">
-                <span class="text-base-content/90">Salt</span>
-                <span class="font-mono">{MD_COMMON_PARAMS.saltConcentration * 1000} mM NaCl</span>
-              </div>
-              <div class="flex justify-between py-1.5 border-b border-base-300">
                 <span class="text-base-content/90">Box Shape</span>
-                <span class="font-mono">{isLigandOnly() ? 'Cubic' : 'Rhombic dodecahedron'}</span>
-              </div>
-              <div class="flex justify-between py-1.5 border-b border-base-300">
-                <span class="text-base-content/90">Padding</span>
-                <span class="font-mono">{MD_COMMON_PARAMS.paddingNm} nm</span>
+                <span class="font-mono">Rhombic dodecahedron</span>
               </div>
               <div class="flex justify-between py-1.5 border-b border-base-300">
                 <span class="text-base-content/90">Integrator</span>
@@ -363,7 +454,7 @@ const MDStepConfigure: Component = () => {
                     <ol class="list-decimal list-inside space-y-0.5">
                       <li>Restrained minimization (heavy atoms, 10 kcal/mol/A^2)</li>
                       <li>Unrestrained minimization</li>
-                      <li>NVT→NPT heating: 10K→300K (70 ps)</li>
+                      <li>NVT→NPT heating: 10K→{state().md.config.temperatureK}K (70 ps)</li>
                       <li>NPT equilibration (50 ps)</li>
                       <li>Unrestrained NPT equilibration (50 ps)</li>
                     </ol>
@@ -372,7 +463,7 @@ const MDStepConfigure: Component = () => {
                   <ol class="list-decimal list-inside space-y-0.5">
                     <li>Restrained minimization (heavy atoms, 10 kcal/mol/A^2)</li>
                     <li>Unrestrained minimization</li>
-                    <li>NVT→NPT heating: 10K→300K with backbone restraints (70 ps)</li>
+                    <li>NVT→NPT heating: 10K→{state().md.config.temperatureK}K with backbone restraints (70 ps)</li>
                     <li>NPT equilibration with backbone restraints (50 ps)</li>
                     <li>Gradual restraint release (100 ps)</li>
                     <li>Unrestrained NPT equilibration (50 ps)</li>
@@ -395,8 +486,9 @@ const MDStepConfigure: Component = () => {
         <button
           class="btn btn-primary"
           onClick={handleContinue}
+          disabled={state().md.isBenchmarking}
         >
-          Start Simulation
+          {state().md.isBenchmarking ? 'Benchmarking...' : 'Start Simulation'}
           <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>

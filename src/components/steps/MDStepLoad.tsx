@@ -1,6 +1,6 @@
 import { Component, Show, createMemo, createSignal, For } from 'solid-js';
 import { workflowStore, MDInputMode } from '../../stores/workflow';
-import { useElectronApi } from '../../hooks/useElectronApi';
+import { projectPaths } from '../../utils/projectPaths';
 import path from 'path';
 
 const MDStepLoad: Component = () => {
@@ -10,19 +10,23 @@ const MDStepLoad: Component = () => {
     setMdReceptorPdb,
     setMdLigandSdf,
     setMdLigandName,
+    setMdPdbPath,
+    setMdThumbnailDataUrl,
     setMdSingleMoleculeInput,
     setMdSingleMoleculeThumbnail,
     setMdStep,
     setError,
   } = workflowStore;
-  const api = useElectronApi();
+  const api = window.electronAPI;
 
   const [isLoading, setIsLoading] = createSignal(false);
-  const [thumbnailDataUrl, setThumbnailDataUrl] = createSignal<string | null>(null);
   const [smilesInput, setSmilesInput] = createSignal('');
 
-  // PDB complex flow state
-  const [pdbPath, setPdbPath] = createSignal<string | null>(null);
+  // Accessors for store-persisted state (survive mode switches)
+  const pdbPath = () => state().md.pdbPath;
+  const setPdbPath = (v: string | null) => setMdPdbPath(v);
+  const thumbnailDataUrl = () => state().md.thumbnailDataUrl;
+  const setThumbnailDataUrl = (v: string | null) => setMdThumbnailDataUrl(v);
   const [detectedLigands, setDetectedLigands] = createSignal<Array<{ id: string; resname: string; chain: string; resnum: string; num_atoms: number }>>([]);
   const [selectedLigand, setSelectedLigand] = createSignal<string | null>(null);
   const [needsSmiles, setNeedsSmiles] = createSignal(false);
@@ -69,11 +73,11 @@ const MDStepLoad: Component = () => {
     setNeedsSmiles(false);
 
     const defaultDir = await api.getDefaultOutputDir();
-    const outputDir = state().customOutputDir || defaultDir;
-    const prepDir = path.join(outputDir, 'pdb_prep');
+    const baseOutputDir = state().customOutputDir || defaultDir;
+    const paths = projectPaths(baseOutputDir, state().jobName);
 
     const extractResult = await api.extractXrayLigand(
-      currentPdb, ligandId, prepDir, smilesCorrection() || undefined
+      currentPdb, ligandId, paths.ligands.sdf, smilesCorrection() || undefined
     );
 
     if (extractResult.ok) {
@@ -87,7 +91,7 @@ const MDStepLoad: Component = () => {
       }
 
       setStatusText('Preparing receptor (adding hydrogens)...');
-      const receptorPath = path.join(prepDir, `receptor_${ligandId}.pdb`);
+      const receptorPath = path.join(paths.prepared, `${state().jobName}_receptor_${ligandId}.pdb`);
       const receptorResult = await api.prepareReceptor(currentPdb, ligandId, receptorPath);
 
       setIsLoading(false);
@@ -137,10 +141,10 @@ const MDStepLoad: Component = () => {
     setError(null);
 
     const defaultDir = await api.getDefaultOutputDir();
-    const outputDir = state().customOutputDir || defaultDir;
-    const sdfOutputDir = path.join(outputDir, 'md_single_mol');
+    const baseOutputDir = state().customOutputDir || defaultDir;
+    const paths = projectPaths(baseOutputDir, state().jobName);
 
-    const result = await api.convertSingleMolecule(smiles, sdfOutputDir, 'smiles');
+    const result = await api.convertSingleMolecule(smiles, paths.ligands.sdf, 'smiles');
     setIsLoading(false);
 
     if (result.ok) {
@@ -164,10 +168,10 @@ const MDStepLoad: Component = () => {
     setError(null);
 
     const defaultDir = await api.getDefaultOutputDir();
-    const outputDir = state().customOutputDir || defaultDir;
-    const sdfOutputDir = path.join(outputDir, 'md_single_mol');
+    const baseOutputDir = state().customOutputDir || defaultDir;
+    const paths = projectPaths(baseOutputDir, state().jobName);
 
-    const result = await api.convertSingleMolecule(filePath, sdfOutputDir, 'mol_file');
+    const result = await api.convertSingleMolecule(filePath, paths.ligands.sdf, 'mol_file');
     setIsLoading(false);
 
     if (result.ok) {
@@ -202,8 +206,9 @@ const MDStepLoad: Component = () => {
 
     try {
       const defaultDir = await api.getDefaultOutputDir();
-      const outputDir = state().customOutputDir || defaultDir;
-      const protonatedDir = path.join(outputDir, 'md_single_mol_protonated');
+      const baseOutputDir = state().customOutputDir || defaultDir;
+      const paths = projectPaths(baseOutputDir, state().jobName);
+      const protonatedDir = path.join(paths.ligands.sdf, 'protonated');
 
       const result = await api.enumerateProtonation(
         [state().md.ligandSdf!],
@@ -265,7 +270,7 @@ const MDStepLoad: Component = () => {
         <p class="text-sm text-base-content/90">
           {state().md.inputMode === 'ligand_only'
             ? 'Paste a SMILES or load a molecule file for ligand-only MD'
-            : 'Load a PDB complex (X-ray or docked)'}
+            : 'Load a PDB/CIF complex (X-ray or docked)'}
         </p>
       </div>
 
@@ -339,14 +344,15 @@ const MDStepLoad: Component = () => {
           }
         >
           {/* Molecule loaded preview */}
-          <div class="flex-1 flex items-center justify-center">
-            <div class="card bg-base-200 shadow-lg w-80">
+          <div class="flex-1 flex items-center justify-center overflow-auto py-2">
+            <div class="card bg-base-200 shadow-lg max-w-lg">
               <div class="card-body p-5 items-center">
                 <Show when={thumbnailDataUrl()}>
                   <img
                     src={thumbnailDataUrl()!}
                     alt="Molecule structure"
-                    class="max-w-48 max-h-48 rounded bg-white p-2"
+                    class="rounded bg-white p-2"
+                    style={{ "max-width": "100%", "max-height": "280px", "object-fit": "contain" }}
                   />
                 </Show>
                 <p class="text-xs font-mono text-base-content/80 mt-2 truncate max-w-full">
@@ -371,7 +377,7 @@ const MDStepLoad: Component = () => {
                     Clear
                   </button>
                 </div>
-                <p class="text-[9px] text-base-content/50 mt-1 text-center">
+                <p class="text-[9px] text-base-content/70 mt-1 text-center">
                   Molecule simulated as drawn. Click protonate to adjust for physiological pH.
                 </p>
               </div>
@@ -387,7 +393,7 @@ const MDStepLoad: Component = () => {
         <Show when={pdbPath() && (state().md.receptorPdb || detectedLigands().length > 0)}>
           <div class="flex items-center gap-3 mb-4">
             <div class="flex-1 flex items-center gap-2 px-3 py-1.5 bg-base-200 rounded-lg">
-              <span class="badge badge-sm badge-primary">PDB</span>
+              <span class="badge badge-sm badge-primary">{pdbPath()!.toLowerCase().endsWith('.cif') ? 'CIF' : 'PDB'}</span>
               <span class="text-sm truncate flex-1">{path.basename(pdbPath()!)}</span>
               <Show when={state().md.ligandName}>
                 <span class="badge badge-sm badge-ghost">{state().md.ligandName}</span>
@@ -412,9 +418,9 @@ const MDStepLoad: Component = () => {
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                     </svg>
                   </div>
-                  <h3 class="text-sm font-semibold">Load PDB</h3>
+                  <h3 class="text-sm font-semibold">Load Structure</h3>
                   <p class="text-[10px] text-base-content/60 mb-3">
-                    X-ray structure, docked complex, or any PDB with a bound ligand
+                    X-ray structure (PDB or CIF), docked complex, or any structure with a bound ligand
                   </p>
 
                   {/* Ligand selection for multi-ligand PDBs */}
@@ -459,7 +465,7 @@ const MDStepLoad: Component = () => {
 
                   <Show when={!detectedLigands().length || statusText()}>
                     <button class="btn btn-primary btn-sm w-full" onClick={handleLoadPdb} disabled={isLoading()}>
-                      {isLoading() ? <span class="loading loading-spinner loading-xs"></span> : 'Browse PDB'}
+                      {isLoading() ? <span class="loading loading-spinner loading-xs"></span> : 'Browse PDB / CIF'}
                     </button>
                   </Show>
                 </div>
@@ -468,64 +474,40 @@ const MDStepLoad: Component = () => {
           }
         >
           {/* PDB loaded summary */}
-          <div class="flex-1 flex items-center justify-center">
-            <div class="card bg-base-200 shadow-lg w-96">
-              <div class="card-body p-5">
+          <div class="flex-1 flex items-center justify-center overflow-auto py-2">
+            <div class="card bg-base-200 shadow-lg max-w-lg">
+              <div class="card-body p-5 items-center">
                 <h3 class="text-sm font-semibold mb-3 text-center">Complex Ready</h3>
-                <div class="flex gap-4 items-start">
-                  <Show when={thumbnailDataUrl()}>
-                    <img
-                      src={thumbnailDataUrl()!}
-                      alt="Ligand structure"
-                      class="w-32 h-32 rounded bg-white p-1 flex-shrink-0"
-                    />
+                <Show when={thumbnailDataUrl()}>
+                  <img
+                    src={thumbnailDataUrl()!}
+                    alt="Ligand structure"
+                    class="rounded bg-white p-1"
+                    style={{ "max-width": "100%", "max-height": "280px", "object-fit": "contain" }}
+                  />
+                </Show>
+                <div class="w-full space-y-2 text-xs mt-3">
+                  <div class="flex justify-between py-1 border-b border-base-300">
+                    <span class="text-base-content/70">PDB</span>
+                    <span class="font-mono truncate max-w-[200px]">{path.basename(pdbPath()!)}</span>
+                  </div>
+                  <div class="flex justify-between py-1 border-b border-base-300">
+                    <span class="text-base-content/70">Ligand</span>
+                    <span class="font-mono">{state().md.ligandName}</span>
+                  </div>
+                  <Show when={state().md.receptorPdb}>
+                    <div class="flex justify-between py-1 border-b border-base-300">
+                      <span class="text-base-content/70">Receptor</span>
+                      <span class="badge badge-success badge-xs">Prepared</span>
+                    </div>
                   </Show>
-                  <div class="space-y-2 text-xs flex-1">
-                    <div class="flex justify-between py-1 border-b border-base-300">
-                      <span class="text-base-content/70">PDB</span>
-                      <span class="font-mono truncate max-w-[150px]">{path.basename(pdbPath()!)}</span>
-                    </div>
-                    <div class="flex justify-between py-1 border-b border-base-300">
-                      <span class="text-base-content/70">Ligand</span>
-                      <span class="font-mono">{state().md.ligandName}</span>
-                    </div>
-                    <Show when={state().md.receptorPdb}>
-                      <div class="flex justify-between py-1 border-b border-base-300">
-                        <span class="text-base-content/70">Receptor</span>
-                        <span class="badge badge-success badge-xs">Prepared</span>
-                      </div>
-                    </Show>
-                    <div class="flex justify-between py-1">
-                      <span class="text-base-content/70">Ligand SDF</span>
-                      <span class="badge badge-success badge-xs">Extracted</span>
-                    </div>
+                  <div class="flex justify-between py-1">
+                    <span class="text-base-content/70">Ligand SDF</span>
+                    <span class="badge badge-success badge-xs">Extracted</span>
                   </div>
                 </div>
-                {/* SMILES correction field */}
-                <div class="form-control mt-3">
-                  <label class="label py-0.5">
-                    <span class="label-text text-[10px]">Correct SMILES (if structure looks wrong)</span>
-                  </label>
-                  <div class="flex gap-1">
-                    <input
-                      type="text"
-                      class="input input-bordered input-xs flex-1 font-mono text-[10px]"
-                      placeholder="Paste correct SMILES to fix bond orders"
-                      value={smilesCorrection()}
-                      onInput={(e) => setSmilesCorrection(e.currentTarget.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSmilesCorrection()}
-                    />
-                    <button
-                      class="btn btn-primary btn-xs"
-                      onClick={handleSmilesCorrection}
-                      disabled={!smilesCorrection().trim() || isLoading()}
-                    >
-                      {isLoading() ? <span class="loading loading-spinner loading-xs"></span> : 'Fix'}
-                    </button>
-                  </div>
-                </div>
-                <p class="text-[10px] text-base-content/50 mt-1 text-center">
-                  Receptor protonated at pH 7.4. Verify the 2D structure above is correct.
+                <p class="text-[10px] text-base-content/70 mt-3 text-center">
+                  Receptor protonated at pH 7.4.
                 </p>
               </div>
             </div>
