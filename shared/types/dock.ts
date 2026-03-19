@@ -56,6 +56,17 @@ export const DEFAULT_PROTONATION_CONFIG: ProtonationConfig = {
   phMax: 8.4,
 };
 
+// Stereoisomer enumeration configuration
+export interface StereoisomerConfig {
+  enabled: boolean;
+  maxStereoisomers: number;   // Default: 8 (caps at 2^3 unspecified centers)
+}
+
+export const DEFAULT_STEREOISOMER_CONFIG: StereoisomerConfig = {
+  enabled: false,
+  maxStereoisomers: 8,
+};
+
 // Conformer generation configuration
 export type ConformerMethod = 'none' | 'etkdg';
 

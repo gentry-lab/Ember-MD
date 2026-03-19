@@ -40,6 +40,7 @@ const IpcChannels = {
   CONVERT_SINGLE_MOLECULE: 'convert-single-molecule',
   EXTRACT_XRAY_LIGAND: 'extract-xray-ligand',
   ENUMERATE_PROTONATION: 'enumerate-protonation',
+  ENUMERATE_STEREOISOMERS: 'enumerate-stereoisomers',
   GENERATE_CONFORMERS: 'generate-conformers',
   // CORDIAL rescoring
   CHECK_CORDIAL_INSTALLED: 'check-cordial-installed',
@@ -327,6 +328,17 @@ const electronAPI = {
     outputDir,
     phMin,
     phMax
+  ),
+
+  enumerateStereoisomers: (
+    ligandSdfPaths: string[],
+    outputDir: string,
+    maxStereoisomers: number
+  ) => ipcRenderer.invoke(
+    IpcChannels.ENUMERATE_STEREOISOMERS,
+    ligandSdfPaths,
+    outputDir,
+    maxStereoisomers
   ),
 
   generateConformers: (

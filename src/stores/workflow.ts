@@ -15,10 +15,12 @@ import {
   DockMolecule,
   CordialConfig,
   ProtonationConfig,
+  StereoisomerConfig,
   ConformerConfig,
   DEFAULT_DOCK_CONFIG,
   DEFAULT_CORDIAL_CONFIG,
   DEFAULT_PROTONATION_CONFIG,
+  DEFAULT_STEREOISOMER_CONFIG,
   DEFAULT_CONFORMER_CONFIG,
   LigandSource,
   DetectedLigand,
@@ -198,6 +200,7 @@ export interface DockState {
   config: DockConfig;
   cordialConfig: CordialConfig;
   protonationConfig: ProtonationConfig;
+  stereoisomerConfig: StereoisomerConfig;
   conformerConfig: ConformerConfig;
   dockingOutputDir: string | null;
   totalLigands: number;
@@ -260,6 +263,7 @@ const defaultDockState: DockState = {
   config: { ...DEFAULT_DOCK_CONFIG },
   cordialConfig: { ...DEFAULT_CORDIAL_CONFIG },
   protonationConfig: { ...DEFAULT_PROTONATION_CONFIG },
+  stereoisomerConfig: { ...DEFAULT_STEREOISOMER_CONFIG },
   conformerConfig: { ...DEFAULT_CONFORMER_CONFIG },
   dockingOutputDir: null,
   totalLigands: 0,
@@ -453,6 +457,9 @@ function createWorkflowStore() {
 
   const setDockProtonationConfig = (protonationConfig: Partial<ProtonationConfig>) =>
     setState((s) => ({ ...s, dock: { ...s.dock, protonationConfig: { ...s.dock.protonationConfig, ...protonationConfig } } }));
+
+  const setDockStereoisomerConfig = (stereoisomerConfig: Partial<StereoisomerConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, stereoisomerConfig: { ...s.dock.stereoisomerConfig, ...stereoisomerConfig } } }));
 
   const setDockConformerConfig = (conformerConfig: Partial<ConformerConfig>) =>
     setState((s) => ({ ...s, dock: { ...s.dock, conformerConfig: { ...s.dock.conformerConfig, ...conformerConfig } } }));
@@ -881,6 +888,7 @@ function createWorkflowStore() {
     setDockConfig,
     setDockCordialConfig,
     setDockProtonationConfig,
+    setDockStereoisomerConfig,
     setDockConformerConfig,
     setDockOutputDir,
     setDockTotalLigands,

@@ -214,10 +214,10 @@ const detectInteractions = (
   // --- Angle-checking helpers ---
 
   // H-bond: D-H...A angle > 120° at the hydrogen (linear = 180°)
-  // Falls back to distance-only if no H atoms are available in the structure
+  // Returns false (not true) when donor has no H — caller handles distance-only fallback
   const hbondAngleOk = (donor: IxAtom, acceptor: IxAtom): boolean => {
     const hydrogens = donor.bonded.filter(b => b.element === 'H');
-    if (hydrogens.length === 0) return true; // No H available — accept on distance
+    if (hydrogens.length === 0) return false;
     for (const h of hydrogens) {
       // Vectors from H
       const hdx = donor.x - h.x, hdy = donor.y - h.y, hdz = donor.z - h.z;
@@ -291,8 +291,10 @@ const detectInteractions = (
       if (!type && dist <= 3.5) {
         const isHBE = (el: string) => el === 'N' || el === 'O' || el === 'F';
         if (isHBE(pa.element) && isHBE(la.element)) {
-          // Either atom could be the donor — check both directions
-          if (hbondAngleOk(pa, la) || hbondAngleOk(la, pa)) {
+          const paHasH = pa.bonded.some(b => b.element === 'H');
+          const laHasH = la.bonded.some(b => b.element === 'H');
+          // Distance-only fallback only when neither atom has H; otherwise require angle check
+          if ((!paHasH && !laHasH) || hbondAngleOk(pa, la) || hbondAngleOk(la, pa)) {
             type = pa.isBackbone ? 'backboneHydrogenBond' : 'hydrogenBond';
           }
         }
@@ -813,7 +815,7 @@ const ViewerMode: Component = () => {
               proteinComponent.addRepresentation('licorice', {
                 sele: pocketSele,
                 colorScheme: 'element',
-                multipleBond: 'symmetric',
+                multipleBond: false,
               });
 
               // Add pocket residue labels if enabled (single-letter codes, no water/ions)
@@ -964,7 +966,7 @@ const ViewerMode: Component = () => {
                   proteinComponent.addRepresentation('licorice', {
                     sele: pocketSele,
                     colorScheme: 'element',
-                    multipleBond: 'symmetric',
+                    multipleBond: false,
                   });
 
                   // Add pocket residue labels if enabled

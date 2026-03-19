@@ -84,6 +84,27 @@ const DockStepProgress: Component = () => {
         }
       }
 
+      // Preprocessing: stereoisomer enumeration
+      if (dock.stereoisomerConfig.enabled && ligandPaths.length > 0) {
+        appendLog('--- Enumerating stereoisomers... ---\n');
+        const stereoDir = path.join(dockPaths.prep, 'stereoisomers');
+        const stereoResult = await api.enumerateStereoisomers(
+          ligandPaths, stereoDir,
+          dock.stereoisomerConfig.maxStereoisomers
+        );
+        if (stereoResult.ok && stereoResult.value.stereoisomerPaths.length > 0) {
+          const before = ligandPaths.length;
+          ligandPaths = stereoResult.value.stereoisomerPaths;
+          const added = ligandPaths.length - before;
+          appendLog(added > 0
+            ? `  ${ligandPaths.length} stereoisomers generated (+${added} enantiomers)\n\n`
+            : `  No unspecified stereocenters found\n\n`
+          );
+        } else {
+          appendLog('  Stereoisomer enumeration unchanged\n\n');
+        }
+      }
+
       // Preprocessing: conformer generation
       if (dock.conformerConfig.method !== 'none' && ligandPaths.length > 0) {
         appendLog('--- Generating conformers... ---\n');

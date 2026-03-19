@@ -106,15 +106,6 @@ const LayerPanel: Component<LayerPanelProps> = (props) => {
   return (
     <div class="card bg-base-200 p-2">
       <div class="flex flex-col gap-1">
-        {/* Action buttons */}
-        <div class="flex items-center gap-1">
-          <button class="btn btn-xs btn-primary flex-1" onClick={props.onImportStructure}>
-            Import Structure
-          </button>
-          <button class="btn btn-xs btn-secondary flex-1" onClick={props.onImportJob}>
-            Import Job
-          </button>
-        </div>
         <div class="flex items-center gap-1">
           <Show when={props.proteinCount >= 2}>
             <button class="btn btn-xs btn-accent flex-1" onClick={props.onAlignAll}>

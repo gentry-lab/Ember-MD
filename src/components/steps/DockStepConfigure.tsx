@@ -9,6 +9,7 @@ const DockStepConfigure: Component = () => {
     setDockConfig,
     setDockCordialConfig,
     setDockProtonationConfig,
+    setDockStereoisomerConfig,
     setDockConformerConfig,
     setDockCordialAvailable,
   } = workflowStore;
@@ -219,6 +220,16 @@ const DockStepConfigure: Component = () => {
                   </div>
                 </div>
               </Show>
+
+              <label class="label cursor-pointer py-0.5">
+                <span class="label-text text-xs">Sample enantiomers</span>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm checkbox-primary"
+                  checked={state().dock.stereoisomerConfig.enabled}
+                  onChange={(e) => setDockStereoisomerConfig({ enabled: e.currentTarget.checked })}
+                />
+              </label>
 
               <label class="label cursor-pointer py-0.5">
                 <span class="label-text text-xs">Conformer generation (ETKDG)</span>

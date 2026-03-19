@@ -1615,11 +1615,11 @@ ipcMain.handle(
     let successful = 0;
     let failed = 0;
 
-    // Run first ligand sequentially to initialize Open Babel
+    // Run first ligand sequentially before opening parallel workers
     if (ligandSdfPaths.length > 0) {
       event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
-        data: `Initializing Open Babel with first ligand...\n`
+        data: `Preparing first ligand...\n`
       });
 
       const firstResult = await dockSingleLigandVina(
@@ -1646,7 +1646,7 @@ ipcMain.handle(
       await new Promise(r => setTimeout(r, 100));
     }
 
-    // Process remaining ligands in parallel (Open Babel already initialized by first ligand)
+    // Process remaining ligands in parallel
     const remainingLigands = ligandSdfPaths.slice(1);
 
     if (remainingLigands.length > 0) {
@@ -2617,6 +2617,111 @@ ipcMain.handle(
           type: 'PROTONATION_FAILED',
           message: error.message,
         }));
+      });
+    });
+  }
+);
+
+// Enumerate stereoisomers for unspecified stereocenters using RDKit
+ipcMain.handle(
+  IpcChannels.ENUMERATE_STEREOISOMERS,
+  async (
+    event,
+    ligandSdfPaths: string[],
+    outputDir: string,
+    maxStereoisomers: number
+  ): Promise<Result<{
+    stereoisomerPaths: string[];
+    parentMapping: Record<string, string>;
+  }, AppError>> => {
+    return new Promise((resolve) => {
+      if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+        resolve(Err({
+          type: 'PYTHON_NOT_FOUND',
+          message: 'Python not found.',
+        }));
+        return;
+      }
+
+      const scriptPath = path.join(fraggenRoot, 'enumerate_stereoisomers.py');
+      if (!fs.existsSync(scriptPath)) {
+        event.sender.send(IpcChannels.DOCK_OUTPUT, {
+          type: 'stdout',
+          data: 'Warning: enumerate_stereoisomers.py not found, skipping\n'
+        });
+        const parentMapping: Record<string, string> = {};
+        for (const p of ligandSdfPaths) {
+          const name = path.basename(p, '.sdf');
+          parentMapping[name] = name;
+        }
+        resolve(Ok({ stereoisomerPaths: ligandSdfPaths, parentMapping }));
+        return;
+      }
+
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      const ligandListPath = path.join(outputDir, 'ligand_list_for_stereo.json');
+      fs.writeFileSync(ligandListPath, JSON.stringify(ligandSdfPaths, null, 2));
+
+      const args = [
+        scriptPath,
+        '--ligand_list', ligandListPath,
+        '--output_dir', outputDir,
+        '--max_stereoisomers', String(maxStereoisomers),
+      ];
+
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
+        type: 'stdout',
+        data: `=== Stereoisomer Enumeration ===\nMax per molecule: ${maxStereoisomers}\nInput molecules: ${ligandSdfPaths.length}\n\n`
+      });
+
+      const python = spawn(condaPythonPath, args);
+      childProcesses.add(python);
+
+      let stdout = '';
+      let stderr = '';
+
+      python.stdout.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stdout += text;
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+      });
+
+      python.stderr.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stderr += text;
+        if (text.includes('Warning') || text.includes('ERROR')) {
+          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
+        }
+      });
+
+      python.on('close', (code: number | null) => {
+        childProcesses.delete(python);
+        if (code === 0) {
+          try {
+            const lines = stdout.trim().split('\n');
+            const lastLine = lines[lines.length - 1];
+            if (lastLine && lastLine.startsWith('{')) {
+              const result = JSON.parse(lastLine);
+              resolve(Ok({
+                stereoisomerPaths: result.stereoisomer_paths || [],
+                parentMapping: result.parent_mapping || {},
+              }));
+            } else {
+              resolve(Ok({ stereoisomerPaths: ligandSdfPaths, parentMapping: {} }));
+            }
+          } catch (e) {
+            resolve(Err({
+              type: 'PARSE_FAILED',
+              message: `Failed to parse stereoisomer results: ${(e as Error).message}`,
+            }));
+          }
+        } else {
+          resolve(Err({
+            type: 'UNKNOWN',
+            message: `Stereoisomer enumeration failed (exit ${code}): ${stderr.slice(0, 300)}`,
+          }));
+        }
       });
     });
   }
