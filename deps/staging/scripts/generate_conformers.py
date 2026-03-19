@@ -155,8 +155,10 @@ class GBSAMinimizer:
         label = sage_version.replace('.offxml', '').replace('openff-', 'Sage ')
         print(f"  {label} + OBC2 implicit solvent ready", flush=True)
 
-    def minimize(self, rdmol: Any, conf_id: int, max_iters: int = 500) -> Optional[float]:
-        """Minimize conformer with implicit solvent. Returns energy in kcal/mol."""
+    def minimize(self, rdmol: Any, conf_id: int, max_iters: int = 5000) -> Optional[float]:
+        """Minimize conformer with implicit solvent. Returns energy in kcal/mol.
+        Uses 5000 max iterations and tight gradient convergence (0.01 kJ/mol/nm ≈
+        0.001 kcal/mol/Å) to match MacroModel PRCG defaults."""
         if not self.ready:
             return _minimize_mmff94s(rdmol, conf_id, max_iters)
 
@@ -172,9 +174,9 @@ class GBSAMinimizer:
                 )
             self.context.setPositions(positions)
 
-            # Minimize
+            # Minimize with tight convergence (0.01 kJ/mol/nm ≈ 0.001 kcal/mol/Å)
             openmm.LocalEnergyMinimizer.minimize(
-                self.context, maxIterations=max_iters
+                self.context, tolerance=0.01, maxIterations=max_iters
             )
 
             # Get energy and minimized positions
@@ -432,7 +434,7 @@ def _reembed_ring_pucker(
     return new_cid
 
 
-def _minimize_mmff94s(mol: Any, conf_id: int, max_iters: int = 500) -> Optional[float]:
+def _minimize_mmff94s(mol: Any, conf_id: int, max_iters: int = 5000) -> Optional[float]:
     """Minimize a conformer with MMFF94s, fallback to UFF. Returns energy or None."""
     props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')
     if props is not None:

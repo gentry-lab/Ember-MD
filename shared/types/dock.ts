@@ -90,6 +90,17 @@ export const DEFAULT_CONFORMER_CONFIG: ConformerConfig = {
   sampleAmides: true,
 };
 
+// Post-dock pocket refinement configuration
+export interface RefinementConfig {
+  enabled: boolean;
+  maxIterations: number;    // Default: 200
+}
+
+export const DEFAULT_REFINEMENT_CONFIG: RefinementConfig = {
+  enabled: true,
+  maxIterations: 5000,
+};
+
 // CORDIAL rescoring configuration
 export interface CordialConfig {
   enabled: boolean;

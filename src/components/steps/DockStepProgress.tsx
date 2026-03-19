@@ -158,7 +158,32 @@ const DockStepProgress: Component = () => {
         return;
       }
 
-      // Docking complete -- run CORDIAL rescoring if enabled and available
+      // Docking complete -- pocket refinement if enabled
+      // Refines in-place: writes back to results/poses/ so downstream
+      // (CORDIAL rescoring + result parsing) uses the refined geometries
+      console.log('[Dock] Refinement config:', JSON.stringify(dock.refinementConfig));
+      appendLog(`\n[debug] refinementConfig=${JSON.stringify(dock.refinementConfig)}\n`);
+      if (dock.refinementConfig?.enabled) {
+        appendLog('\n--- Refining poses in pocket (Sage 2.3.0 + OBC2)... ---\n');
+        try {
+          const posesDir = path.join(outputDir, 'results', 'poses');
+          const refineResult = await api.refinePoses(
+            dock.receptorPrepared!,
+            posesDir,
+            posesDir,
+            dock.refinementConfig.maxIterations
+          );
+          if (refineResult.ok && refineResult.value.refinedCount > 0) {
+            appendLog(`\nRefinement complete: ${refineResult.value.refinedCount} poses refined\n`);
+          } else if (!refineResult.ok) {
+            appendLog(`\nRefinement skipped: ${refineResult.error.message}\n`);
+          }
+        } catch (err) {
+          appendLog(`\nRefinement error: ${(err as Error).message}\n`);
+        }
+      }
+
+      // Run CORDIAL rescoring if enabled and available
       if (dock.cordialConfig.enabled && dock.cordialAvailable) {
         setCordialRunning(true);
         appendLog('\n--- Rescoring with CORDIAL... ---\n');

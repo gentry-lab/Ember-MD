@@ -22,6 +22,8 @@ import {
   DEFAULT_PROTONATION_CONFIG,
   DEFAULT_STEREOISOMER_CONFIG,
   DEFAULT_CONFORMER_CONFIG,
+  RefinementConfig,
+  DEFAULT_REFINEMENT_CONFIG,
   LigandSource,
   DetectedLigand,
   DetectedLigand as DockDetectedLigand,
@@ -213,6 +215,7 @@ export interface DockState {
   protonationConfig: ProtonationConfig;
   stereoisomerConfig: StereoisomerConfig;
   conformerConfig: ConformerConfig;
+  refinementConfig: RefinementConfig;
   cachedConformerPaths: string[];
   dockingOutputDir: string | null;
   totalLigands: number;
@@ -279,6 +282,7 @@ const defaultDockState: DockState = {
   protonationConfig: { ...DEFAULT_PROTONATION_CONFIG },
   stereoisomerConfig: { ...DEFAULT_STEREOISOMER_CONFIG },
   conformerConfig: { ...DEFAULT_CONFORMER_CONFIG },
+  refinementConfig: { ...DEFAULT_REFINEMENT_CONFIG },
   cachedConformerPaths: [],
   dockingOutputDir: null,
   totalLigands: 0,
@@ -494,6 +498,9 @@ function createWorkflowStore() {
 
   const setDockConformerConfig = (conformerConfig: Partial<ConformerConfig>) =>
     setState((s) => ({ ...s, dock: { ...s.dock, conformerConfig: { ...s.dock.conformerConfig, ...conformerConfig } } }));
+
+  const setDockRefinementConfig = (refinementConfig: Partial<RefinementConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, refinementConfig: { ...s.dock.refinementConfig, ...refinementConfig } } }));
 
   const setDockCachedConformerPaths = (cachedConformerPaths: string[]) =>
     setState((s) => ({ ...s, dock: { ...s.dock, cachedConformerPaths } }));
@@ -956,6 +963,7 @@ function createWorkflowStore() {
     setDockProtonationConfig,
     setDockStereoisomerConfig,
     setDockConformerConfig,
+    setDockRefinementConfig,
     setDockCachedConformerPaths,
     setDockOutputDir,
     setDockTotalLigands,

@@ -45,6 +45,8 @@ const IpcChannels = {
   // Conformer generation (standalone)
   CONFORM_OUTPUT: 'conform:output',
   RUN_CONFORM_GENERATION: 'conform:generate',
+  // Post-dock refinement
+  REFINE_POSES: 'dock:refine-poses',
   // CORDIAL rescoring
   CHECK_CORDIAL_INSTALLED: 'check-cordial-installed',
   RUN_CORDIAL_SCORING: 'run-cordial-scoring',
@@ -388,6 +390,20 @@ const electronAPI = {
     ipcRenderer.on(IpcChannels.CONFORM_OUTPUT, listener);
     return () => ipcRenderer.removeListener(IpcChannels.CONFORM_OUTPUT, listener);
   },
+
+  // Post-dock pocket refinement
+  refinePoses: (
+    receptorPdb: string,
+    posesDir: string,
+    outputDir: string,
+    maxIterations: number
+  ) => ipcRenderer.invoke(
+    IpcChannels.REFINE_POSES,
+    receptorPdb,
+    posesDir,
+    outputDir,
+    maxIterations
+  ),
 
   // CORDIAL rescoring
   checkCordialInstalled: () => ipcRenderer.invoke(IpcChannels.CHECK_CORDIAL_INSTALLED),

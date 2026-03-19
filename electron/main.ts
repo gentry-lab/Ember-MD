@@ -1704,6 +1704,22 @@ ipcMain.handle(
         fs.renameSync(path.join(outputDir, f), path.join(posesDir, f));
       }
 
+      // Copy X-ray reference ligand into poses dir for comparison scoring
+      if (referenceLigand && fs.existsSync(referenceLigand)) {
+        try {
+          const refSdf = fs.readFileSync(referenceLigand, 'utf-8');
+          // Write as uncompressed SDF (parser handles both .sdf and .sdf.gz)
+          const refName = path.basename(outputDir) + '_xray_reference_docked.sdf';
+          fs.writeFileSync(path.join(posesDir, refName), refSdf);
+          event.sender.send(IpcChannels.DOCK_OUTPUT, {
+            type: 'stdout',
+            data: 'Including X-ray reference ligand for comparison\n',
+          });
+        } catch (e) {
+          console.error('Failed to copy reference ligand:', e);
+        }
+      }
+
       // Create pooled SDF: extract first model from each .sdf.gz
       const pooledParts: string[] = [];
       for (const f of dockedGzFiles) {
@@ -4345,6 +4361,103 @@ function getCordialRoot(): string | null {
 
   return null;
 }
+
+// Post-docking pocket refinement (OpenMM + Sage 2.3.0 + OBC2)
+ipcMain.handle(
+  'dock:refine-poses',
+  async (
+    event,
+    receptorPdb: string,
+    posesDir: string,
+    outputDir: string,
+    maxIterations: number
+  ): Promise<Result<{ refinedCount: number; outputDir: string }, AppError>> => {
+    return new Promise((resolve) => {
+      if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+        resolve(Err({ type: 'PYTHON_NOT_FOUND', message: 'Python not found' }));
+        return;
+      }
+
+      const scriptPath = path.join(fraggenRoot, 'refine_poses.py');
+      if (!fs.existsSync(scriptPath)) {
+        event.sender.send(IpcChannels.DOCK_OUTPUT, {
+          type: 'stdout',
+          data: 'Warning: refine_poses.py not found, skipping refinement\n'
+        });
+        resolve(Ok({ refinedCount: 0, outputDir }));
+        return;
+      }
+
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      const args = [
+        scriptPath,
+        '--receptor_pdb', receptorPdb,
+        '--poses_dir', posesDir,
+        '--output_dir', outputDir,
+        '--max_iterations', String(maxIterations),
+      ];
+
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
+        type: 'stdout',
+        data: `=== Pocket Refinement (Sage 2.3.0 + OBC2) ===\nReceptor: ${path.basename(receptorPdb)}\nPoses: ${posesDir}\nMax iterations: ${maxIterations}\n\n`
+      });
+
+      const envVars = { ...process.env };
+      if (condaEnvBin) {
+        envVars.PATH = `${condaEnvBin}:${envVars.PATH || ''}`;
+      }
+
+      const python = spawn(condaPythonPath, args, { env: envVars });
+      childProcesses.add(python);
+
+      let stdout = '';
+      let stderr = '';
+
+      python.stdout.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stdout += text;
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+      });
+
+      python.stderr.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stderr += text;
+        // Show all stderr for refinement (critical for debugging OpenMM/PDBFixer issues)
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
+      });
+
+      python.on('close', (code: number | null) => {
+        childProcesses.delete(python);
+        if (code === 0) {
+          try {
+            const lines = stdout.trim().split('\n');
+            const lastLine = lines[lines.length - 1];
+            if (lastLine && lastLine.startsWith('{')) {
+              const result = JSON.parse(lastLine);
+              resolve(Ok({
+                refinedCount: result.refined_count || 0,
+                outputDir: result.output_dir || outputDir,
+              }));
+            } else {
+              resolve(Ok({ refinedCount: 0, outputDir }));
+            }
+          } catch (e) {
+            resolve(Err({
+              type: 'PARSE_FAILED',
+              message: `Failed to parse refinement results: ${(e as Error).message}`,
+            }));
+          }
+        } else {
+          resolve(Err({
+            type: 'REFINEMENT_FAILED',
+            message: `Pose refinement failed (exit ${code}): ${stderr.slice(0, 300)}`,
+          }));
+        }
+      });
+    });
+  }
+);
 
 // Check if CORDIAL is installed
 ipcMain.handle(IpcChannels.CHECK_CORDIAL_INSTALLED, async (): Promise<boolean> => {

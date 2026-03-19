@@ -13,6 +13,7 @@ const DockStepConfigure: Component = () => {
     setDockProtonationConfig,
     setDockStereoisomerConfig,
     setDockConformerConfig,
+    setDockRefinementConfig,
     setDockCordialAvailable,
     setDockCachedConformerPaths,
   } = workflowStore;
@@ -81,71 +82,36 @@ const DockStepConfigure: Component = () => {
         <p class="text-sm text-base-content/90">AutoDock Vina parameters</p>
       </div>
 
-      <div class="flex-1 min-h-0 overflow-auto grid grid-cols-2 gap-4 content-start">
-        {/* Left — Summary */}
-        <div class="flex flex-col gap-3">
-          <div class="card bg-base-200 shadow-lg">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-semibold mb-2">Output</h3>
-              <div class="bg-base-300 rounded-lg px-3 py-2">
-                <span class="text-xs font-mono break-all">{state().jobName}/docking/{outputFolderName()}</span>
-              </div>
-              <div class="space-y-1.5 text-xs mt-3">
-                <div class="flex justify-between">
-                  <span>Ligands</span>
-                  <span class="font-mono font-bold">{totalLigands()}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>Poses / ligand</span>
-                  <span class="font-mono">{state().dock.config.numPoses}</span>
-                </div>
-                <div class="flex justify-between border-t border-base-300 pt-1.5">
-                  <span>Total poses</span>
-                  <span class="font-mono font-bold">{totalPoses()}</span>
-                </div>
-              </div>
+      <div class="flex-1 min-h-0 overflow-auto grid grid-cols-2 gap-3 content-start">
+        {/* Top Left — Output Summary */}
+        <div class="card bg-base-200 shadow-lg">
+          <div class="card-body p-4">
+            <h3 class="text-sm font-semibold mb-2">Output</h3>
+            <div class="bg-base-300 rounded-lg px-3 py-2">
+              <span class="text-xs font-mono break-all">{state().jobName}/docking/{outputFolderName()}</span>
             </div>
-          </div>
-
-          <div class="card bg-base-200 shadow-lg">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-semibold mb-2">ML Rescoring</h3>
-              <Show
-                when={cordialChecked()}
-                fallback={
-                  <div class="flex items-center gap-2">
-                    <span class="loading loading-spinner loading-xs" />
-                    <span class="text-xs">Checking CORDIAL...</span>
-                  </div>
-                }
-              >
-                <label class="label cursor-pointer py-0">
-                  <span class={`label-text text-xs ${!state().dock.cordialAvailable ? 'opacity-50' : ''}`}>
-                    CORDIAL rescoring
-                  </span>
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-sm checkbox-primary"
-                    checked={state().dock.cordialConfig.enabled}
-                    disabled={!state().dock.cordialAvailable}
-                    onChange={(e) => setDockCordialConfig({ enabled: e.currentTarget.checked })}
-                  />
-                </label>
-                <Show when={!state().dock.cordialAvailable}>
-                  <p class="text-[10px] text-base-content/70 ml-1 mt-0.5">Not installed</p>
-                </Show>
-              </Show>
+            <div class="space-y-1.5 text-xs mt-3">
+              <div class="flex justify-between">
+                <span>Ligands</span>
+                <span class="font-mono font-bold">{totalLigands()}</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Poses / ligand</span>
+                <span class="font-mono">{state().dock.config.numPoses}</span>
+              </div>
+              <div class="flex justify-between border-t border-base-300 pt-1.5">
+                <span>Total poses</span>
+                <span class="font-mono font-bold">{totalPoses()}</span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right — Parameters */}
+        {/* Top Right — Docking Parameters */}
         <div class="card bg-base-200 shadow-lg">
-          <div class="card-body p-4 overflow-auto">
-            <h3 class="text-sm font-semibold mb-3">Parameters</h3>
-
+          <div class="card-body p-4">
+            <h3 class="text-sm font-semibold mb-2">Docking</h3>
             <div class="grid grid-cols-2 gap-3">
-              {/* Exhaustiveness */}
               <div class="form-control">
                 <label class="label py-0.5">
                   <span class="label-text text-xs">Exhaustiveness</span>
@@ -158,8 +124,6 @@ const DockStepConfigure: Component = () => {
                   onInput={(e) => setDockConfig({ exhaustiveness: Number(e.currentTarget.value) || 8 })}
                 />
               </div>
-
-              {/* Poses */}
               <div class="form-control">
                 <label class="label py-0.5">
                   <span class="label-text text-xs">Poses per ligand</span>
@@ -172,8 +136,6 @@ const DockStepConfigure: Component = () => {
                   onInput={(e) => setDockConfig({ numPoses: Number(e.currentTarget.value) || 9 })}
                 />
               </div>
-
-              {/* Autobox margin */}
               <div class="form-control">
                 <label class="label py-0.5">
                   <span class="label-text text-xs">{"Autobox margin (\u00C5)"}</span>
@@ -186,8 +148,6 @@ const DockStepConfigure: Component = () => {
                   onInput={(e) => setDockConfig({ autoboxAdd: Number(e.currentTarget.value) || 4 })}
                 />
               </div>
-
-              {/* Seed */}
               <div class="form-control">
                 <label class="label py-0.5">
                   <span class="label-text text-xs">Random seed</span>
@@ -202,27 +162,29 @@ const DockStepConfigure: Component = () => {
                 />
               </div>
             </div>
+            <label class="label cursor-pointer py-0.5 mt-1">
+              <span class="label-text text-xs flex items-center gap-1.5">
+                Core-constrained alignment (MCS)
+                <span class="badge badge-xs badge-warning font-normal" title="Experimental — works best with congeneric series sharing a common scaffold">exp</span>
+              </span>
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm checkbox-primary"
+                checked={state().dock.config.coreConstrained}
+                onChange={(e) => setDockConfig({ coreConstrained: e.currentTarget.checked })}
+              />
+            </label>
+          </div>
+        </div>
 
-            {/* Divider */}
-            <div class="border-t border-base-300 my-3" />
-
-            {/* Toggles */}
+        {/* Bottom Left — Ligand Preparation */}
+        <div class="card bg-base-200 shadow-lg">
+          <div class="card-body p-4 overflow-auto">
+            <h3 class="text-sm font-semibold mb-2">Ligand Preparation</h3>
             <div class="space-y-2">
+              {/* Protonation */}
               <label class="label cursor-pointer py-0.5">
-                <span class="label-text text-xs flex items-center gap-1.5">
-                  Core-constrained alignment (MCS)
-                  <span class="badge badge-xs badge-warning font-normal" title="Experimental — works best with congeneric series sharing a common scaffold">exp</span>
-                </span>
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-sm checkbox-primary"
-                  checked={state().dock.config.coreConstrained}
-                  onChange={(e) => setDockConfig({ coreConstrained: e.currentTarget.checked })}
-                />
-              </label>
-
-              <label class="label cursor-pointer py-0.5">
-                <span class="label-text text-xs">Protonation enumeration</span>
+                <span class="label-text text-xs">Protonation states (Molscrub)</span>
                 <input
                   type="checkbox"
                   class="checkbox checkbox-sm checkbox-primary"
@@ -249,8 +211,9 @@ const DockStepConfigure: Component = () => {
                 </div>
               </Show>
 
+              {/* Stereoisomers */}
               <label class="label cursor-pointer py-0.5">
-                <span class="label-text text-xs">Sample enantiomers</span>
+                <span class="label-text text-xs">Enumerate enantiomers (RDKit)</span>
                 <input
                   type="checkbox"
                   class="checkbox checkbox-sm checkbox-primary"
@@ -259,29 +222,37 @@ const DockStepConfigure: Component = () => {
                 />
               </label>
 
+              <div class="border-t border-base-300 my-1" />
+
+              {/* Conformer Sampling */}
+              <h4 class="text-xs font-semibold text-base-content/70">Conformer Sampling</h4>
               <div class="flex items-center justify-between py-0.5">
-                <span class="label-text text-xs">Conformer search</span>
+                <span class="label-text text-xs">
+                  Method
+                  <Show when={state().dock.conformerConfig.method === 'mcmm'}>
+                    <span class="text-base-content/50"> (Sage 2.3.0 + OBC2)</span>
+                  </Show>
+                  <Show when={state().dock.conformerConfig.method === 'etkdg'}>
+                    <span class="text-base-content/50"> (RDKit geometric optimization)</span>
+                  </Show>
+                </span>
                 <select
                   class="select select-bordered select-xs w-28"
                   value={state().dock.conformerConfig.method}
                   onChange={(e) => {
                     const method = e.currentTarget.value as 'none' | 'etkdg' | 'mcmm';
                     const updates: Record<string, unknown> = { method };
-                    // Auto-bump maxConformers when switching to MCMM
                     if (method === 'mcmm' && state().dock.conformerConfig.maxConformers <= 10) {
                       updates.maxConformers = 50;
                     }
                     setDockConformerConfig(updates);
                   }}
                 >
-                  <option value="none">Off</option>
+                  <option value="none">None</option>
                   <option value="etkdg">ETKDG</option>
                   <option value="mcmm">MCMM</option>
                 </select>
               </div>
-              <Show when={state().dock.conformerConfig.method === 'mcmm'}>
-                <p class="text-[10px] text-base-content/50 ml-6 mt-0.5">Sage 2.3.0 + OBC2 implicit solvent</p>
-              </Show>
               <Show when={state().dock.conformerConfig.method !== 'none'}>
                 <div class="flex gap-2 ml-6">
                   <div class="form-control flex-1">
@@ -340,6 +311,53 @@ const DockStepConfigure: Component = () => {
                 <div class="flex items-center gap-2 ml-6 mt-1 text-[10px] text-success">
                   Using {state().dock.cachedConformerPaths.length} cached conformers
                 </div>
+              </Show>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Right — Post-Docking */}
+        <div class="card bg-base-200 shadow-lg">
+          <div class="card-body p-4">
+            <h3 class="text-sm font-semibold mb-2">Post-Docking</h3>
+            <div class="space-y-2">
+              <label class="label cursor-pointer py-0.5">
+                <span class="label-text text-xs">Pocket refinement</span>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm checkbox-primary"
+                  checked={state().dock.refinementConfig.enabled}
+                  onChange={(e) => setDockRefinementConfig({ enabled: e.currentTarget.checked })}
+                />
+              </label>
+              <p class="text-[10px] text-base-content/50 ml-1">Sage 2.3.0 + OBC2 implicit solvent</p>
+
+              <div class="border-t border-base-300 my-2" />
+
+              <Show
+                when={cordialChecked()}
+                fallback={
+                  <div class="flex items-center gap-2">
+                    <span class="loading loading-spinner loading-xs" />
+                    <span class="text-xs">Checking CORDIAL...</span>
+                  </div>
+                }
+              >
+                <label class="label cursor-pointer py-0">
+                  <span class={`label-text text-xs ${!state().dock.cordialAvailable ? 'opacity-50' : ''}`}>
+                    CORDIAL rescoring
+                  </span>
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm checkbox-primary"
+                    checked={state().dock.cordialConfig.enabled}
+                    disabled={!state().dock.cordialAvailable}
+                    onChange={(e) => setDockCordialConfig({ enabled: e.currentTarget.checked })}
+                  />
+                </label>
+                <Show when={!state().dock.cordialAvailable}>
+                  <p class="text-[10px] text-base-content/70 ml-1 mt-0.5">Not installed</p>
+                </Show>
               </Show>
             </div>
           </div>

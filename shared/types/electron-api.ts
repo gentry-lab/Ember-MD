@@ -163,6 +163,14 @@ export interface ElectronAPI {
   ) => Promise<Result<{ conformerPaths: string[]; parentMapping: Record<string, string> }, AppError>>;
   onConformOutput: (callback: (data: OutputData) => void) => () => void;
 
+  // Post-dock pocket refinement
+  refinePoses: (
+    receptorPdb: string,
+    posesDir: string,
+    outputDir: string,
+    maxIterations: number
+  ) => Promise<Result<{ refinedCount: number; outputDir: string }, AppError>>;
+
   // CORDIAL rescoring
   checkCordialInstalled: () => Promise<boolean>;
   runCordialScoring: (

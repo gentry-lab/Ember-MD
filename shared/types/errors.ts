@@ -35,6 +35,7 @@ export type AppError =
   | { type: 'FEP_SCORING_FAILED'; message: string }
   | { type: 'IMPORT_FAILED'; message: string }
   | { type: 'FEP_SCORING_CANCELLED'; message: string }
+  | { type: 'REFINEMENT_FAILED'; message: string }
   | { type: 'UNKNOWN'; message: string };
 
 export function createError(
