@@ -489,7 +489,7 @@ const MDStepLoad: Component = () => {
                 <div class="w-full space-y-2 text-xs mt-3">
                   <div class="flex justify-between py-1 border-b border-base-300">
                     <span class="text-base-content/70">PDB</span>
-                    <span class="font-mono truncate max-w-[200px]">{path.basename(pdbPath()!)}</span>
+                    <span class="font-mono truncate max-w-[200px]">{path.basename(pdbPath() || state().md.receptorPdb || '')}</span>
                   </div>
                   <div class="flex justify-between py-1 border-b border-base-300">
                     <span class="text-base-content/70">Ligand</span>

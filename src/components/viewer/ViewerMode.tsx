@@ -1,4 +1,4 @@
-import { Component, onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, createEffect, Show, batch } from 'solid-js';
 import * as NGL from 'ngl';
 import type { Vector3 } from 'ngl';
 import {
@@ -406,6 +406,13 @@ const ViewerMode: Component = () => {
     toggleViewerLayerGroupVisible,
     clearViewerLayers,
     resetViewer,
+    setMode,
+    setMdStep,
+    setMdReceptorPdb,
+    setMdLigandSdf,
+    setMdLigandName,
+    setMdPdbPath,
+    setMdConfig,
   } = workflowStore;
 
   // eslint-disable-next-line no-unassigned-vars -- SolidJS ref pattern
@@ -1209,7 +1216,12 @@ const ViewerMode: Component = () => {
           updateProteinStyle();
         }
 
-        stage.autoView();
+        // Focus on ligand rather than whole protein
+        if (ligandComponent) {
+          ligandComponent.autoView();
+        } else {
+          stage.autoView();
+        }
       }
 
       setViewerLigandPath(filePath);
@@ -1237,7 +1249,26 @@ const ViewerMode: Component = () => {
       const item = queue[idx];
       if (!item) { lastQueueIndex = idx; return; }
 
-      if (item.ligandPath) {
+      if (item.type === 'conformer') {
+        // Conformer mode: load SDF directly with ball+stick representation
+        console.log(`[Viewer] Queue nav (conformer): ${item.label} — ${item.pdbPath}`);
+        if (stage) {
+          stage.removeAllComponents();
+          proteinComponent = null;
+          ligandComponent = null;
+          try {
+            const comp = await stage.loadFile(item.pdbPath);
+            comp.addRepresentation('ball+stick', {
+              multipleBond: true,
+              colorScheme: 'element',
+            });
+            comp.autoView();
+            proteinComponent = comp;
+          } catch (err) {
+            console.error('[Viewer] Failed to load conformer:', err);
+          }
+        }
+      } else if (item.ligandPath) {
         // Docking mode: keep receptor, swap ligand only
         console.log(`[Viewer] Queue nav (docking): ${item.label} — ligand=${item.ligandPath}`);
         const currentPdb = state().viewer.pdbPath;
@@ -2525,6 +2556,24 @@ const ViewerMode: Component = () => {
   const hasExternalLigand = () => state().viewer.ligandPath !== null;
   const hasAnyLigand = () => hasAutoDetectedLigand() || hasExternalLigand();
 
+  const handleSimulate = () => {
+    const pdbPath = state().viewer.pdbPath;
+    if (!pdbPath) return;
+    const ligandPath = state().viewer.ligandPath;
+    const ligandName = ligandPath
+      ? ligandPath.split('/').pop()?.replace(/\.sdf(\.gz)?$/, '') || 'ligand'
+      : state().viewer.selectedLigandId || 'ligand';
+    setMdReceptorPdb(pdbPath);
+    setMdLigandSdf(ligandPath);
+    setMdLigandName(ligandName);
+    setMdPdbPath(pdbPath);
+    setMdConfig({ restrainLigandNs: 2 });
+    batch(() => {
+      setMode('md');
+      setMdStep('md-configure');
+    });
+  };
+
   return (
     <div class="h-full flex flex-col gap-2">
       {/* Layer Panel */}
@@ -2674,6 +2723,18 @@ const ViewerMode: Component = () => {
                 ) : (
                   <span class="font-mono text-xs">MAP</span>
                 )}
+              </button>
+            </Show>
+            {/* Simulate (visible when a ligand is loaded) */}
+            <Show when={hasAnyLigand()}>
+              <button
+                class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300"
+                onClick={handleSimulate}
+                title="Simulate — run MD on this structure"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
               </button>
             </Show>
             {/* Export (always visible) */}

@@ -260,6 +260,26 @@ def _water_near_ligand(water_coords: List[Tuple[float, float, float]], ligand_co
 # Water residue names (subset of EXCLUDE_RESIDUES used for water retention logic)
 WATER_RESIDUES = {'HOH', 'WAT', 'H2O', 'DOD', 'DIS'}
 
+# Metal ions to retain in receptor (Vina supports Zn, Mg, Mn, Ca, Fe AD4 types)
+RETAIN_METALS = {
+    'ZN', 'MG', 'CA', 'FE', 'MN', 'CU', 'CO', 'NI',
+    'ZN2', 'MG2', 'CA2', 'FE2', 'FE3', 'MN2', 'CU2', 'CO2', 'NI2',
+}
+
+# Enzymatic cofactors to retain near binding site (not crystallization artifacts)
+RETAIN_COFACTORS = {
+    'NAD', 'NAI', 'NAP', 'NDP',      # NAD(P)+/H
+    'FAD', 'FMN',                      # Flavins
+    'HEM', 'HEC', 'HEA', 'HEB',      # Heme variants
+    'ATP', 'ADP', 'AMP', 'ANP',      # Adenine nucleotides (ANP = AMPPNP analog)
+    'GTP', 'GDP', 'GNP',              # Guanine nucleotides
+    'SAM', 'SAH',                      # S-adenosylmethionine/homocysteine
+    'COA', 'ACO',                      # Coenzyme A
+    'TPP',                             # Thiamine pyrophosphate
+    'PLP',                             # Pyridoxal phosphate
+    'BTN',                             # Biotin
+}
+
 
 def prepare_receptor(pdb_path: str, ligand_id: str, output_path: str, water_distance: float = 0.0, add_hydrogens: bool = True) -> bool:
     """Prepare receptor by removing the specified ligand and adding hydrogens.
@@ -285,53 +305,84 @@ def prepare_receptor(pdb_path: str, ligand_id: str, output_path: str, water_dist
     resnum = ligand['resnum']
     ligand_coords = [(a['x'], a['y'], a['z']) for a in ligand['atoms']]
 
-    # First pass: collect water molecule coordinates for distance filtering
-    water_molecules = defaultdict(list)  # (chain, resnum) -> [(x, y, z)]
-    if water_distance > 0:
-        with open(pdb_path, 'r') as f:
-            for line in f:
-                if line.startswith('HETATM'):
-                    res = line[17:20].strip()
-                    if res.upper() in WATER_RESIDUES:
-                        wchain = line[21].strip() or '_'
-                        wresnum = line[22:26].strip()
-                        x = float(line[30:38])
-                        y = float(line[38:46])
-                        z = float(line[46:54])
-                        water_molecules[(wchain, wresnum)].append((x, y, z))
+    # First pass: collect HETATM coordinates for distance-based retention
+    water_molecules = defaultdict(list)   # (chain, resnum) -> [(x, y, z)]
+    cofactor_molecules = defaultdict(list) # (chain, resnum) -> [(x, y, z)]
+    with open(pdb_path, 'r') as f:
+        for line in f:
+            if line.startswith('HETATM'):
+                res = line[17:20].strip().upper()
+                hchain = line[21].strip() or '_'
+                hresnum = line[22:26].strip()
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                if res in WATER_RESIDUES:
+                    water_molecules[(hchain, hresnum)].append((x, y, z))
+                elif res in RETAIN_COFACTORS:
+                    cofactor_molecules[(hchain, hresnum)].append((x, y, z))
 
-    # Determine which waters to keep
+    # Determine which waters and cofactors to keep (near ligand)
     kept_waters = set()
     if water_distance > 0:
-        for (wchain, wresnum), coords in water_molecules.items():
+        for key, coords in water_molecules.items():
             if _water_near_ligand(coords, ligand_coords, water_distance):
-                kept_waters.add((wchain, wresnum))
-        print(f"  Keeping {len(kept_waters)} waters within {water_distance:.1f} A of ligand",
+                kept_waters.add(key)
+        if kept_waters:
+            print(f"  Keeping {len(kept_waters)} waters within {water_distance:.1f} A of ligand",
+                  file=sys.stderr)
+
+    kept_cofactors = set()
+    cofactor_dist = max(water_distance, 5.0)  # cofactors within 5 A or water_distance
+    for key, coords in cofactor_molecules.items():
+        if _water_near_ligand(coords, ligand_coords, cofactor_dist):
+            kept_cofactors.add(key)
+    if kept_cofactors:
+        print(f"  Keeping {len(kept_cofactors)} cofactors within {cofactor_dist:.1f} A of ligand",
               file=sys.stderr)
 
     # Write cleaned receptor PDB
     tmp_path = output_path + '.tmp' if add_hydrogens else output_path
+    kept_metals = 0
     with open(pdb_path, 'r') as f_in, open(tmp_path, 'w') as f_out:
         f_out.write(f"REMARK  Receptor prepared by removing {ligand_id}\n")
-        if water_distance > 0 and kept_waters:
+        if kept_waters:
             f_out.write(f"REMARK  Retained {len(kept_waters)} waters within {water_distance:.1f} A\n")
         for line in f_in:
             if line.startswith('HETATM'):
-                line_resname = line[17:20].strip()
+                line_resname = line[17:20].strip().upper()
                 line_chain = line[21].strip() or '_'
                 line_resnum = line[22:26].strip()
 
-                # Keep crystallographic waters within distance (if requested)
-                if line_resname.upper() in WATER_RESIDUES:
-                    if water_distance > 0 and (line_chain, line_resnum) in kept_waters:
+                # Skip the docking ligand itself
+                if line_resname == resname.upper() and line_chain == chain and line_resnum == resnum:
+                    continue
+
+                # Keep crystallographic waters near ligand
+                if line_resname in WATER_RESIDUES:
+                    if (line_chain, line_resnum) in kept_waters:
                         f_out.write(line)
                     continue
 
-                # Remove ALL other HETATM (ligands, ions, buffers, etc.)
-                # This ensures no co-crystallized ligands remain in the receptor
+                # Keep metal ions (important for metalloenzyme coordination)
+                if line_resname in RETAIN_METALS:
+                    f_out.write(line)
+                    kept_metals += 1
+                    continue
+
+                # Keep cofactors near binding site
+                if line_resname in RETAIN_COFACTORS:
+                    if (line_chain, line_resnum) in kept_cofactors:
+                        f_out.write(line)
+                    continue
+
+                # Remove other HETATM (crystallization artifacts, buffers, etc.)
                 continue
 
             f_out.write(line)
+
+    if kept_metals:
+        print(f"  Keeping {kept_metals} metal ion atoms in receptor", file=sys.stderr)
 
     # Protein preparation pipeline:
     # 1. Reduce: optimize Asn/Gln/His orientations (flip ambiguous residues)

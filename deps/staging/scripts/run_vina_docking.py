@@ -65,6 +65,35 @@ def sdf_to_pdbqt_string(sdf_path: str, mol: Any = None) -> str:
     return pdbqt_string
 
 
+def _extract_metal_pdbqt_lines(pdb_path: str) -> str:
+    """Extract metal ions from PDB and format as PDBQT ATOM lines.
+
+    Vina supports AD4 atom types for: Zn, Mg, Mn, Ca, Fe.
+    Returns PDBQT-formatted ATOM lines for any metals found.
+    """
+    # Map PDB residue names to AD4 atom types and formal charges
+    METAL_AD4 = {
+        'ZN': ('Zn', 2.0), 'ZN2': ('Zn', 2.0),
+        'MG': ('Mg', 2.0), 'MG2': ('Mg', 2.0),
+        'MN': ('Mn', 2.0), 'MN2': ('Mn', 2.0),
+        'CA': ('Ca', 2.0), 'CA2': ('Ca', 2.0),
+        'FE': ('Fe', 2.0), 'FE2': ('Fe', 2.0), 'FE3': ('Fe', 3.0),
+    }
+
+    lines = []
+    with open(pdb_path) as f:
+        for line in f:
+            if line.startswith('HETATM'):
+                resname = line[17:20].strip().upper()
+                if resname in METAL_AD4:
+                    ad4_type, charge = METAL_AD4[resname]
+                    # Reformat as PDBQT: keep coords, set charge and AD4 type
+                    atom_line = line[:70].ljust(70)
+                    atom_line += f"{charge:>6.3f} {ad4_type:<2s}"
+                    lines.append(atom_line.rstrip() + '\n')
+    return ''.join(lines)
+
+
 def pdb_to_pdbqt_string(pdb_path: str) -> str:
     """Convert receptor PDB to rigid PDBQT string using Meeko's Polymer.
 
@@ -73,6 +102,8 @@ def pdb_to_pdbqt_string(pdb_path: str) -> str:
     with allow_bad_res=True (same behavior as obabel -xr ignoring HETATM).
     Ions and other residues that Meeko recognizes but cannot assign AD4 atom
     types to (atom_type=None) are marked is_ignore so the writer skips them.
+    Metal ions are re-injected after Meeko processing with correct AD4 types
+    (Vina natively supports Zn, Mg, Mn, Ca, Fe).
     Returns a PDBQT string (no ROOT/BRANCH torsion tree — rigid receptor).
     """
     import warnings
@@ -87,7 +118,7 @@ def pdb_to_pdbqt_string(pdb_path: str) -> str:
         polymer = Polymer.from_pdb_string(pdb_string, templates, mk_prep,
                                           allow_bad_res=True)
 
-    # Skip atoms without AD4 atom types (e.g. metal ions like NA, MG, ZN)
+    # Skip atoms without AD4 atom types (Meeko can't type metals/unknowns)
     for _res_id, monomer in polymer.get_valid_monomers().items():
         for atom in monomer.molsetup.atoms:
             if atom.atom_type is None:
@@ -97,6 +128,15 @@ def pdb_to_pdbqt_string(pdb_path: str) -> str:
 
     if not rigid_pdbqt or 'ATOM' not in rigid_pdbqt:
         raise ValueError(f"Meeko Polymer produced empty PDBQT for {pdb_path}")
+
+    # Inject metal ions with correct AD4 types (Meeko can't type them)
+    metal_lines = _extract_metal_pdbqt_lines(pdb_path)
+    if metal_lines:
+        # Insert before END record
+        if rigid_pdbqt.rstrip().endswith('END'):
+            rigid_pdbqt = rigid_pdbqt.rstrip()[:-3] + metal_lines + 'END\n'
+        else:
+            rigid_pdbqt += metal_lines
 
     return rigid_pdbqt
 

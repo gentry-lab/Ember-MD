@@ -2727,7 +2727,7 @@ ipcMain.handle(
   }
 );
 
-// Generate conformers using RDKit ETKDG
+// Generate conformers using RDKit ETKDG or MCMM
 ipcMain.handle(
   IpcChannels.GENERATE_CONFORMERS,
   async (
@@ -2736,7 +2736,9 @@ ipcMain.handle(
     outputDir: string,
     maxConformers: number,
     rmsdCutoff: number,
-    energyWindow: number
+    energyWindow: number,
+    method?: string,
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
   ): Promise<Result<{
     conformerPaths: string[];
     parentMapping: Record<string, string>;
@@ -2769,14 +2771,15 @@ ipcMain.handle(
         return;
       }
 
-      // Create conformers output subdirectory
-      const conformerDir = path.join(outputDir, 'conformers');
+      // Use the caller-provided outputDir directly (no extra subdirectory)
+      const conformerDir = outputDir;
       fs.mkdirSync(conformerDir, { recursive: true });
 
       // Write ligand list to JSON file for the script
       const ligandListPath = path.join(outputDir, 'ligand_list_for_conformers.json');
       fs.writeFileSync(ligandListPath, JSON.stringify(ligandSdfPaths, null, 2));
 
+      const effectiveMethod = method || 'etkdg';
       const args = [
         scriptPath,
         '--ligand_list', ligandListPath,
@@ -2784,11 +2787,21 @@ ipcMain.handle(
         '--max_conformers', String(maxConformers),
         '--rmsd_cutoff', String(rmsdCutoff),
         '--energy_window', String(energyWindow),
+        '--method', effectiveMethod,
       ];
 
+      if (effectiveMethod === 'mcmm' && mcmmOptions) {
+        args.push('--mcmm_steps', String(mcmmOptions.steps));
+        args.push('--mcmm_temperature', String(mcmmOptions.temperature));
+        if (mcmmOptions.sampleAmides) {
+          args.push('--sample_amides');
+        }
+      }
+
+      const methodLabel = effectiveMethod.toUpperCase();
       event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
-        data: `=== Conformer Generation ===\nMax conformers: ${maxConformers}\nRMSD cutoff: ${rmsdCutoff} A\nEnergy window: ${energyWindow} kcal/mol\nInput molecules: ${ligandSdfPaths.length}\n\n`
+        data: `=== Conformer Generation (${methodLabel}) ===\nMax conformers: ${maxConformers}\nRMSD cutoff: ${rmsdCutoff} A\nEnergy window: ${energyWindow} kcal/mol\nInput molecules: ${ligandSdfPaths.length}\n\n`
       });
 
       const python = spawn(condaPythonPath, args);
@@ -2839,6 +2852,145 @@ ipcMain.handle(
               resolve(Ok({
                 conformerPaths: ligandSdfPaths,
                 parentMapping,
+              }));
+            }
+          } catch (e) {
+            resolve(Err({
+              type: 'PARSE_FAILED',
+              message: `Failed to parse conformer results: ${(e as Error).message}`,
+            }));
+          }
+        } else {
+          resolve(Err({
+            type: 'CONFORMER_FAILED',
+            message: `Conformer generation failed: ${stderr.slice(0, 200)}`,
+          }));
+        }
+      });
+
+      python.on('error', (error: Error) => {
+        childProcesses.delete(python);
+        resolve(Err({
+          type: 'CONFORMER_FAILED',
+          message: error.message,
+        }));
+      });
+    });
+  }
+);
+
+// === Standalone Conformer Generation Handler ===
+ipcMain.handle(
+  'conform:generate',
+  async (
+    event,
+    ligandSdfPath: string,
+    outputDir: string,
+    maxConformers: number,
+    rmsdCutoff: number,
+    energyWindow: number,
+    method: string,
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
+  ): Promise<Result<{
+    conformerPaths: string[];
+    parentMapping: Record<string, string>;
+  }, AppError>> => {
+    return new Promise((resolve) => {
+      if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+        resolve(Err({
+          type: 'PYTHON_NOT_FOUND',
+          message: 'Python not found. Please install miniconda and create fraggen environment.',
+        }));
+        return;
+      }
+
+      const scriptPath = path.join(fraggenRoot, 'generate_conformers.py');
+      if (!fs.existsSync(scriptPath)) {
+        event.sender.send('conform:output', {
+          type: 'stdout',
+          data: 'Warning: generate_conformers.py not found, skipping conformer generation\n'
+        });
+        const name = path.basename(ligandSdfPath, '.sdf');
+        resolve(Ok({
+          conformerPaths: [ligandSdfPath],
+          parentMapping: { [name]: name },
+        }));
+        return;
+      }
+
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      // Wrap single ligand path in array for the script
+      const ligandSdfPaths = [ligandSdfPath];
+      const ligandListPath = path.join(outputDir, 'ligand_list_for_conformers.json');
+      fs.writeFileSync(ligandListPath, JSON.stringify(ligandSdfPaths, null, 2));
+
+      const effectiveMethod = method || 'etkdg';
+      const args = [
+        scriptPath,
+        '--ligand_list', ligandListPath,
+        '--output_dir', outputDir,
+        '--max_conformers', String(maxConformers),
+        '--rmsd_cutoff', String(rmsdCutoff),
+        '--energy_window', String(energyWindow),
+        '--method', effectiveMethod,
+      ];
+
+      if (effectiveMethod === 'mcmm' && mcmmOptions) {
+        args.push('--mcmm_steps', String(mcmmOptions.steps));
+        args.push('--mcmm_temperature', String(mcmmOptions.temperature));
+        if (mcmmOptions.sampleAmides) {
+          args.push('--sample_amides');
+        }
+      }
+
+      const methodLabel = effectiveMethod.toUpperCase();
+      event.sender.send('conform:output', {
+        type: 'stdout',
+        data: `=== Conformer Generation (${methodLabel}) ===\nMax conformers: ${maxConformers}\nRMSD cutoff: ${rmsdCutoff} A\nEnergy window: ${energyWindow} kcal/mol\nInput: ${path.basename(ligandSdfPath)}\n\n`
+      });
+
+      const python = spawn(condaPythonPath, args);
+      childProcesses.add(python);
+
+      let stdout = '';
+      let stderr = '';
+
+      python.stdout.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stdout += text;
+        event.sender.send('conform:output', { type: 'stdout', data: text });
+      });
+
+      python.stderr.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stderr += text;
+        if (text.includes('Warning') || text.includes('ERROR')) {
+          event.sender.send('conform:output', { type: 'stderr', data: text });
+        }
+      });
+
+      python.on('close', (code: number | null) => {
+        childProcesses.delete(python);
+        if (code === 0) {
+          try {
+            const lines = stdout.trim().split('\n');
+            const lastLine = lines[lines.length - 1];
+            if (lastLine && lastLine.startsWith('{')) {
+              const result = JSON.parse(lastLine);
+              resolve(Ok({
+                conformerPaths: result.conformer_paths || [],
+                parentMapping: result.parent_mapping || {},
+              }));
+            } else {
+              event.sender.send('conform:output', {
+                type: 'stdout',
+                data: 'Warning: No conformer output, using original molecule\n'
+              });
+              const name = path.basename(ligandSdfPath, '.sdf');
+              resolve(Ok({
+                conformerPaths: [ligandSdfPath],
+                parentMapping: { [name]: name },
               }));
             }
           } catch (e) {

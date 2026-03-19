@@ -105,15 +105,29 @@ const DockStepProgress: Component = () => {
         }
       }
 
+      // Use cached conformers if available (user selected "Use" on configure page)
+      if (dock.cachedConformerPaths.length > 0 && dock.conformerConfig.method === 'none') {
+        ligandPaths = [...dock.cachedConformerPaths];
+        appendLog(`--- Using ${ligandPaths.length} cached conformers ---\n\n`);
+      }
+
       // Preprocessing: conformer generation
       if (dock.conformerConfig.method !== 'none' && ligandPaths.length > 0) {
-        appendLog('--- Generating conformers... ---\n');
-        const confDir = path.join(dockPaths.prep, 'conformers');
+        const methodLabel = dock.conformerConfig.method.toUpperCase();
+        appendLog(`--- Generating conformers (${methodLabel})... ---\n`);
+        const confDir = path.join(dockPaths.prep, dock.conformerConfig.method === 'mcmm' ? 'mcmm' : 'etkdg');
+        const mcmmOpts = dock.conformerConfig.method === 'mcmm' ? {
+          steps: dock.conformerConfig.mcmmSteps,
+          temperature: dock.conformerConfig.mcmmTemperature,
+          sampleAmides: dock.conformerConfig.sampleAmides,
+        } : undefined;
         const confResult = await api.generateConformers(
           ligandPaths, confDir,
           dock.conformerConfig.maxConformers,
           dock.conformerConfig.rmsdCutoff,
-          dock.conformerConfig.energyWindow
+          dock.conformerConfig.energyWindow,
+          dock.conformerConfig.method,
+          mcmmOpts
         );
         if (confResult.ok && confResult.value.conformerPaths.length > 0) {
           ligandPaths = confResult.value.conformerPaths;

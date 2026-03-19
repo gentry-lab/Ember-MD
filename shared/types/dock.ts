@@ -68,20 +68,26 @@ export const DEFAULT_STEREOISOMER_CONFIG: StereoisomerConfig = {
 };
 
 // Conformer generation configuration
-export type ConformerMethod = 'none' | 'etkdg';
+export type ConformerMethod = 'none' | 'etkdg' | 'mcmm';
 
 export interface ConformerConfig {
   method: ConformerMethod;
-  maxConformers: number;    // Default: 10
-  rmsdCutoff: number;       // Default: 0.5 Å
-  energyWindow: number;     // Default: 10.0 kcal/mol
+  maxConformers: number;    // Default: 5 (ETKDG), 50 (MCMM)
+  rmsdCutoff: number;       // Default: 1.0 Å
+  energyWindow: number;     // Default: 5.0 kcal/mol
+  mcmmSteps: number;        // Default: 100 (MCMM only)
+  mcmmTemperature: number;  // Default: 298 K (MCMM only)
+  sampleAmides: boolean;    // Default: true (MCMM only)
 }
 
 export const DEFAULT_CONFORMER_CONFIG: ConformerConfig = {
-  method: 'etkdg',
-  maxConformers: 5,
+  method: 'mcmm',
+  maxConformers: 50,
   rmsdCutoff: 1.0,
   energyWindow: 5.0,
+  mcmmSteps: 1000,
+  mcmmTemperature: 298,
+  sampleAmides: true,
 };
 
 // CORDIAL rescoring configuration

@@ -34,7 +34,7 @@ export const MD_COMMON_PARAMS = {
   boxShape: 'dodecahedron',
   paddingNm: 1.2,             // nm
   timestepFs: 4,              // fs (HMR enabled for faster production)
-  forceFieldLigand: 'OpenFF Sage 2.0',
+  forceFieldLigand: 'OpenFF Sage 2.3.0',
   integrator: 'LangevinMiddle',
   equilibrationPs: 270,       // ~270 ps (AMBER-style with restraints: min, heat, equil, release)
 } as const;

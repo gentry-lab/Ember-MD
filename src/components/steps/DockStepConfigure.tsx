@@ -1,6 +1,8 @@
 import { Component, Show, onMount, createSignal, createMemo } from 'solid-js';
+import path from 'path';
 import { workflowStore } from '../../stores/workflow';
 import { buildDockFolderName } from '../../utils/jobName';
+import { projectPaths } from '../../utils/projectPaths';
 
 const DockStepConfigure: Component = () => {
   const {
@@ -12,9 +14,12 @@ const DockStepConfigure: Component = () => {
     setDockStereoisomerConfig,
     setDockConformerConfig,
     setDockCordialAvailable,
+    setDockCachedConformerPaths,
   } = workflowStore;
   const api = window.electronAPI;
   const [cordialChecked, setCordialChecked] = createSignal(false);
+  const [cachedConformers, setCachedConformers] = createSignal<string[]>([]);
+  const [cachedConformersUsed, setCachedConformersUsed] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -26,6 +31,29 @@ const DockStepConfigure: Component = () => {
       setDockCordialConfig({ enabled: false });
     }
     setCordialChecked(true);
+
+    // Scan for cached MCMM/ETKDG conformers from previous runs
+    try {
+      const defaultDir = await api.getDefaultOutputDir();
+      const baseOutputDir = state().customOutputDir || defaultDir;
+      const jobName = state().jobName.trim();
+      const dockFolder = buildDockFolderName({
+        referenceLigandId: state().dock.referenceLigandId,
+        numLigands: state().dock.ligandMolecules.length,
+      });
+      const paths = projectPaths(baseOutputDir, jobName);
+      const dockPaths = paths.docking(dockFolder);
+      for (const subdir of ['mcmm', 'etkdg']) {
+        const dir = path.join(dockPaths.prep, subdir);
+        try {
+          const sdfs = await api.listSdfInDirectory(dir);
+          if (sdfs.length > 0) {
+            setCachedConformers(sdfs);
+            break;
+          }
+        } catch { /* dir doesn't exist */ }
+      }
+    } catch { /* scan failed, no cached conformers */ }
   });
 
   const outputFolderName = createMemo(() =>
@@ -231,21 +259,35 @@ const DockStepConfigure: Component = () => {
                 />
               </label>
 
-              <label class="label cursor-pointer py-0.5">
-                <span class="label-text text-xs">Conformer generation (ETKDG)</span>
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-sm checkbox-primary"
-                  checked={state().dock.conformerConfig.method !== 'none'}
-                  onChange={(e) => setDockConformerConfig({ method: e.currentTarget.checked ? 'etkdg' : 'none' })}
-                />
-              </label>
+              <div class="flex items-center justify-between py-0.5">
+                <span class="label-text text-xs">Conformer search</span>
+                <select
+                  class="select select-bordered select-xs w-28"
+                  value={state().dock.conformerConfig.method}
+                  onChange={(e) => {
+                    const method = e.currentTarget.value as 'none' | 'etkdg' | 'mcmm';
+                    const updates: Record<string, unknown> = { method };
+                    // Auto-bump maxConformers when switching to MCMM
+                    if (method === 'mcmm' && state().dock.conformerConfig.maxConformers <= 10) {
+                      updates.maxConformers = 50;
+                    }
+                    setDockConformerConfig(updates);
+                  }}
+                >
+                  <option value="none">Off</option>
+                  <option value="etkdg">ETKDG</option>
+                  <option value="mcmm">MCMM</option>
+                </select>
+              </div>
+              <Show when={state().dock.conformerConfig.method === 'mcmm'}>
+                <p class="text-[10px] text-base-content/50 ml-6 mt-0.5">Sage 2.3.0 + OBC2 implicit solvent</p>
+              </Show>
               <Show when={state().dock.conformerConfig.method !== 'none'}>
                 <div class="flex gap-2 ml-6">
                   <div class="form-control flex-1">
                     <label class="label py-0"><span class="label-text text-[10px]">Max conformers</span></label>
                     <input type="number" class="input input-bordered input-xs w-full"
-                      value={state().dock.conformerConfig.maxConformers} min={1} max={100}
+                      value={state().dock.conformerConfig.maxConformers} min={1} max={500}
                       onInput={(e) => setDockConformerConfig({ maxConformers: Number(e.currentTarget.value) || 5 })}
                     />
                   </div>
@@ -256,6 +298,47 @@ const DockStepConfigure: Component = () => {
                       onInput={(e) => setDockConformerConfig({ rmsdCutoff: Number(e.currentTarget.value) || 1.0 })}
                     />
                   </div>
+                </div>
+              </Show>
+              <Show when={state().dock.conformerConfig.method === 'mcmm'}>
+                <div class="flex gap-2 ml-6">
+                  <div class="form-control flex-1">
+                    <label class="label py-0"><span class="label-text text-[10px]">Search steps</span></label>
+                    <input type="number" class="input input-bordered input-xs w-full"
+                      value={state().dock.conformerConfig.mcmmSteps} min={10} max={1000}
+                      onInput={(e) => setDockConformerConfig({ mcmmSteps: Number(e.currentTarget.value) || 100 })}
+                    />
+                  </div>
+                  <div class="form-control flex-1">
+                    <label class="label py-0"><span class="label-text text-[10px]">Temperature (K)</span></label>
+                    <input type="number" class="input input-bordered input-xs w-full"
+                      value={state().dock.conformerConfig.mcmmTemperature} min={100} max={1000}
+                      onInput={(e) => setDockConformerConfig({ mcmmTemperature: Number(e.currentTarget.value) || 298 })}
+                    />
+                  </div>
+                </div>
+                <label class="label cursor-pointer py-0 ml-6">
+                  <span class="label-text text-[10px]">Sample amide cis/trans</span>
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs checkbox-primary"
+                    checked={state().dock.conformerConfig.sampleAmides}
+                    onChange={(e) => setDockConformerConfig({ sampleAmides: e.currentTarget.checked })}
+                  />
+                </label>
+              </Show>
+              <Show when={state().dock.conformerConfig.method === 'none' && cachedConformers().length > 0 && !cachedConformersUsed()}>
+                <div class="flex items-center gap-2 ml-6 mt-1 bg-info/10 rounded px-2 py-1">
+                  <span class="text-[10px]">{cachedConformers().length} cached conformers found</span>
+                  <button class="btn btn-xs btn-primary" onClick={() => {
+                    setDockCachedConformerPaths(cachedConformers());
+                    setCachedConformersUsed(true);
+                  }}>Use</button>
+                </div>
+              </Show>
+              <Show when={cachedConformersUsed()}>
+                <div class="flex items-center gap-2 ml-6 mt-1 text-[10px] text-success">
+                  Using {state().dock.cachedConformerPaths.length} cached conformers
                 </div>
               </Show>
             </div>

@@ -42,6 +42,9 @@ const IpcChannels = {
   ENUMERATE_PROTONATION: 'enumerate-protonation',
   ENUMERATE_STEREOISOMERS: 'enumerate-stereoisomers',
   GENERATE_CONFORMERS: 'generate-conformers',
+  // Conformer generation (standalone)
+  CONFORM_OUTPUT: 'conform:output',
+  RUN_CONFORM_GENERATION: 'conform:generate',
   // CORDIAL rescoring
   CHECK_CORDIAL_INSTALLED: 'check-cordial-installed',
   RUN_CORDIAL_SCORING: 'run-cordial-scoring',
@@ -346,15 +349,45 @@ const electronAPI = {
     outputDir: string,
     maxConformers: number,
     rmsdCutoff: number,
-    energyWindow: number
+    energyWindow: number,
+    method?: string,
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
   ) => ipcRenderer.invoke(
     IpcChannels.GENERATE_CONFORMERS,
     ligandSdfPaths,
     outputDir,
     maxConformers,
     rmsdCutoff,
-    energyWindow
+    energyWindow,
+    method,
+    mcmmOptions
   ),
+
+  // Conformer generation (standalone)
+  runConformGeneration: (
+    ligandSdfPath: string,
+    outputDir: string,
+    maxConformers: number,
+    rmsdCutoff: number,
+    energyWindow: number,
+    method: string,
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
+  ) => ipcRenderer.invoke(
+    IpcChannels.RUN_CONFORM_GENERATION,
+    ligandSdfPath,
+    outputDir,
+    maxConformers,
+    rmsdCutoff,
+    energyWindow,
+    method,
+    mcmmOptions
+  ),
+
+  onConformOutput: (callback: (data: OutputData) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: OutputData) => callback(data);
+    ipcRenderer.on(IpcChannels.CONFORM_OUTPUT, listener);
+    return () => ipcRenderer.removeListener(IpcChannels.CONFORM_OUTPUT, listener);
+  },
 
   // CORDIAL rescoring
   checkCordialInstalled: () => ipcRenderer.invoke(IpcChannels.CHECK_CORDIAL_INSTALLED),

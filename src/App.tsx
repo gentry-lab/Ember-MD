@@ -11,6 +11,10 @@ import DockStepResults from './components/steps/DockStepResults';
 import ViewerMode from './components/viewer/ViewerMode';
 import FepScoringPanel from './components/viewer/FepScoringPanel';
 import MapMode from './components/map/MapMode';
+import ConformStepLoad from './components/steps/ConformStepLoad';
+import ConformStepConfigure from './components/steps/ConformStepConfigure';
+import ConformStepProgress from './components/steps/ConformStepProgress';
+import ConformStepResults from './components/steps/ConformStepResults';
 import { workflowStore } from './stores/workflow';
 
 const App: Component = () => {
@@ -54,6 +58,20 @@ const App: Component = () => {
         </Match>
         <Match when={state().mode === 'md' && state().mdStep === 'md-results'}>
           <MDStepResults />
+        </Match>
+
+        {/* Conform mode steps */}
+        <Match when={state().mode === 'conform' && state().conformStep === 'conform-load'}>
+          <ConformStepLoad />
+        </Match>
+        <Match when={state().mode === 'conform' && state().conformStep === 'conform-configure'}>
+          <ConformStepConfigure />
+        </Match>
+        <Match when={state().mode === 'conform' && state().conformStep === 'conform-progress'}>
+          <ConformStepProgress />
+        </Match>
+        <Match when={state().mode === 'conform' && state().conformStep === 'conform-results'}>
+          <ConformStepResults />
         </Match>
 
         {/* Score mode (FEP scoring, single view) */}

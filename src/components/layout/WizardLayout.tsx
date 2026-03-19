@@ -31,8 +31,16 @@ const mdSteps: StepInfo[] = [
   { id: 'md-results', label: 'Results', icon: '4' },
 ];
 
+const conformSteps: StepInfo[] = [
+  { id: 'conform-load', label: 'Load', icon: '1' },
+  { id: 'conform-configure', label: 'Configure', icon: '2' },
+  { id: 'conform-progress', label: 'Generate', icon: '3' },
+  { id: 'conform-results', label: 'Results', icon: '4' },
+];
+
 const dockStepOrder = dockSteps.map((s) => s.id);
 const mdStepOrder = mdSteps.map((s) => s.id);
+const conformStepOrder = conformSteps.map((s) => s.id);
 
 type PickerView = 'list' | 'rename' | 'delete';
 
@@ -321,6 +329,14 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
       if (stepIndex === currentIndex) return 'active';
       return 'pending';
     }
+    if (state().mode === 'conform') {
+      const currentStep = state().conformStep;
+      const currentIndex = conformStepOrder.indexOf(currentStep);
+      const stepIndex = conformStepOrder.indexOf(stepId);
+      if (stepIndex < currentIndex) return 'done';
+      if (stepIndex === currentIndex) return 'active';
+      return 'pending';
+    }
     const currentStep = state().mdStep;
     const currentIndex = mdStepOrder.indexOf(currentStep);
     const stepIndex = mdStepOrder.indexOf(stepId);
@@ -362,6 +378,13 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
               disabled={!canSwitchMode()}
             >
               Dock
+            </button>
+            <button
+              class={`tab tab-sm ${state().mode === 'conform' ? 'tab-active' : ''}`}
+              onClick={() => handleModeSwitch('conform')}
+              disabled={!canSwitchMode()}
+            >
+              Conform
             </button>
             <button
               class={`tab tab-sm ${state().mode === 'map' ? 'tab-active' : ''}`}
@@ -495,6 +518,25 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
         <Show when={state().mode === 'dock' && state().projectReady}>
           <ul class="steps steps-horizontal">
             <For each={dockSteps}>{(step) => {
+              const status = () => getStepStatus(step.id);
+              return (
+                <li
+                  class={`step step-sm ${status() === 'done' || status() === 'active' ? 'step-primary' : ''}`}
+                  data-content={status() === 'done' ? '✓' : step.icon}
+                >
+                  <span class={`text-xs ${status() === 'active' ? 'font-semibold' : 'text-base-content/90'}`}>
+                    {step.label}
+                  </span>
+                </li>
+              );
+            }}</For>
+          </ul>
+        </Show>
+
+        {/* Step indicators — Conform mode */}
+        <Show when={state().mode === 'conform' && state().projectReady}>
+          <ul class="steps steps-horizontal">
+            <For each={conformSteps}>{(step) => {
               const status = () => getStepStatus(step.id);
               return (
                 <li

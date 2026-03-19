@@ -206,7 +206,7 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
     """Build solvated ligand-only system (no protein).
 
     For studying small molecule dynamics in solution.
-    Uses OpenFF Sage 2.0 for ligand parameterization.
+    Uses OpenFF Sage 2.3.0 for ligand parameterization.
 
     Returns system, modeller, force field, and job_name.
     """
@@ -236,16 +236,16 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
     n_atoms = mol.GetNumAtoms()
     print('PROGRESS:building:20', flush=True)
 
-    # 2. Setup force field (water model + OpenFF Sage 2.0 for ligand)
+    # 2. Setup force field (water model + OpenFF Sage 2.3.0 for ligand)
     preset = PRESETS[force_field_preset]
     water_model = preset['water_model']
     water_label = preset['water_label']
-    print(f'[{time.time()-t_start:.1f}s] Setting up force fields ({water_label} + OpenFF Sage 2.0)...', file=sys.stderr)
+    print(f'[{time.time()-t_start:.1f}s] Setting up force fields ({water_label} + OpenFF Sage 2.3.0)...', file=sys.stderr)
     ff = ForceField(*preset['water_ff'])
 
-    smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand])
+    smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand], forcefield='openff-2.3.0')
     ff.registerTemplateGenerator(smirnoff.generator)
-    print(f'[{time.time()-t_start:.1f}s] SMIRNOFF registered', file=sys.stderr)
+    print(f'[{time.time()-t_start:.1f}s] Ligand FF: OpenFF Sage 2.3.0', file=sys.stderr)
     print('PROGRESS:building:40', flush=True)
 
     # 3. Create modeller with just the ligand
@@ -474,15 +474,16 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
                                    for i in range(mol.GetNumAtoms())], axis=0)
                 print(f'  Ligand COM after correction: distance to protein = {np.linalg.norm(new_com - prot_com):.1f} A', file=sys.stderr)
 
-    # 3. Setup force field with ligand parameters (OpenFF Sage 2.0)
+    # 3. Setup force field with ligand parameters (OpenFF Sage 2.3.0)
     preset = PRESETS[force_field_preset]
     water_model = preset['water_model']
     water_label = preset['water_label']
-    print(f'Setting up force fields ({", ".join(preset["protein_ff"])} + {water_label} + OpenFF Sage 2.0)...', file=sys.stderr)
+    print(f'Setting up force fields ({", ".join(preset["protein_ff"])} + {water_label} + OpenFF Sage 2.3.0)...', file=sys.stderr)
     ff = ForceField(*preset['protein_ff'], *preset['water_ff'])
 
-    smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand])
+    smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand], forcefield='openff-2.3.0')
     ff.registerTemplateGenerator(smirnoff.generator)
+    print('Ligand FF: OpenFF Sage 2.3.0', file=sys.stderr)
     print('PROGRESS:building:40', flush=True)
 
     # 4. Add ligand to modeller (protein already has hydrogens from PDBFixer)

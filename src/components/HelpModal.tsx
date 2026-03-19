@@ -97,7 +97,7 @@ const MDHelp: Component = () => (
         <p><strong>Fast:</strong> ff14SB + TIP3P — well-tested, faster</p>
         <p><strong>Accurate (default):</strong> ff19SB + OPC (4-site water) — higher accuracy</p>
         <p class="text-xs text-base-content/60 mt-2">
-          OpenFF Sage 2.0 for ligand parameterization. 4fs HMR timestep.
+          OpenFF Sage 2.3.0 for ligand parameterization. 4fs HMR timestep.
           ~270ps equilibration (protein+ligand) or ~170ps (ligand-only).
           Checkpoint saved every 0.5 ns.
         </p>

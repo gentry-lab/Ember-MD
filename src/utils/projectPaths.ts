@@ -64,6 +64,7 @@ export function projectPaths(baseDir: string, projectName: string) {
         analysisClustering: path.join(base, 'analysis', 'clustering'),
       };
     },
+    conformers: (runFolder: string) => path.join(root, 'conformers', runFolder),
     fep: path.join(root, 'fep'),
 
     // === Legacy aliases (for reading old projects) ===

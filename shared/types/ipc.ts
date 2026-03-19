@@ -221,12 +221,16 @@ export const IpcChannels = {
   SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
   SELECT_EMBER_JOB_FOLDER: 'select-ember-job-folder',
 
+  // Conformer generation (standalone)
+  RUN_CONFORM_GENERATION: 'conform:generate',
+
   // Send channels (main -> renderer)
   PREP_OUTPUT: 'prep-output',
   SURFACE_OUTPUT: 'surface-output',
   GENERATION_OUTPUT: 'generation-output',
   DOCK_OUTPUT: 'dock:output',
   MD_OUTPUT: 'md:output',
+  CONFORM_OUTPUT: 'conform:output',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

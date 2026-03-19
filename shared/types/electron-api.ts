@@ -136,13 +136,32 @@ export interface ElectronAPI {
     phMin: number,
     phMax: number
   ) => Promise<Result<{ protonatedPaths: string[]; parentMapping: Record<string, string> }, AppError>>;
+  enumerateStereoisomers: (
+    ligandSdfPaths: string[],
+    outputDir: string,
+    maxStereoisomers: number
+  ) => Promise<Result<{ stereoisomerPaths: string[]; parentMapping: Record<string, string> }, AppError>>;
   generateConformers: (
     ligandSdfPaths: string[],
     outputDir: string,
     maxConformers: number,
     rmsdCutoff: number,
-    energyWindow: number
+    energyWindow: number,
+    method?: string,
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
   ) => Promise<Result<{ conformerPaths: string[]; parentMapping: Record<string, string> }, AppError>>;
+
+  // Conformer generation (standalone)
+  runConformGeneration: (
+    ligandSdfPath: string,
+    outputDir: string,
+    maxConformers: number,
+    rmsdCutoff: number,
+    energyWindow: number,
+    method: string,
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
+  ) => Promise<Result<{ conformerPaths: string[]; parentMapping: Record<string, string> }, AppError>>;
+  onConformOutput: (callback: (data: OutputData) => void) => () => void;
 
   // CORDIAL rescoring
   checkCordialInstalled: () => Promise<boolean>;

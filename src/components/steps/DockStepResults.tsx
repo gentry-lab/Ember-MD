@@ -1,4 +1,4 @@
-import { Component, Show, For, createSignal, createMemo, createEffect, onMount, onCleanup } from 'solid-js';
+import { Component, Show, For, createSignal, createMemo, createEffect, onMount, onCleanup, batch } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import path from 'path';
 
@@ -8,7 +8,7 @@ type SortDirection = 'asc' | 'desc';
 const PAGE_SIZE = 25;
 
 const DockStepResults: Component = () => {
-  const { state, setMode, setMdStep, setViewerPdbPath, setViewerLigandPath, setViewerPdbQueue, setViewerPdbQueueIndex, setMdReceptorPdb, setMdLigandSdf, setMdLigandName, setMdConfig, resetDock, resetViewer } = workflowStore;
+  const { state, setMode, setMdStep, setViewerPdbPath, setViewerLigandPath, setViewerPdbQueue, setViewerPdbQueueIndex, setMdReceptorPdb, setMdLigandSdf, setMdLigandName, setMdPdbPath, setMdConfig, resetDock, resetViewer } = workflowStore;
   const api = window.electronAPI;
 
   const cordialScored = () => state().dock.cordialScored;
@@ -188,12 +188,16 @@ const DockStepResults: Component = () => {
   const handleSimulate = () => {
     const pose = selectedPose();
     if (!pose) return;
-    setMdReceptorPdb(receptorPdb());
+    const receptor = receptorPdb();
+    setMdReceptorPdb(receptor);
     setMdLigandSdf(pose.outputSdf);
     setMdLigandName(pose.ligandName);
+    setMdPdbPath(receptor || null);
     setMdConfig({ restrainLigandNs: 2 });
-    setMode('md');
-    setMdStep('md-configure');
+    batch(() => {
+      setMode('md');
+      setMdStep('md-configure');
+    });
   };
 
   return (

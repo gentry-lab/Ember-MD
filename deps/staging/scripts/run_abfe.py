@@ -304,7 +304,7 @@ def build_system(pdb_path: str, force_field_preset: str, ligand_sdf: Optional[st
             from openff.toolkit import Molecule
             from openmmforcefields.generators import SMIRNOFFTemplateGenerator
             mol = Molecule.from_file(ligand_sdf)
-            smirnoff = SMIRNOFFTemplateGenerator(molecules=[mol])
+            smirnoff = SMIRNOFFTemplateGenerator(molecules=[mol], forcefield='openff-2.3.0')
             forcefield.registerTemplateGenerator(smirnoff.generator)
         except Exception as e:
             print(f"  Warning: Could not load ligand SDF for FF: {e}", file=sys.stderr)
@@ -331,7 +331,7 @@ def build_solvent_system(ligand_sdf: str, force_field_preset: str) -> Tuple[Any,
     ff_config = FF_PRESETS.get(force_field_preset, FF_PRESETS['ff19sb-opc'])
 
     mol = Molecule.from_file(ligand_sdf)
-    smirnoff = SMIRNOFFTemplateGenerator(molecules=[mol])
+    smirnoff = SMIRNOFFTemplateGenerator(molecules=[mol], forcefield='openff-2.3.0')
 
     forcefield = ForceField(ff_config['water_ff'])
     forcefield.registerTemplateGenerator(smirnoff.generator)

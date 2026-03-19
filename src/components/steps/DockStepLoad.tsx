@@ -101,7 +101,7 @@ const DockStepLoad: Component = () => {
 
       setStatusText('Preparing receptor (adding hydrogens)...');
       const receptorPath = path.join(dockPaths.inputs, 'receptor.pdb');
-      const receptorResult = await api.prepareReceptor(currentPdb, ligandId, receptorPath);
+      const receptorResult = await api.prepareReceptor(currentPdb, ligandId, receptorPath, 3.5);
 
       setIsLoading(false);
       setStatusText(null);

@@ -20,20 +20,183 @@ Output:
 
 import argparse
 import json
+import math
 import os
+import random
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 try:
     from rdkit import Chem
-    from rdkit.Chem import AllChem, Descriptors
+    from rdkit.Chem import AllChem, Descriptors, rdMolTransforms
     from rdkit.Chem.rdMolAlign import GetBestRMS
+    from rdkit.Geometry import Point3D
     HAS_RDKIT = True
 except ImportError:
     HAS_RDKIT = False
     print("ERROR: RDKit not installed", file=sys.stderr)
     sys.exit(1)
+
+try:
+    import openmm
+    from openmm import app as omm_app
+    from openmm import unit as omm_unit
+    HAS_OPENMM = True
+except ImportError:
+    HAS_OPENMM = False
+
+
+class GBSAMinimizer:
+    """
+    OpenMM minimizer with OpenFF Sage 2.3.0 + OBC2 implicit solvent.
+    Parameterizes molecule once via OpenFF toolkit, adds GBSA-OBC2
+    solvation force, then provides fast minimize() calls by reusing
+    the OpenMM Context.
+
+    Falls back to MMFF94s vacuum if OpenFF/OpenMM unavailable.
+    """
+
+    # mbondi3 Born radii (nm) and OBC2 screening factors by element
+    _RADII_NM: dict = {
+        'H': 0.12, 'C': 0.17, 'N': 0.155, 'O': 0.15, 'F': 0.15,
+        'S': 0.18, 'P': 0.185, 'Cl': 0.17, 'Br': 0.185, 'I': 0.198,
+    }
+    _SCREEN: dict = {
+        'H': 0.85, 'C': 0.72, 'N': 0.79, 'O': 0.85, 'F': 0.88,
+        'S': 0.96, 'P': 0.86, 'Cl': 0.80, 'Br': 0.80, 'I': 0.80,
+    }
+
+    def __init__(self, rdmol: Any, conf_id: int) -> None:
+        self.ready = False
+        self.n_atoms = rdmol.GetNumAtoms()
+
+        if not HAS_OPENMM:
+            print("  OpenMM not available, using MMFF94s vacuum", file=sys.stderr)
+            return
+
+        try:
+            self._parameterize(rdmol)
+        except Exception as e:
+            print(f"  Warning: GBSA setup failed ({e}), using MMFF94s vacuum",
+                  file=sys.stderr)
+
+    def _parameterize(self, rdmol: Any) -> None:
+        from openff.toolkit import Molecule as OFFMolecule
+        from openff.toolkit import ForceField as OFFForceField
+
+        # Convert RDKit mol to OpenFF
+        off_mol = OFFMolecule.from_rdkit(rdmol, allow_undefined_stereo=True)
+        off_mol.assign_partial_charges('gasteiger')
+
+        # Sage 2.3.0 parameterization (fall back to 2.0.0)
+        sage_version = None
+        for ver in ['openff-2.3.0.offxml', 'openff-2.0.0.offxml']:
+            try:
+                sage = OFFForceField(ver)
+                sage_version = ver
+                break
+            except Exception:
+                continue
+        if sage is None:
+            raise RuntimeError("No OpenFF Sage force field available")
+
+        system = sage.create_openmm_system(
+            off_mol.to_topology(), charge_from_molecules=[off_mol]
+        )
+
+        # Verify particle count
+        if system.getNumParticles() != self.n_atoms:
+            raise RuntimeError(
+                f"Atom count mismatch: RDKit={self.n_atoms}, "
+                f"OpenMM={system.getNumParticles()}"
+            )
+
+        # Extract charges from NonbondedForce
+        nb_force = None
+        for f in system.getForces():
+            if isinstance(f, openmm.NonbondedForce):
+                nb_force = f
+                break
+        if nb_force is None:
+            raise RuntimeError("No NonbondedForce in OpenFF system")
+
+        # Add OBC2 implicit solvent force
+        gbsa = openmm.GBSAOBCForce()
+        gbsa.setSolventDielectric(78.5)
+        gbsa.setSoluteDielectric(1.0)
+        gbsa.setNonbondedMethod(openmm.GBSAOBCForce.NoCutoff)
+
+        for i in range(self.n_atoms):
+            charge, sigma, epsilon = nb_force.getParticleParameters(i)
+            q = charge.value_in_unit(omm_unit.elementary_charge)
+            element = rdmol.GetAtomWithIdx(i).GetSymbol()
+            radius = self._RADII_NM.get(element, 0.15)
+            screen = self._SCREEN.get(element, 0.80)
+            # mbondi3: H bonded to N gets larger radius
+            if element == 'H':
+                for nbr in rdmol.GetAtomWithIdx(i).GetNeighbors():
+                    if nbr.GetSymbol() == 'N':
+                        radius = 0.13
+                        break
+            gbsa.addParticle(q, radius, screen)
+
+        system.addForce(gbsa)
+
+        # Create context on CPU (fast for small molecules, avoids Metal kernel compilation)
+        integrator = openmm.VerletIntegrator(0.001 * omm_unit.picoseconds)
+        platform = openmm.Platform.getPlatformByName('CPU')
+        self.context = openmm.Context(system, integrator, platform)
+        self.ready = True
+
+        label = sage_version.replace('.offxml', '').replace('openff-', 'Sage ')
+        print(f"  {label} + OBC2 implicit solvent ready", flush=True)
+
+    def minimize(self, rdmol: Any, conf_id: int, max_iters: int = 500) -> Optional[float]:
+        """Minimize conformer with implicit solvent. Returns energy in kcal/mol."""
+        if not self.ready:
+            return _minimize_mmff94s(rdmol, conf_id, max_iters)
+
+        try:
+            conf = rdmol.GetConformer(conf_id)
+
+            # Set positions (Å → nm)
+            positions = []
+            for i in range(self.n_atoms):
+                pos = conf.GetAtomPosition(i)
+                positions.append(
+                    openmm.Vec3(pos.x * 0.1, pos.y * 0.1, pos.z * 0.1)
+                )
+            self.context.setPositions(positions)
+
+            # Minimize
+            openmm.LocalEnergyMinimizer.minimize(
+                self.context, maxIterations=max_iters
+            )
+
+            # Get energy and minimized positions
+            state = self.context.getState(getEnergy=True, getPositions=True)
+            energy = state.getPotentialEnergy().value_in_unit(
+                omm_unit.kilocalories_per_mole
+            )
+
+            # Copy minimized positions back (nm → Å)
+            min_pos = state.getPositions()
+            for i in range(self.n_atoms):
+                p = min_pos[i].value_in_unit(omm_unit.angstrom)
+                conf.SetAtomPosition(i, Point3D(float(p[0]), float(p[1]), float(p[2])))
+
+            return energy
+        except Exception as e:
+            print(f"Warning: GBSA minimize failed: {e}", file=sys.stderr)
+            return _minimize_mmff94s(rdmol, conf_id, max_iters)
+
+    def cleanup(self) -> None:
+        """Clean up resources."""
+        self.context = None
 
 
 def read_molecule_from_sdf(sdf_path: str) -> Any:
@@ -154,7 +317,391 @@ def generate_conformers_etkdg(mol: Any, max_conformers: int, rmsd_cutoff: float,
     return mol, selected
 
 
-def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cutoff: float, energy_window: float) -> List[Tuple[str, str]]:
+def get_rotatable_bonds_mcmm(
+    mol: Any, sample_amides: bool
+) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+    """
+    Get rotatable bonds for MCMM perturbation.
+    Returns (exocyclic_bonds, ring_bonds) as lists of (atom_i, atom_j) pairs.
+    Exocyclic: single bonds between non-terminal atoms, not in rings.
+    Ring: endocyclic bonds in small rings (3-7 members) for pucker sampling.
+    If sample_amides is True, amide bonds are included (snapped to cis/trans).
+    """
+    # All exocyclic single bonds between non-terminal atoms
+    rot_pattern = Chem.MolFromSmarts('[!D1]-&!@[!D1]')
+    rot_matches = mol.GetSubstructMatches(rot_pattern) if rot_pattern else []
+
+    # Amide bond pattern
+    amide_pattern = Chem.MolFromSmarts('[NX3]-[CX3]=[OX1]')
+    amide_matches = mol.GetSubstructMatches(amide_pattern) if amide_pattern else []
+    amide_bonds = set()
+    for match in amide_matches:
+        # The N-C bond is atoms 0 and 1
+        amide_bonds.add((min(match[0], match[1]), max(match[0], match[1])))
+
+    exocyclic: List[Tuple[int, int]] = []
+    for i, j in rot_matches:
+        key = (min(i, j), max(i, j))
+        is_amide = key in amide_bonds
+        if is_amide and not sample_amides:
+            continue
+        exocyclic.append((i, j))
+
+    # Ring bonds: find endocyclic single bonds in small rings (3-7 members)
+    # for ring pucker / envelope sampling
+    ring_bonds: List[Tuple[int, int]] = []
+    seen_ring_bonds: set = set()
+    ring_info = mol.GetRingInfo()
+    for ring in ring_info.AtomRings():
+        ring_size = len(ring)
+        if ring_size < 3 or ring_size > 7:
+            continue
+        # Pick one bond per ring for pucker perturbation
+        # Choose the bond opposite the most substituted atom for best pucker effect
+        for idx in range(ring_size):
+            ai = ring[idx]
+            aj = ring[(idx + 1) % ring_size]
+            bond = mol.GetBondBetweenAtoms(ai, aj)
+            if bond is None:
+                continue
+            # Only single bonds (skip aromatic/double)
+            if bond.GetBondTypeAsDouble() != 1.0 or bond.GetIsAromatic():
+                continue
+            key = (min(ai, aj), max(ai, aj))
+            if key not in seen_ring_bonds:
+                seen_ring_bonds.add(key)
+                ring_bonds.append((ai, aj))
+
+    return exocyclic, ring_bonds
+
+
+def get_dihedral_atoms(
+    mol: Any, bond_i: int, bond_j: int
+) -> Optional[Tuple[int, int, int, int]]:
+    """
+    Find a full dihedral quartet (a, i, j, b) for a rotatable bond i-j.
+    Picks the heaviest neighbor of each terminal atom.
+    """
+    atom_i = mol.GetAtomWithIdx(bond_i)
+    atom_j = mol.GetAtomWithIdx(bond_j)
+
+    # Find neighbor of i that is not j
+    nbrs_i = [n.GetIdx() for n in atom_i.GetNeighbors() if n.GetIdx() != bond_j]
+    if not nbrs_i:
+        return None
+    # Pick heaviest neighbor
+    a = max(nbrs_i, key=lambda idx: mol.GetAtomWithIdx(idx).GetAtomicNum())
+
+    # Find neighbor of j that is not i
+    nbrs_j = [n.GetIdx() for n in atom_j.GetNeighbors() if n.GetIdx() != bond_i]
+    if not nbrs_j:
+        return None
+    b = max(nbrs_j, key=lambda idx: mol.GetAtomWithIdx(idx).GetAtomicNum())
+
+    return (a, bond_i, bond_j, b)
+
+
+def _reembed_ring_pucker(
+    mol: Any, conf_id: int, rng: random.Random
+) -> Optional[int]:
+    """
+    Sample a new ring pucker by re-embedding the molecule with a different
+    random seed, then copying exocyclic atom positions from the parent.
+
+    RDKit's distance geometry naturally explores ring conformations
+    (chair/boat/twist/envelope) during embedding — this is far more
+    reliable than coordinate perturbation, which the minimizer undoes.
+
+    Returns new conformer ID, or None on failure.
+    """
+    seed = rng.randint(1, 999999)
+    params = AllChem.ETKDGv3()
+    params.randomSeed = seed
+    params.maxIterations = 200
+    params.clearConfs = False  # Keep existing conformers
+    params.useRandomCoords = rng.random() < 0.3  # 30% chance of random coords for diversity
+
+    new_cid = AllChem.EmbedMolecule(mol, params)
+    if new_cid < 0:
+        # Fallback with random coords
+        params.useRandomCoords = True
+        new_cid = AllChem.EmbedMolecule(mol, params)
+        if new_cid < 0:
+            return None
+
+    return new_cid
+
+
+def _minimize_mmff94s(mol: Any, conf_id: int, max_iters: int = 500) -> Optional[float]:
+    """Minimize a conformer with MMFF94s, fallback to UFF. Returns energy or None."""
+    props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')
+    if props is not None:
+        ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
+        if ff is not None:
+            ff.Minimize(maxIts=max_iters)
+            return ff.CalcEnergy()
+    # Fallback to UFF
+    ff = AllChem.UFFGetMoleculeForceField(mol, confId=conf_id)
+    if ff is not None:
+        ff.Minimize(maxIts=max_iters)
+        return ff.CalcEnergy()
+    return None
+
+
+def generate_conformers_mcmm(
+    mol: Any,
+    max_conformers: int,
+    rmsd_cutoff: float,
+    energy_window: float,
+    mcmm_steps: int,
+    temperature: float,
+    sample_amides: bool,
+) -> Tuple[Any, List[Tuple[int, float]]]:
+    """
+    Monte Carlo Multiple Minimum conformer search.
+
+    Iteratively perturbs torsion angles, minimizes with GBn2 implicit
+    solvent (GAFF2 + AM1-BCC via antechamber/tleap/OpenMM), and
+    accepts/rejects based on Metropolis criterion + RMSD dedup.
+    Falls back to MMFF94s vacuum if OpenMM/AmberTools unavailable.
+
+    Returns (mol_with_conformers, [(conf_id, energy), ...])
+    """
+    rng = random.Random(42)
+    R = 1.987204e-3  # Gas constant in kcal/(mol·K)
+    RT = R * temperature
+
+    mol = Chem.AddHs(mol)
+
+    # Get rotatable bonds (exocyclic + ring)
+    exocyclic_bonds, ring_bonds = get_rotatable_bonds_mcmm(mol, sample_amides)
+
+    # Build amide bond set for special handling
+    amide_pattern = Chem.MolFromSmarts('[NX3]-[CX3]=[OX1]')
+    amide_matches = mol.GetSubstructMatches(amide_pattern) if amide_pattern else []
+    amide_bond_set = set()
+    for match in amide_matches:
+        amide_bond_set.add((min(match[0], match[1]), max(match[0], match[1])))
+
+    # Build dihedral quartets for exocyclic/amide bonds
+    dihedrals: List[Tuple[Tuple[int, int, int, int], str]] = []
+    for bi, bj in exocyclic_bonds:
+        quartet = get_dihedral_atoms(mol, bi, bj)
+        if quartet is not None:
+            key = (min(bi, bj), max(bi, bj))
+            btype = 'amide' if key in amide_bond_set else 'exocyclic'
+            dihedrals.append((quartet, btype))
+
+    # Collect ring atom lists for pucker perturbation (no dihedral setting —
+    # RDKit forbids SetDihedralDeg on ring bonds, so we use coordinate perturbation)
+    ring_info = mol.GetRingInfo()
+    rings: List[List[int]] = []
+    for ring in ring_info.AtomRings():
+        ring_size = len(ring)
+        if 3 <= ring_size <= 7:
+            # Only non-aromatic rings (aromatic rings are planar, no puckering)
+            has_non_aromatic_bond = False
+            for idx in range(ring_size):
+                bond = mol.GetBondBetweenAtoms(ring[idx], ring[(idx + 1) % ring_size])
+                if bond and not bond.GetIsAromatic():
+                    has_non_aromatic_bond = True
+                    break
+            if has_non_aromatic_bond:
+                rings.append(list(ring))
+
+    # Step 1: Embed starting structure
+    params = AllChem.ETKDGv3()
+    params.randomSeed = 42
+    try:
+        cid = AllChem.EmbedMolecule(mol, params)
+    except Exception:
+        params.useRandomCoords = True
+        try:
+            cid = AllChem.EmbedMolecule(mol, params)
+        except Exception:
+            return mol, []
+
+    if cid < 0:
+        return mol, []
+
+    # Quick MMFF94s pre-minimize for clean geometry before parameterization
+    _minimize_mmff94s(mol, cid, max_iters=200)
+
+    # Initialize GBn2 minimizer (parameterizes once with antechamber/tleap/OpenMM)
+    minimizer = GBSAMinimizer(mol, cid)
+
+    if not dihedrals and not rings:
+        print("Warning: No rotatable bonds found, using single conformer", file=sys.stderr)
+        energy = minimizer.minimize(mol, cid)
+        minimizer.cleanup()
+        if energy is not None:
+            return mol, [(cid, energy)]
+        return mol, [(cid, 0.0)]
+
+    # Minimize starting structure with GBn2
+    e0 = minimizer.minimize(mol, cid)
+    if e0 is None:
+        minimizer.cleanup()
+        return mol, [(cid, 0.0)]
+
+    # Pool: list of (conf_id, energy)
+    pool: List[Tuple[int, float]] = [(cid, e0)]
+    best_energy = e0
+
+    # Log torsion details
+    n_exo = sum(1 for _, bt in dihedrals if bt == 'exocyclic')
+    n_amide = sum(1 for _, bt in dihedrals if bt == 'amide')
+    total_dof = len(dihedrals) + len(rings)
+    print(f"  MCMM: {total_dof} DOF ({n_exo} exocyclic, {len(rings)} ring pucker, {n_amide} amide), "
+          f"{mcmm_steps} steps, T={temperature}K", flush=True)
+    for di, (quartet, btype) in enumerate(dihedrals):
+        labels = []
+        for idx in quartet:
+            a = mol.GetAtomWithIdx(idx)
+            labels.append(f"{a.GetSymbol()}{idx}")
+        print(f"    torsion {di}: {'-'.join(labels)} [{btype}]", flush=True)
+    for ri, ring in enumerate(rings):
+        atoms = [f"{mol.GetAtomWithIdx(idx).GetSymbol()}{idx}" for idx in ring]
+        print(f"    ring {ri}: {'-'.join(atoms)} [{len(ring)}-membered]", flush=True)
+
+    # Rejection counters for diagnostics
+    n_energy_reject = 0
+    n_metropolis_reject = 0
+    n_rmsd_reject = 0
+    n_accepted = 0
+    n_replaced = 0
+
+    print(f"  Starting energy: {e0:.2f} kcal/mol", flush=True)
+
+    for step in range(mcmm_steps):
+        # Pick random parent from pool
+        parent_idx = rng.randrange(len(pool))
+        parent_cid, parent_energy = pool[parent_idx]
+
+        # Copy parent conformer
+        new_cid = mol.AddConformer(mol.GetConformer(parent_cid), assignId=True)
+        conf = mol.GetConformer(new_cid)
+
+        # Decide whether to perturb ring puckers this step (30% chance if rings exist)
+        perturb_rings = len(rings) > 0 and rng.random() < 0.3
+
+        if perturb_rings:
+            # Re-embed to sample a new ring pucker, then apply torsion perturbations
+            reembed_cid = _reembed_ring_pucker(mol, parent_cid, rng)
+            if reembed_cid is not None and reembed_cid != new_cid:
+                # Copy re-embedded coordinates into our new conformer
+                reembed_conf = mol.GetConformer(reembed_cid)
+                for ai in range(mol.GetNumAtoms()):
+                    pos = reembed_conf.GetAtomPosition(ai)
+                    conf.SetAtomPosition(ai, pos)
+                mol.RemoveConformer(reembed_cid)
+
+        # Perturb 1-5 exocyclic/amide torsions on top
+        if dihedrals:
+            max_dof = min(5, len(dihedrals))
+            n_perturb = rng.randint(1, max_dof)
+            chosen = rng.sample(range(len(dihedrals)), min(n_perturb, len(dihedrals)))
+
+            for di in chosen:
+                quartet, btype = dihedrals[di]
+                if btype == 'amide':
+                    angle = rng.choice([0.0, 180.0])
+                else:
+                    angle = rng.uniform(-180.0, 180.0)
+                rdMolTransforms.SetDihedralDeg(conf, *quartet, angle)
+
+        # Minimize
+        new_energy = minimizer.minimize(mol, new_cid)
+        rejected = False
+
+        if new_energy is None:
+            mol.RemoveConformer(new_cid)
+            rejected = True
+        elif new_energy > best_energy + energy_window:
+            n_energy_reject += 1
+            mol.RemoveConformer(new_cid)
+            rejected = True
+        else:
+            # Metropolis criterion
+            dE = new_energy - parent_energy
+            if dE > 0:
+                p_accept = math.exp(-dE / RT)
+                if rng.random() > p_accept:
+                    n_metropolis_reject += 1
+                    mol.RemoveConformer(new_cid)
+                    rejected = True
+
+        if not rejected:
+            # RMSD dedup against pool
+            dominated_idx = None
+            is_duplicate = False
+            for pi, (pool_cid, pool_energy) in enumerate(pool):
+                try:
+                    rmsd = GetBestRMS(mol, mol, pool_cid, new_cid)
+                except Exception:
+                    continue
+                if rmsd < rmsd_cutoff:
+                    if new_energy < pool_energy:
+                        dominated_idx = pi
+                    else:
+                        is_duplicate = True
+                    break
+
+            if is_duplicate:
+                n_rmsd_reject += 1
+                mol.RemoveConformer(new_cid)
+            elif dominated_idx is not None:
+                old_cid = pool[dominated_idx][0]
+                mol.RemoveConformer(old_cid)
+                pool[dominated_idx] = (new_cid, new_energy)
+                n_replaced += 1
+            else:
+                pool.append((new_cid, new_energy))
+                n_accepted += 1
+
+            if new_energy < best_energy:
+                best_energy = new_energy
+                # Prune pool: remove stale conformers outside energy window
+                pruned = []
+                for pc, pe in pool:
+                    if pe <= best_energy + energy_window:
+                        pruned.append((pc, pe))
+                    else:
+                        mol.RemoveConformer(pc)
+                if len(pruned) < len(pool):
+                    pool = pruned
+
+        # Progress logging every 20 steps (always runs, never skipped by continue)
+        if (step + 1) % 20 == 0:
+            print(f"  MCMM step {step+1}/{mcmm_steps}: pool={len(pool)}, best={best_energy:.1f} kcal/mol "
+                  f"[+{n_accepted} new, {n_replaced} replaced, "
+                  f"rej: {n_energy_reject} energy, {n_metropolis_reject} metropolis, {n_rmsd_reject} rmsd]", flush=True)
+
+    # Sort pool by energy, return top max_conformers
+    pool.sort(key=lambda x: x[1])
+    selected = pool[:max_conformers]
+
+    # Final summary with per-conformer details
+    print(f"  MCMM complete: {len(selected)} conformers (from pool of {len(pool)})", flush=True)
+    print(f"  Rejection breakdown: {n_energy_reject} energy window, "
+          f"{n_metropolis_reject} Metropolis, {n_rmsd_reject} RMSD duplicate", flush=True)
+    print(f"  Accepted: {n_accepted} new + {n_replaced} replacements", flush=True)
+    for i, (cid, energy) in enumerate(selected):
+        # Compute pairwise RMSD to first conformer for reference
+        if i == 0:
+            print(f"    conf {i}: E={energy:.2f} kcal/mol (global min)", flush=True)
+        else:
+            try:
+                rmsd_to_best = GetBestRMS(mol, mol, selected[0][0], cid)
+                print(f"    conf {i}: E={energy:.2f} kcal/mol, RMSD-to-best={rmsd_to_best:.2f} A", flush=True)
+            except Exception:
+                print(f"    conf {i}: E={energy:.2f} kcal/mol", flush=True)
+
+    minimizer.cleanup()
+    return mol, selected
+
+
+def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cutoff: float, energy_window: float, method: str = 'etkdg', mcmm_steps: int = 100, mcmm_temperature: float = 298.0, sample_amides: bool = True) -> List[Tuple[str, str]]:
     """
     Process a single ligand: generate conformers and write to output.
     Returns list of (output_path, parent_name) tuples.
@@ -178,10 +725,16 @@ def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cut
     for prop in mol.GetPropsAsDict():
         original_props[prop] = mol.GetProp(prop)
 
-    # Generate conformers
-    mol_with_confs, selected_conformers = generate_conformers_etkdg(
-        mol, max_conformers, rmsd_cutoff, energy_window
-    )
+    # Generate conformers using selected method
+    if method == 'mcmm':
+        mol_with_confs, selected_conformers = generate_conformers_mcmm(
+            mol, max_conformers, rmsd_cutoff, energy_window,
+            mcmm_steps, mcmm_temperature, sample_amides
+        )
+    else:
+        mol_with_confs, selected_conformers = generate_conformers_etkdg(
+            mol, max_conformers, rmsd_cutoff, energy_window
+        )
 
     if not selected_conformers:
         print(f"Warning: No conformers generated for {parent_name}, using original", file=sys.stderr)
@@ -230,12 +783,16 @@ def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cut
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Generate conformers for ligands using ETKDG')
+    parser = argparse.ArgumentParser(description='Generate conformers for ligands using ETKDG or MCMM')
     parser.add_argument('--ligand_list', required=True, help='JSON file with list of SDF paths')
     parser.add_argument('--output_dir', required=True, help='Output directory for conformer SDFs')
     parser.add_argument('--max_conformers', type=int, default=10, help='Maximum conformers per molecule')
     parser.add_argument('--rmsd_cutoff', type=float, default=0.5, help='RMSD cutoff for diversity (Angstroms)')
     parser.add_argument('--energy_window', type=float, default=10.0, help='Energy window for filtering (kcal/mol)')
+    parser.add_argument('--method', choices=['etkdg', 'mcmm'], default='etkdg', help='Conformer generation method')
+    parser.add_argument('--mcmm_steps', type=int, default=100, help='MCMM search steps (MCMM only)')
+    parser.add_argument('--mcmm_temperature', type=float, default=298.0, help='MCMM temperature in K (MCMM only)')
+    parser.add_argument('--sample_amides', action='store_true', help='Sample amide cis/trans rotations (MCMM only)')
     args = parser.parse_args()
 
     # Read ligand list
@@ -253,11 +810,16 @@ def main() -> None:
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
 
-    print(f"=== Conformer Generation (ETKDG) ===")
+    method_label = args.method.upper()
+    print(f"=== Conformer Generation ({method_label}) ===")
     print(f"Input molecules: {len(ligand_paths)}")
     print(f"Max conformers: {args.max_conformers}")
     print(f"RMSD cutoff: {args.rmsd_cutoff} A")
     print(f"Energy window: {args.energy_window} kcal/mol")
+    if args.method == 'mcmm':
+        print(f"MCMM steps: {args.mcmm_steps}")
+        print(f"Temperature: {args.mcmm_temperature} K")
+        print(f"Sample amides: {args.sample_amides}")
     print()
 
     # Process each ligand
@@ -269,7 +831,11 @@ def main() -> None:
 
         results = process_ligand(
             sdf_path, args.output_dir,
-            args.max_conformers, args.rmsd_cutoff, args.energy_window
+            args.max_conformers, args.rmsd_cutoff, args.energy_window,
+            method=args.method,
+            mcmm_steps=args.mcmm_steps,
+            mcmm_temperature=args.mcmm_temperature,
+            sample_amides=args.sample_amides,
         )
 
         for output_path, parent_name in results:

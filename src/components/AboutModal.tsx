@@ -71,7 +71,7 @@ const AboutModal: Component<AboutModalProps> = (props) => {
                   desc="4-site water model for accurate solvation"
                 />
                 <LicenseEntry
-                  name="OpenFF Sage 2.0"
+                  name="OpenFF Sage 2.3.0"
                   license="MIT"
                   url="https://openforcefield.org"
                   desc="Small molecule force field (ligand parameterization)"

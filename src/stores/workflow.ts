@@ -27,9 +27,10 @@ import {
   DetectedLigand as DockDetectedLigand,
 } from '../../shared/types/dock';
 
-export type WorkflowMode = 'dock' | 'md' | 'score' | 'viewer' | 'map';
+export type WorkflowMode = 'dock' | 'md' | 'score' | 'viewer' | 'map' | 'conform';
 export type DockStep = 'dock-load' | 'dock-configure' | 'dock-progress' | 'dock-results';
 export type MDStep = 'md-home' | 'md-load' | 'md-configure' | 'md-progress' | 'md-results';
+export type ConformStep = 'conform-load' | 'conform-configure' | 'conform-progress' | 'conform-results';
 
 // Map mode types — mirrors PocketMapMethod in shared/types/ipc.ts
 import type { PocketMapMethod } from '../../shared/types/ipc';
@@ -89,6 +90,7 @@ export interface ViewerQueueItem {
   pdbPath: string;
   ligandPath?: string;
   label: string;
+  type?: 'protein' | 'ligand' | 'conformer';
 }
 
 export type ViewerLayerType = 'protein' | 'ligand' | 'trajectory';
@@ -181,6 +183,15 @@ export interface MapState {
   estimatedTimeMin: number | null;
 }
 
+export interface ConformState {
+  ligandSdfPath: string | null;
+  ligandName: string | null;
+  config: ConformerConfig;
+  outputDir: string | null;
+  conformerPaths: string[];
+  isRunning: boolean;
+}
+
 export interface PdbFile {
   path: string;
   name: string;
@@ -202,6 +213,7 @@ export interface DockState {
   protonationConfig: ProtonationConfig;
   stereoisomerConfig: StereoisomerConfig;
   conformerConfig: ConformerConfig;
+  cachedConformerPaths: string[];
   dockingOutputDir: string | null;
   totalLigands: number;
   completedLigands: number;
@@ -237,6 +249,7 @@ export interface WorkflowState {
   projectReady: boolean;
   dockStep: DockStep;
   mdStep: MDStep;
+  conformStep: ConformStep;
   pdbFile: PdbFile | null;
   customOutputDir: string | null;
   jobName: string;
@@ -249,6 +262,7 @@ export interface WorkflowState {
   md: MDState;
   viewer: ViewerState;
   map: MapState;
+  conform: ConformState;
 }
 
 const defaultDockState: DockState = {
@@ -265,6 +279,7 @@ const defaultDockState: DockState = {
   protonationConfig: { ...DEFAULT_PROTONATION_CONFIG },
   stereoisomerConfig: { ...DEFAULT_STEREOISOMER_CONFIG },
   conformerConfig: { ...DEFAULT_CONFORMER_CONFIG },
+  cachedConformerPaths: [],
   dockingOutputDir: null,
   totalLigands: 0,
   completedLigands: 0,
@@ -303,6 +318,15 @@ const defaultMapState: MapState = {
   error: null,
   showMdConfirm: false,
   estimatedTimeMin: null,
+};
+
+const defaultConformState: ConformState = {
+  ligandSdfPath: null,
+  ligandName: null,
+  config: { ...DEFAULT_CONFORMER_CONFIG },
+  outputDir: null,
+  conformerPaths: [],
+  isRunning: false,
 };
 
 const defaultClusteringConfig: ClusteringConfig = {
@@ -363,6 +387,7 @@ function createWorkflowStore() {
     projectReady: false,
     dockStep: 'dock-load',
     mdStep: 'md-load',
+    conformStep: 'conform-load',
     pdbFile: null,
     customOutputDir: null,
     jobName: initialJobName,
@@ -375,6 +400,7 @@ function createWorkflowStore() {
     md: { ...defaultMDState },
     viewer: { ...defaultViewerState },
     map: { ...defaultMapState },
+    conform: { ...defaultConformState },
   });
 
   // Mode selection
@@ -390,6 +416,11 @@ function createWorkflowStore() {
   const setMdStep = (mdStep: MDStep) => {
     console.log(`[Store] setMdStep: ${state().mdStep} → ${mdStep}`);
     setState((s) => ({ ...s, mdStep }));
+  };
+
+  const setConformStep = (conformStep: ConformStep) => {
+    console.log(`[Store] setConformStep: ${state().conformStep} → ${conformStep}`);
+    setState((s) => ({ ...s, conformStep }));
   };
 
   const setPdbFile = (pdbFile: PdbFile | null) =>
@@ -463,6 +494,9 @@ function createWorkflowStore() {
 
   const setDockConformerConfig = (conformerConfig: Partial<ConformerConfig>) =>
     setState((s) => ({ ...s, dock: { ...s.dock, conformerConfig: { ...s.dock.conformerConfig, ...conformerConfig } } }));
+
+  const setDockCachedConformerPaths = (cachedConformerPaths: string[]) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, cachedConformerPaths } }));
 
   const setDockOutputDir = (dockingOutputDir: string | null) =>
     setState((s) => ({ ...s, dock: { ...s.dock, dockingOutputDir } }));
@@ -821,6 +855,35 @@ function createWorkflowStore() {
   const resetMap = () =>
     setState((s) => ({ ...s, map: { ...defaultMapState } }));
 
+  // Conform state setters
+  const setConformLigandSdf = (ligandSdfPath: string | null) =>
+    setState((s) => ({ ...s, conform: { ...s.conform, ligandSdfPath } }));
+
+  const setConformLigandName = (ligandName: string | null) =>
+    setState((s) => ({ ...s, conform: { ...s.conform, ligandName } }));
+
+  const setConformConfig = (config: Partial<ConformerConfig>) =>
+    setState((s) => ({ ...s, conform: { ...s.conform, config: { ...s.conform.config, ...config } } }));
+
+  const setConformOutputDir = (outputDir: string | null) =>
+    setState((s) => ({ ...s, conform: { ...s.conform, outputDir } }));
+
+  const setConformPaths = (conformerPaths: string[]) =>
+    setState((s) => ({ ...s, conform: { ...s.conform, conformerPaths } }));
+
+  const setConformRunning = (isRunning: boolean) =>
+    setState((s) => ({ ...s, conform: { ...s.conform, isRunning } }));
+
+  const resetConform = () =>
+    setState((s) => ({
+      ...s,
+      conformStep: 'conform-load' as ConformStep,
+      currentPhase: 'idle',
+      logs: '',
+      errorMessage: null,
+      conform: { ...defaultConformState },
+    }));
+
   const resetViewer = () => {
     console.log('[Store] resetViewer');
     setState((s) => ({
@@ -846,6 +909,7 @@ function createWorkflowStore() {
       projectReady: s.projectReady,
       dockStep: 'dock-load' as DockStep,
       mdStep: 'md-home',
+      conformStep: 'conform-load' as ConformStep,
       pdbFile: null,
       customOutputDir: null,
       jobName: '',
@@ -858,6 +922,7 @@ function createWorkflowStore() {
       md: { ...defaultMDState },
       viewer: { ...defaultViewerState },
       map: { ...defaultMapState },
+      conform: { ...defaultConformState },
     }));
 
   return {
@@ -866,6 +931,7 @@ function createWorkflowStore() {
     setProjectReady,
     setDockStep,
     setMdStep,
+    setConformStep,
     setPdbFile,
     setCustomOutputDir,
     setJobName,
@@ -890,6 +956,7 @@ function createWorkflowStore() {
     setDockProtonationConfig,
     setDockStereoisomerConfig,
     setDockConformerConfig,
+    setDockCachedConformerPaths,
     setDockOutputDir,
     setDockTotalLigands,
     setDockCompletedLigands,
@@ -973,6 +1040,14 @@ function createWorkflowStore() {
     setMapError,
     setMapShowMdConfirm,
     resetMap,
+    // Conform state
+    setConformLigandSdf,
+    setConformLigandName,
+    setConformConfig,
+    setConformOutputDir,
+    setConformPaths,
+    setConformRunning,
+    resetConform,
     // Utilities
     getBaseOutputDir: async () => {
       const custom = state().customOutputDir;

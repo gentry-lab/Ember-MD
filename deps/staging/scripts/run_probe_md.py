@@ -153,7 +153,7 @@ def prepare_system_with_probes(apo_pdb_path: str, ligand_com: Any,
     ff = ForceField('amber/protein.ff14SB.xml', 'amber/tip3p_standard.xml')
 
     # Register probe molecules with OpenFF
-    print("PROGRESS: Parameterizing probe molecules with OpenFF Sage 2.0...")
+    print("PROGRESS: Parameterizing probe molecules with OpenFF Sage 2.3.0...")
     probe_mols = {}
     for name, info in PROBES.items():
         rdmol = Chem.MolFromSmiles(info['smiles'])
@@ -163,7 +163,7 @@ def prepare_system_with_probes(apo_pdb_path: str, ligand_com: Any,
         off_mol = Molecule.from_rdkit(rdmol, allow_undefined_stereo=True)
         probe_mols[name] = (rdmol, off_mol)
 
-    smirnoff = SMIRNOFFTemplateGenerator(molecules=[m[1] for m in probe_mols.values()])
+    smirnoff = SMIRNOFFTemplateGenerator(molecules=[m[1] for m in probe_mols.values()], forcefield='openff-2.3.0')
     ff.registerTemplateGenerator(smirnoff.generator)
 
     # Solvate

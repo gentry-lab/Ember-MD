@@ -8,7 +8,7 @@ Desktop app for GPU-accelerated molecular dynamics on Apple Silicon. Five modes:
 ## Tech Stack
 - **Frontend**: SolidJS + TypeScript + Tailwind/DaisyUI (wireframe/business themes)
 - **Desktop**: Electron 27, Webpack
-- **MD Engine**: OpenMM 8.1.2 (AMBER ff19SB/ff14SB + OPC/TIP3P + OpenFF Sage 2.0)
+- **MD Engine**: OpenMM 8.1.2 (AMBER ff19SB/ff14SB + OPC/TIP3P + OpenFF Sage 2.3.0)
 - **GPU**: OpenCL (cl2Metal, preferred >3K atoms) → Metal (native MSL, wins <3K) → CPU
 - **Visualization**: NGL (WebGL), always-mounted CSS-hidden to avoid OOM on mode switch
 - **Cheminformatics**: RDKit, Meeko (PDBQT prep), Molscrub (protonation), PDBFixer, MDAnalysis, AmberTools
@@ -41,7 +41,8 @@ npm run dist:mac        # Bundle .dmg via scripts/bundle-mac.sh (conda-pack → 
 /deps/staging/scripts/     — Python scripts (mypy-checked, TypedDicts in utils.py match shared/types/*.ts)
                              run_md_simulation.py, run_vina_docking.py, run_abfe.py,
                              detect_pdb_ligands.py, extract_xray_ligand.py, enumerate_protonation.py,
-                             generate_conformers.py, cluster_trajectory.py, analyze_*.py, utils.py, etc.
+                             enumerate_stereoisomers.py, generate_conformers.py, cluster_trajectory.py,
+                             analyze_*.py, utils.py, etc.
 ```
 
 ## Project Directory Layout
@@ -75,12 +76,14 @@ Three-zone layout: mode tabs (left) | project name + job selector dropdown (cent
 
 **Random seed**: `MDConfig.seed` (0=auto). Applied to `setVelocitiesToTemperature()` and `LangevinMiddleIntegrator.setRandomNumberSeed()`. Saved to `seed.txt`. Different seeds = independent replicates.
 
-**Presets**: `ff19sb-opc` (default, 4-site OPC), `ff14sb-tip3p` (fast), `ff19sb-opc3`, `charmm36-mtip3p`. Ligand: OpenFF Sage 2.0.
+**Presets**: `ff19sb-opc` (default, 4-site OPC), `ff14sb-tip3p` (fast), `ff19sb-opc3`, `charmm36-mtip3p`. Ligand: OpenFF Sage 2.3.0.
 
 **Key details**: FF path is `amber/protein.ff19SB.xml`. Production uses single precision on OpenCL (Apple doesn't support mixed). Restraints use `periodicdistance()^2` for PBC.
 
 ## Dock Mode
-Vina pipeline: PDB→PDBQT receptor prep (Meeko) → SDF→PDBQT ligand prep (Meeko, preserves SMILES in REMARKs) → autobox from reference ligand → Vina docking → multi-pose SDF.gz. Optional CORDIAL rescoring, MCS core-constrained RMSD. Protonation via Molscrub (28 curated pKa rules, tautomer enumeration).
+Vina pipeline: PDB→PDBQT receptor prep (Meeko) → SDF→PDBQT ligand prep (Meeko, preserves SMILES in REMARKs) → autobox from reference ligand → Vina docking → multi-pose SDF.gz. Optional CORDIAL rescoring, MCS core-constrained RMSD. Protonation via Molscrub (28 curated pKa rules, tautomer enumeration). Optional stereoisomer enumeration (RDKit `EnumerateStereoisomers`, strips 3D-inferred chirality, `onlyUnassigned=True`). Pipeline: protonation → stereoisomers → conformers → docking.
+
+**Receptor prep**: removes docking ligand + crystallization artifacts (EDO, GOL, SO4...), retains crystallographic waters within 3.5 Å, metal ions (Zn/Mg/Mn/Ca/Fe — Vina AD4 types), and enzymatic cofactors (NAD/FAD/HEM/ATP...) within 5 Å of binding site. Metals are injected into PDBQT after Meeko processing with correct AD4 atom types and charges.
 
 ## Score Mode
 ABFE via alchemical FEP (`run_abfe.py`): snapshot selection → complex leg (Boresch restraints) + solvent leg → lambda windows → MBAR/BAR → ΔG_bind. Fast (9 windows, 1ns) or Accurate (12 windows, 2ns).
