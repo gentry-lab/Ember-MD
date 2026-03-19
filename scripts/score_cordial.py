@@ -49,20 +49,29 @@ def main():
 
     dock_dir = Path(args.dock_dir)
 
-    # Find receptor PDB — Vina names it {project}_receptor_prepared.pdb
-    receptor_candidates = list(dock_dir.glob('*_receptor_prepared.pdb')) + list(dock_dir.glob('*_receptor*.pdb'))
-    if not receptor_candidates:
-        # Legacy fallback
-        receptor_pdb = dock_dir / 'receptor_prepared.pdb'
-        if not receptor_pdb.exists():
-            print(f"Error: No receptor PDB found in {dock_dir}", file=sys.stderr)
-            sys.exit(1)
+    # Find receptor PDB: inputs/receptor.pdb (new) or *_receptor_prepared.pdb (legacy)
+    new_receptor = dock_dir / 'inputs' / 'receptor.pdb'
+    if new_receptor.exists():
+        receptor_pdb = new_receptor
     else:
-        receptor_pdb = receptor_candidates[0]
+        receptor_candidates = list(dock_dir.glob('*_receptor_prepared.pdb')) + list(dock_dir.glob('*_receptor*.pdb'))
+        if not receptor_candidates:
+            receptor_pdb = dock_dir / 'receptor_prepared.pdb'
+            if not receptor_pdb.exists():
+                print(f"Error: No receptor PDB found in {dock_dir}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            receptor_pdb = receptor_candidates[0]
 
-    # Find all docked SDF files — check poses/ subfolder first, then top-level (legacy)
-    poses_dir = dock_dir / 'poses'
-    search_dir = poses_dir if poses_dir.is_dir() else dock_dir
+    # Find docked SDF files: results/poses/ (new) > poses/ (legacy) > top-level
+    new_poses_dir = dock_dir / 'results' / 'poses'
+    legacy_poses_dir = dock_dir / 'poses'
+    if new_poses_dir.is_dir():
+        search_dir = new_poses_dir
+    elif legacy_poses_dir.is_dir():
+        search_dir = legacy_poses_dir
+    else:
+        search_dir = dock_dir
     docked_sdfs = list(search_dir.glob('*_docked.sdf.gz')) + list(search_dir.glob('*_docked.sdf'))
     if not docked_sdfs:
         # Fallback: also check top-level if poses/ was empty
@@ -229,8 +238,8 @@ def main():
             with torch.amp.autocast(device.type if device.type == 'cuda' else 'cpu'):
                 predictions, _, _, _, _, _ = model({'features': features})
 
-            # Convert logits to probabilities
-            probs = expit(predictions.cpu().numpy())
+            # Convert logits to probabilities (float32 — autocast may produce bfloat16 on CPU)
+            probs = expit(predictions.float().cpu().numpy())
 
             all_predictions.extend(probs)
             all_indices.extend(original_indices)

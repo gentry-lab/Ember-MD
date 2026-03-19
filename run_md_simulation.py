@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import time
+from typing import Any, List, Optional, Set, Tuple
 
 try:
     from openmm import *
@@ -58,7 +59,7 @@ _PRESET_ALIASES = {'fast': 'ff14sb-tip3p', 'accurate': 'ff19sb-opc'}
 KCAL_MOL_A2 = kilocalories_per_mole / angstroms**2
 
 
-def _estimate_am1bcc_time(n_atoms):
+def _estimate_am1bcc_time(n_atoms: int) -> str:
     """Estimate AM1-BCC charge computation time from atom count.
 
     Based on empirical profiling of AmberTools sqm:
@@ -80,7 +81,7 @@ def _estimate_am1bcc_time(n_atoms):
         return '~5min+'
 
 
-def get_backbone_atoms(topology):
+def get_backbone_atoms(topology: Any) -> List[int]:
     """Get indices of backbone atoms (N, CA, C, O) for restraints."""
     backbone_names = {'N', 'CA', 'C', 'O'}
     indices = []
@@ -90,7 +91,7 @@ def get_backbone_atoms(topology):
     return indices
 
 
-def get_heavy_atoms(topology):
+def get_heavy_atoms(topology: Any) -> List[int]:
     """Get indices of all non-hydrogen, non-water atoms for restraints.
 
     This includes protein backbone+sidechain and ligand heavy atoms.
@@ -108,7 +109,7 @@ def get_heavy_atoms(topology):
     return indices
 
 
-def add_heavy_atom_restraints(system, positions, topology, force_constant):
+def add_heavy_atom_restraints(system: Any, positions: Any, topology: Any, force_constant: float) -> Tuple[Any, List[int]]:
     """Add harmonic restraints to all heavy atoms (protein + ligand).
 
     Returns the restraint force and list of restrained atom indices.
@@ -135,7 +136,7 @@ def add_heavy_atom_restraints(system, positions, topology, force_constant):
     return restraint, heavy_indices
 
 
-def add_backbone_restraints(system, positions, topology, force_constant):
+def add_backbone_restraints(system: Any, positions: Any, topology: Any, force_constant: float) -> Tuple[Any, List[int]]:
     """Add harmonic restraints to backbone atoms.
 
     Returns the restraint force and list of restrained atom indices.
@@ -161,8 +162,8 @@ def add_backbone_restraints(system, positions, topology, force_constant):
     return restraint, backbone_indices
 
 
-def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='ff19sb-opc',
-                             project_name=None):
+def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_preset: str = 'ff19sb-opc',
+                             project_name: Optional[str] = None) -> Tuple[Any, Any, Any, str]:
     """Build solvated ligand-only system (no protein).
 
     For studying small molecule dynamics in solution.
@@ -280,8 +281,8 @@ def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='ff19sb-
     return system, modeller, ff, job_name
 
 
-def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='ff19sb-opc',
-                 project_name=None):
+def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_field_preset: str = 'ff19sb-opc',
+                 project_name: Optional[str] = None) -> Tuple[Any, Any, Any, str]:
     """Build solvated protein-ligand system.
 
     Force field presets:
@@ -509,7 +510,7 @@ def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='ff19s
     return system, modeller, ff, job_name
 
 
-def check_energy(simulation, stage_name):
+def check_energy(simulation: Any, stage_name: str) -> float:
     """Check for NaN or extreme energies."""
     state = simulation.context.getState(getEnergy=True)
     pe = state.getPotentialEnergy().value_in_unit(kilocalories_per_mole)
@@ -520,7 +521,7 @@ def check_energy(simulation, stage_name):
     return pe
 
 
-def _find_ligand_indices(topology):
+def _find_ligand_indices(topology: Any) -> Tuple[List[int], Set[str]]:
     """Find ligand heavy atom indices in an OpenMM topology.
 
     Identifies non-protein, non-solvent, non-ion heavy atoms.
@@ -565,7 +566,7 @@ def _find_ligand_indices(topology):
     return lig_indices, lig_resnames
 
 
-def log_stage_diagnostics(simulation, stage_name, topology, initial_ligand_com=None):
+def log_stage_diagnostics(simulation: Any, stage_name: str, topology: Any, initial_ligand_com: Optional[Any] = None) -> Optional[Any]:
     """Log detailed diagnostics at the end of each equilibration stage.
 
     Reports: PE, KE, temperature, restraint parameters, box volume,
@@ -644,7 +645,7 @@ def log_stage_diagnostics(simulation, stage_name, topology, initial_ligand_com=N
     return lig_com
 
 
-def run_equilibration(simulation, modeller, output_dir, job_name, target_temp=300, platform_name='CPU'):
+def run_equilibration(simulation: Any, modeller: Any, output_dir: str, job_name: str, target_temp: int = 300, platform_name: str = 'CPU') -> Tuple[Any, str]:
     """Run AMBER-style equilibration with positional restraints.
 
     Protocol (Salomon-Ferrer et al. 2013, Case et al. AMBER Manual):
@@ -839,7 +840,7 @@ def run_equilibration(simulation, modeller, output_dir, job_name, target_temp=30
     return state, platform_name
 
 
-def run_production(system, modeller, equilibrated_state, output_dir, job_name, production_ns, platform_name, restrain_ligand_ns=0):
+def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_dir: str, job_name: str, production_ns: float, platform_name: str, restrain_ligand_ns: float = 0) -> str:
     """Run production MD and save trajectory.
 
     Creates a new simulation with 4fs timestep (HMR enabled in system).
@@ -959,7 +960,7 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
     return dcd_file
 
 
-def run_benchmark(system, modeller, output_dir):
+def run_benchmark(system: Any, modeller: Any, output_dir: str) -> float:
     """Run short benchmark to estimate ns/day.
 
     Runs ~2500 steps (10 ps at 4fs with HMR) after brief warmup.
@@ -1019,7 +1020,7 @@ def run_benchmark(system, modeller, output_dir):
     return ns_per_day
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='OpenMM MD simulation for FragGen')
     parser.add_argument('--receptor', help='Receptor PDB file (not required for ligand-only mode)')
     parser.add_argument('--ligand', required=True, help='Ligand SDF file')
@@ -1052,14 +1053,14 @@ def main():
 
     class TeeStderr:
         """Write to both stderr and log file."""
-        def __init__(self, original, log):
+        def __init__(self, original: Any, log: Any) -> None:
             self.original = original
             self.log = log
-        def write(self, msg):
+        def write(self, msg: str) -> None:
             self.original.write(msg)
             self.log.write(msg)
             self.log.flush()
-        def flush(self):
+        def flush(self) -> None:
             self.original.flush()
             self.log.flush()
 

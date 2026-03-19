@@ -30,6 +30,7 @@ export type AppError =
   | { type: 'SCAN_FAILED'; message: string }
   | { type: 'ALIGNMENT_FAILED'; message: string }
   | { type: 'BINDING_SITE_MAP_FAILED'; message: string }
+  | { type: 'POCKET_MAP_FAILED'; message: string }
   | { type: 'SURFACE_PROPS_FAILED'; message: string }
   | { type: 'FEP_SCORING_FAILED'; message: string }
   | { type: 'IMPORT_FAILED'; message: string }
@@ -100,6 +101,8 @@ export function formatError(error: AppError): string {
       return `Alignment failed: ${error.message}`;
     case 'BINDING_SITE_MAP_FAILED':
       return `Binding site mapping failed: ${error.message}`;
+    case 'POCKET_MAP_FAILED':
+      return `Pocket map failed: ${error.message}`;
     default:
       return error.message;
   }

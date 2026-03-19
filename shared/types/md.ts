@@ -13,6 +13,7 @@ export interface MDConfig {
   saltConcentrationM: number;     // Molar (default: 0.15 = 150 mM)
   paddingNm: number;              // nm (default: 1.2)
   restrainLigandNs: number;       // ns of ligand restraint in production (0 = off, default: 0)
+  seed: number;                   // Random seed for velocities + Langevin noise (0 = auto)
 }
 
 export const DEFAULT_MD_CONFIG: MDConfig = {
@@ -23,6 +24,7 @@ export const DEFAULT_MD_CONFIG: MDConfig = {
   saltConcentrationM: 0.15,
   paddingNm: 1.2,
   restrainLigandNs: 0,
+  seed: 0,
 };
 
 // Fixed parameters that don't change with preset
