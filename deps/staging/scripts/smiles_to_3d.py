@@ -19,6 +19,7 @@ import csv
 import json
 import os
 import sys
+from typing import Any, Dict, List, Tuple
 
 try:
     from rdkit import Chem
@@ -28,7 +29,7 @@ except ImportError:
     sys.exit(1)
 
 
-def generate_3d_conformer(mol, max_attempts=10):
+def generate_3d_conformer(mol: Any, max_attempts: int = 10) -> Any:
     """Generate 3D conformer using ETKDG."""
     # Add hydrogens
     mol = Chem.AddHs(mol)
@@ -58,7 +59,7 @@ def generate_3d_conformer(mol, max_attempts=10):
     return mol
 
 
-def calculate_properties(mol):
+def calculate_properties(mol: Any) -> Tuple[float, float]:
     """Calculate QED and SA score."""
     qed_score = 0.5
     sa_score = 3.0
@@ -74,7 +75,7 @@ def calculate_properties(mol):
     return qed_score, sa_score
 
 
-def process_smiles_csv(input_csv, output_dir):
+def process_smiles_csv(input_csv: str, output_dir: str) -> List[Dict[str, Any]]:
     """Process SMILES CSV and generate 3D SDF files."""
     molecules = []
 
@@ -157,7 +158,7 @@ def process_smiles_csv(input_csv, output_dir):
     return molecules
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Convert SMILES CSV to 3D SDF')
     parser.add_argument('--input_csv', required=True, help='Input CSV with SMILES column')
     parser.add_argument('--output_dir', required=True, help='Output directory for SDF files')

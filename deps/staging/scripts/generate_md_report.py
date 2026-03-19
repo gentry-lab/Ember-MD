@@ -13,11 +13,12 @@ import subprocess
 import sys
 import warnings
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 warnings.filterwarnings('ignore')
 
 
-def run_analysis(python_exe, script_dir, script_name, args_list, step_name, event_sender=None):
+def run_analysis(python_exe: str, script_dir: str, script_name: str, args_list: List[str], step_name: str, event_sender: Any = None) -> Optional[str]:
     """Run a single analysis script and return success status."""
     script_path = os.path.join(script_dir, script_name)
     if not os.path.exists(script_path):
@@ -45,7 +46,7 @@ def run_analysis(python_exe, script_dir, script_name, args_list, step_name, even
         return False
 
 
-def compile_pdf(output_dir, section_pdfs, sim_info):
+def compile_pdf(output_dir: str, section_pdfs: List[str], sim_info: Optional[Dict[str, str]] = None) -> str:
     """Compile individual section PDFs into a single full_report.pdf."""
     try:
         import matplotlib
@@ -138,7 +139,7 @@ def compile_pdf(output_dir, section_pdfs, sim_info):
     return report_path
 
 
-def _embed_pdf_pages(pdf_pages, source_pdf):
+def _embed_pdf_pages(pdf_pages: Any, source_pdf: str) -> None:
     """Embed pages from a source PDF into the PdfPages output."""
     import matplotlib.pyplot as plt
 
@@ -185,8 +186,8 @@ def _embed_pdf_pages(pdf_pages, source_pdf):
         plt.close(fig)
 
 
-def compile_pdf_simple(output_dir, section_pdfs, sim_info):
-    """Compile report using PyPDF2 directly (preferred — preserves vector quality)."""
+def compile_pdf_simple(output_dir: str, section_pdfs: List[str], sim_info: Optional[Dict[str, str]] = None) -> str:
+    """Compile report using PyPDF2 directly (preferred -- preserves vector quality)."""
     try:
         from PyPDF2 import PdfReader, PdfWriter
     except ImportError:
@@ -277,7 +278,7 @@ def compile_pdf_simple(output_dir, section_pdfs, sim_info):
     return report_path
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Generate comprehensive MD analysis report')
     parser.add_argument('--topology', required=True, help='Topology file (PDB)')
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')

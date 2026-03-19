@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import shutil
+from typing import Any, Dict, List, Tuple
 
 try:
     from rdkit import Chem
@@ -23,7 +24,7 @@ except ImportError:
     sys.exit(0)
 
 
-def get_smiles_from_sdf(sdf_path):
+def get_smiles_from_sdf(sdf_path: str) -> str:
     """Extract SMILES from SDF file."""
     try:
         # Try reading as regular SDF
@@ -44,7 +45,7 @@ def get_smiles_from_sdf(sdf_path):
     return ""
 
 
-def calculate_properties(sdf_path):
+def calculate_properties(sdf_path: str) -> Tuple[float, float]:
     """Calculate QED and SA score from SDF file."""
     qed_score = 0.5  # Default
     sa_score = 3.0   # Default
@@ -75,7 +76,7 @@ def calculate_properties(sdf_path):
     return qed_score, sa_score
 
 
-def scan_directory(directory, output_dir):
+def scan_directory(directory: str, output_dir: str) -> List[Dict[str, Any]]:
     """Scan directory for SDF files and extract information."""
     molecules = []
 
@@ -128,7 +129,7 @@ def scan_directory(directory, output_dir):
     return molecules
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Scan directory for SDF files')
     parser.add_argument('--directory', required=True, help='Directory to scan')
     parser.add_argument('--output_dir', required=True, help='Output directory for processed files')

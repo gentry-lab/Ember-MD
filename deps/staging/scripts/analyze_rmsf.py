@@ -14,7 +14,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Calculate per-residue RMSF from trajectory')
     parser.add_argument('--topology', required=True, help='Topology file (PDB)')
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')

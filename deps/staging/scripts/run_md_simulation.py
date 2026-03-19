@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import time
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 try:
     from openmm import *
@@ -54,7 +55,7 @@ for _pdir in [_default_plugins, _bundled_plugins]:
         except Exception:
             pass
 
-def ensure_pdb_format(file_path):
+def ensure_pdb_format(file_path: str) -> str:
     """Convert CIF to PDB if needed. Returns path to a .pdb file.
 
     OpenMM's PDBFile class only reads PDB format, not mmCIF.
@@ -91,7 +92,7 @@ _PRESET_ALIASES = {'fast': 'ff14sb-tip3p', 'accurate': 'ff19sb-opc'}
 KCAL_MOL_A2 = kilocalories_per_mole / angstroms**2
 
 
-def _estimate_am1bcc_time(n_atoms):
+def _estimate_am1bcc_time(n_atoms: int) -> str:
     """Estimate AM1-BCC charge computation time from atom count.
 
     Based on empirical profiling of AmberTools sqm:
@@ -113,7 +114,7 @@ def _estimate_am1bcc_time(n_atoms):
         return '~5min+'
 
 
-def get_backbone_atoms(topology):
+def get_backbone_atoms(topology: Any) -> List[int]:
     """Get indices of backbone atoms (N, CA, C, O) for restraints."""
     backbone_names = {'N', 'CA', 'C', 'O'}
     indices = []
@@ -123,7 +124,7 @@ def get_backbone_atoms(topology):
     return indices
 
 
-def get_heavy_atoms(topology):
+def get_heavy_atoms(topology: Any) -> List[int]:
     """Get indices of all non-hydrogen, non-water atoms for restraints.
 
     This includes protein backbone+sidechain and ligand heavy atoms.
@@ -141,7 +142,7 @@ def get_heavy_atoms(topology):
     return indices
 
 
-def add_heavy_atom_restraints(system, positions, topology, force_constant):
+def add_heavy_atom_restraints(system: Any, positions: Any, topology: Any, force_constant: float) -> Tuple[Any, List[int]]:
     """Add harmonic restraints to all heavy atoms (protein + ligand).
 
     Returns the restraint force and list of restrained atom indices.
@@ -168,7 +169,7 @@ def add_heavy_atom_restraints(system, positions, topology, force_constant):
     return restraint, heavy_indices
 
 
-def add_backbone_restraints(system, positions, topology, force_constant):
+def add_backbone_restraints(system: Any, positions: Any, topology: Any, force_constant: float) -> Tuple[Any, List[int]]:
     """Add harmonic restraints to backbone atoms.
 
     Returns the restraint force and list of restrained atom indices.
@@ -194,9 +195,14 @@ def add_backbone_restraints(system, positions, topology, force_constant):
     return restraint, backbone_indices
 
 
-def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='ff19sb-opc',
-                             temperature_k=300, salt_concentration_m=0.15, padding_nm=1.2,
-                             project_name=None):
+def _prefixed(job_name: str, base_name: str) -> str:
+    """Build filename with optional job_name prefix."""
+    return f'{job_name}_{base_name}' if job_name else base_name
+
+
+def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_preset: str = 'ff19sb-opc',
+                             temperature_k: float = 300, salt_concentration_m: float = 0.15, padding_nm: float = 1.2,
+                             project_name: Optional[str] = None) -> Tuple[Any, Any, Any, str]:
     """Build solvated ligand-only system (no protein).
 
     For studying small molecule dynamics in solution.
@@ -207,7 +213,9 @@ def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='ff19sb-
     print('PROGRESS:building:0', flush=True)
     t_start = time.time()
 
-    job_name = project_name if project_name else os.path.basename(output_dir.rstrip('/'))
+    # New layout: no prefix on filenames (self-contained job directories)
+    # Legacy: project_name prefix when explicitly passed
+    job_name = project_name if project_name else ''
 
     # 1. Load ligand
     print(f'[{time.time()-t_start:.1f}s] Loading ligand SDF...', file=sys.stderr)
@@ -276,7 +284,7 @@ def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='ff19sb-
 
     # Save solvated system
     print(f'[{time.time()-t_start:.1f}s] Saving system PDB...', file=sys.stderr)
-    system_pdb = os.path.join(output_dir, f'{job_name}_system.pdb')
+    system_pdb = os.path.join(output_dir, _prefixed(job_name, 'system.pdb'))
     with open(system_pdb, 'w') as f:
         PDBFile.writeFile(modeller.topology, modeller.positions, f)
 
@@ -315,9 +323,9 @@ def build_ligand_only_system(ligand_sdf, output_dir, force_field_preset='ff19sb-
     return system, modeller, ff, job_name
 
 
-def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='ff19sb-opc',
-                 temperature_k=300, salt_concentration_m=0.15, padding_nm=1.2,
-                 project_name=None):
+def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_field_preset: str = 'ff19sb-opc',
+                 temperature_k: float = 300, salt_concentration_m: float = 0.15, padding_nm: float = 1.2,
+                 project_name: Optional[str] = None) -> Tuple[Any, Any, Any, str]:
     """Build solvated protein-ligand system.
 
     Force field presets:
@@ -332,7 +340,9 @@ def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='ff19s
     receptor_pdb = ensure_pdb_format(receptor_pdb)
 
     # Extract job name from output directory for self-contained filenames
-    job_name = project_name if project_name else os.path.basename(output_dir.rstrip('/'))
+    # New layout: no prefix on filenames (self-contained job directories)
+    # Legacy: project_name prefix when explicitly passed
+    job_name = project_name if project_name else ''
 
     # 1. Load receptor PDB and capture ligand coordinates BEFORE stripping
     print('Loading and fixing receptor PDB...', file=sys.stderr)
@@ -505,7 +515,7 @@ def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='ff19s
     print('PROGRESS:building:80', flush=True)
 
     # Save solvated system with job name for self-contained filename
-    system_pdb = os.path.join(output_dir, f'{job_name}_system.pdb')
+    system_pdb = os.path.join(output_dir, _prefixed(job_name, 'system.pdb'))
     with open(system_pdb, 'w') as f:
         PDBFile.writeFile(modeller.topology, modeller.positions, f)
 
@@ -548,7 +558,7 @@ def build_system(receptor_pdb, ligand_sdf, output_dir, force_field_preset='ff19s
     return system, modeller, ff, job_name
 
 
-def check_energy(simulation, stage_name):
+def check_energy(simulation: Any, stage_name: str) -> float:
     """Check for NaN or extreme energies."""
     state = simulation.context.getState(getEnergy=True)
     pe = state.getPotentialEnergy().value_in_unit(kilocalories_per_mole)
@@ -559,7 +569,7 @@ def check_energy(simulation, stage_name):
     return pe
 
 
-def _find_ligand_indices(topology):
+def _find_ligand_indices(topology: Any) -> Tuple[List[int], Set[str]]:
     """Find ligand heavy atom indices in an OpenMM topology.
 
     Identifies non-protein, non-solvent, non-ion heavy atoms.
@@ -604,7 +614,7 @@ def _find_ligand_indices(topology):
     return lig_indices, lig_resnames
 
 
-def log_stage_diagnostics(simulation, stage_name, topology, initial_ligand_com=None):
+def log_stage_diagnostics(simulation: Any, stage_name: str, topology: Any, initial_ligand_com: Any = None) -> Optional[Any]:
     """Log detailed diagnostics at the end of each equilibration stage.
 
     Reports: PE, KE, temperature, restraint parameters, box volume,
@@ -683,7 +693,7 @@ def log_stage_diagnostics(simulation, stage_name, topology, initial_ligand_com=N
     return lig_com
 
 
-def run_equilibration(simulation, modeller, output_dir, job_name, target_temp=300, platform_name='CPU'):
+def run_equilibration(simulation: Any, modeller: Any, output_dir: str, job_name: str, target_temp: int = 300, platform_name: str = 'CPU', seed: int = 0) -> Tuple[Any, str]:
     """Run AMBER-style equilibration with positional restraints.
 
     Protocol (Salomon-Ferrer et al. 2013, Case et al. AMBER Manual):
@@ -763,7 +773,8 @@ def run_equilibration(simulation, modeller, output_dir, job_name, target_temp=30
     print(f'  Backbone restraints: 10 kcal/mol/A² ({len(bb_indices)} atoms)', file=sys.stderr)
 
     # NVT heating: 5K -> 100K with heavy atom restraints
-    simulation.context.setVelocitiesToTemperature(5 * kelvin)
+    simulation.context.setVelocitiesToTemperature(5 * kelvin, seed)
+    integrator.setRandomNumberSeed(seed)
     integrator.setTemperature(5 * kelvin)
 
     nvt_temps = [5, 10, 20, 40, 60, 80, 100]
@@ -860,7 +871,7 @@ def run_equilibration(simulation, modeller, output_dir, job_name, target_temp=30
 
     # Save equilibrated state (positions, velocities, box vectors)
     state = simulation.context.getState(getPositions=True, getVelocities=True, getEnergy=True)
-    equilibrated_pdb = os.path.join(output_dir, f'{job_name}_equilibrated.pdb')
+    equilibrated_pdb = os.path.join(output_dir, _prefixed(job_name, 'equilibrated.pdb'))
     with open(equilibrated_pdb, 'w') as f:
         PDBFile.writeFile(topology, state.getPositions(), f)
 
@@ -878,7 +889,7 @@ def run_equilibration(simulation, modeller, output_dir, job_name, target_temp=30
     return state, platform_name
 
 
-def run_production(system, modeller, equilibrated_state, output_dir, job_name, production_ns, platform_name, temperature_k=300, restrain_ligand_ns=0):
+def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_dir: str, job_name: str, production_ns: float, platform_name: str, temperature_k: float = 300, restrain_ligand_ns: float = 0, seed: int = 0) -> str:
     """Run production MD and save trajectory.
 
     Creates a new simulation with 4fs timestep (HMR enabled in system).
@@ -896,6 +907,8 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
 
     # Create new integrator with 4fs timestep for production (HMR enabled in system)
     integrator = LangevinMiddleIntegrator(temperature_k*kelvin, 1/picosecond, 0.004*picoseconds)
+    if seed > 0:
+        integrator.setRandomNumberSeed(seed)
 
     # Create new simulation with 4fs integrator
     # Platform dispatch: uses whichever platform was selected during equilibration
@@ -947,16 +960,16 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
 
     # Setup trajectory reporter (save every 10 ps = 2500 steps at 4fs)
     # Use job name for self-contained filenames
-    dcd_file = os.path.join(output_dir, f'{job_name}_trajectory.dcd')
+    dcd_file = os.path.join(output_dir, _prefixed(job_name, 'trajectory.dcd'))
     simulation.reporters.append(DCDReporter(dcd_file, 2500))
     simulation.reporters.append(StateDataReporter(
-        os.path.join(output_dir, f'{job_name}_energy.csv'), 500,
+        os.path.join(output_dir, _prefixed(job_name, 'energy.csv')), 500,
         step=True, time=True, potentialEnergy=True,
         kineticEnergy=True, temperature=True, volume=True
     ))
 
     # Checkpoint every 0.5 ns (125000 steps at 4fs) for crash recovery
-    checkpoint_file = os.path.join(output_dir, f'{job_name}_checkpoint.chk')
+    checkpoint_file = os.path.join(output_dir, _prefixed(job_name, 'checkpoint.chk'))
     simulation.reporters.append(CheckpointReporter(checkpoint_file, 125000))
 
     # Run production with 4fs timestep: 250000 steps/ns
@@ -990,7 +1003,7 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
 
     # Save final frame
     state = simulation.context.getState(getPositions=True)
-    final_pdb = os.path.join(output_dir, f'{job_name}_final.pdb')
+    final_pdb = os.path.join(output_dir, _prefixed(job_name, 'final.pdb'))
     with open(final_pdb, 'w') as f:
         PDBFile.writeFile(modeller.topology, state.getPositions(), f)
 
@@ -998,7 +1011,7 @@ def run_production(system, modeller, equilibrated_state, output_dir, job_name, p
     return dcd_file
 
 
-def run_benchmark(system, modeller, output_dir, temperature_k=300):
+def run_benchmark(system: Any, modeller: Any, output_dir: str, temperature_k: float = 300) -> float:
     """Run short benchmark to estimate ns/day.
 
     Runs ~2500 steps (10 ps at 4fs with HMR) after brief warmup.
@@ -1058,7 +1071,7 @@ def run_benchmark(system, modeller, output_dir, temperature_k=300):
     return ns_per_day
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='OpenMM MD simulation for FragGen')
     parser.add_argument('--receptor', help='Receptor PDB file (not required for ligand-only mode)')
     parser.add_argument('--ligand', required=True, help='Ligand SDF file')
@@ -1076,8 +1089,10 @@ def main():
     parser.add_argument('--padding', type=float, default=1.2, help='Box padding in nm (default: 1.2)')
     parser.add_argument('--restrain_ligand_ns', type=float, default=0,
                         help='Restrain ligand heavy atoms for first N ns of production (0=off, IFD-MD mode)')
+    parser.add_argument('--seed', type=int, default=0,
+                        help='Random seed for velocity generation and Langevin noise (0=auto from clock)')
     parser.add_argument('--project_name', default=None,
-                        help='Project name prefix for output files (default: use folder name)')
+                        help='Project name prefix for output files (default: no prefix)')
     args = parser.parse_args()
 
     # Map legacy preset names
@@ -1088,20 +1103,31 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    # Resolve random seed (0 = auto from clock, >0 = explicit for reproducibility)
+    import random as _random
+    if args.seed == 0:
+        args.seed = _random.randint(1, 2**31 - 1)
+    print(f'Random seed: {args.seed}', file=sys.stderr)
+
+    # Save seed so the run can be reproduced
+    seed_path = os.path.join(args.output_dir, 'seed.txt')
+    with open(seed_path, 'w') as f:
+        f.write(str(args.seed))
+
     # Set up log file — tee stderr to a log file for debugging
     log_path = os.path.join(args.output_dir, 'simulation.log')
     log_file = open(log_path, 'w')
 
     class TeeStderr:
         """Write to both stderr and log file."""
-        def __init__(self, original, log):
+        def __init__(self, original: Any, log: Any) -> None:
             self.original = original
             self.log = log
-        def write(self, msg):
+        def write(self, msg: str) -> None:
             self.original.write(msg)
             self.log.write(msg)
             self.log.flush()
-        def flush(self):
+        def flush(self) -> None:
             self.original.flush()
             self.log.flush()
 
@@ -1173,10 +1199,10 @@ def main():
     simulation.context.setPositions(modeller.positions)
 
     print('Running equilibration (~170 ps, AMBER-style protocol)...', file=sys.stderr)
-    equilibrated_state, actual_platform = run_equilibration(simulation, modeller, args.output_dir, job_name, target_temp=args.temperature, platform_name=platform_name)
+    equilibrated_state, actual_platform = run_equilibration(simulation, modeller, args.output_dir, job_name, target_temp=args.temperature, platform_name=platform_name, seed=args.seed)
 
     print(f'Running production ({args.production_ns} ns) on {actual_platform}...', file=sys.stderr)
-    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform, args.temperature, args.restrain_ligand_ns)
+    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform, args.temperature, args.restrain_ligand_ns, seed=args.seed)
 
     print(f'SUCCESS:{trajectory}', flush=True)
 

@@ -11,6 +11,7 @@ import io
 import json
 import os
 import sys
+from typing import Any, Optional, Tuple
 
 try:
     import rdkit.Chem as Chem
@@ -20,7 +21,7 @@ except ImportError:
     sys.exit(1)
 
 
-def smiles_to_mol(smiles):
+def smiles_to_mol(smiles: str) -> Tuple[Any, Optional[str]]:
     """Parse SMILES string and return RDKit molecule with 3D coords."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -50,7 +51,7 @@ def smiles_to_mol(smiles):
     return mol, None
 
 
-def load_mol_file(mol_path):
+def load_mol_file(mol_path: str) -> Tuple[Any, Optional[str]]:
     """Load a MOL or SDF file and return RDKit molecule with 3D coords."""
     ext = os.path.splitext(mol_path)[1].lower()
 
@@ -84,7 +85,7 @@ def load_mol_file(mol_path):
     return mol, None
 
 
-def generate_thumbnail(mol, pixels_per_angstrom=32, min_size=150, max_size=600):
+def generate_thumbnail(mol: Any, pixels_per_angstrom: int = 32, min_size: int = 150, max_size: int = 600) -> Tuple[str, int, int]:
     """Generate a 2D PNG thumbnail scaled to molecule size.
 
     Uses MolDraw2DCairo with fixed bond length so the image grows
@@ -126,7 +127,7 @@ def generate_thumbnail(mol, pixels_per_angstrom=32, min_size=150, max_size=600):
     return base64.b64encode(png_data).decode('utf-8'), w, h
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Convert SMILES/MOL to 3D SDF + thumbnail')
     parser.add_argument('--smiles', help='SMILES string to convert')
     parser.add_argument('--mol_file', help='MOL/SDF file to load')

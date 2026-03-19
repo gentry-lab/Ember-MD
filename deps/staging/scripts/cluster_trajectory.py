@@ -11,11 +11,12 @@ import json
 import os
 import sys
 import warnings
+from typing import Any
 
 warnings.filterwarnings('ignore')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Cluster MD trajectory by RMSD')
     parser.add_argument('--topology', required=True, help='Topology file (PDB)')
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
@@ -110,7 +111,7 @@ def main():
     n = len(coords)
     rmsd_matrix = np.zeros((n, n))
 
-    def calc_rmsd_aligned(coords1, coords2):
+    def calc_rmsd_aligned(coords1: Any, coords2: Any) -> float:
         """Calculate RMSD with optimal superposition (Kabsch algorithm)."""
         # Center both coordinate sets
         c1 = coords1 - coords1.mean(axis=0)
@@ -239,10 +240,7 @@ def main():
         key=lambda c: c['clusterId']
     )
     if centroid_files:
-        # Derive project name from output directory path
-        # Expected: .../simulations/{run}/clustering/ → project is 3 levels up
-        project_name = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(args.output_dir))))
-        pooled_path = os.path.join(args.output_dir, f'{project_name}_all_clusters.pdb')
+        pooled_path = os.path.join(args.output_dir, 'all_clusters.pdb')
         with open(pooled_path, 'w') as pf:
             for c in centroid_files:
                 pf.write(f"MODEL     {c['clusterId']}\n")

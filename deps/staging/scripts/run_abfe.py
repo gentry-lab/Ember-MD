@@ -20,12 +20,13 @@ import signal
 import sys
 import time
 import traceback
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 # Graceful shutdown on SIGTERM
 _cancelled = False
-def _handle_sigterm(signum, frame):
+def _handle_sigterm(signum: int, frame: Any) -> None:
     global _cancelled
     _cancelled = True
     print("SIGTERM received, finishing current window and saving partial results...",
@@ -33,12 +34,12 @@ def _handle_sigterm(signum, frame):
 signal.signal(signal.SIGTERM, _handle_sigterm)
 
 
-def progress(snapshot_idx, leg, window_idx, pct):
+def progress(snapshot_idx: int, leg: str, window_idx: int, pct: int) -> None:
     """Emit progress line for the frontend."""
     print(f"PROGRESS:snapshot:{snapshot_idx}:{leg}:{window_idx}:{pct}", flush=True)
 
 
-def get_lambda_schedule(speed_preset):
+def get_lambda_schedule(speed_preset: str) -> Tuple[List[float], List[float]]:
     """Return (elec_lambdas, steric_lambdas) for the given preset."""
     if speed_preset == 'fast':
         elec = [1.0, 0.75, 0.5, 0.25, 0.0]
@@ -49,7 +50,7 @@ def get_lambda_schedule(speed_preset):
     return elec, sterics
 
 
-def get_sim_lengths(speed_preset):
+def get_sim_lengths(speed_preset: str) -> Tuple[float, float]:
     """Return (equil_ns, prod_ns) per window."""
     if speed_preset == 'fast':
         return 0.25, 0.75
@@ -57,7 +58,7 @@ def get_sim_lengths(speed_preset):
         return 0.5, 1.5
 
 
-def detect_ligand_atoms(topology):
+def detect_ligand_atoms(topology: Any) -> Tuple[Any, Optional[List[int]]]:
     """Find ligand residue and return atom indices. Looks for non-standard residues
     that aren't water/ions."""
     standard_residues = {
@@ -86,7 +87,7 @@ def detect_ligand_atoms(topology):
     return lig_res, atom_indices
 
 
-def select_boresch_anchors(positions, topology, ligand_atom_indices):
+def select_boresch_anchors(positions: Any, topology: Any, ligand_atom_indices: List[int]) -> Tuple[List[int], List[int], float, float, float]:
     """Select 3 protein CA atoms and 3 ligand heavy atoms for Boresch restraints.
 
     Returns: (protein_indices, ligand_indices, r0, theta_A0, theta_B0)
@@ -154,7 +155,7 @@ def select_boresch_anchors(positions, topology, ligand_atom_indices):
     return list(protein_anchors), list(ligand_anchors), r0, theta_A0, theta_B0
 
 
-def _pick_triangle(positions, candidates, min_dist=0.3, min_angle=30.0):
+def _pick_triangle(positions: Any, candidates: Any, min_dist: float = 0.3, min_angle: float = 30.0) -> List[int]:
     """Pick 3 atoms from candidates forming a non-degenerate triangle."""
     min_angle_rad = min_angle * math.pi / 180.0
     n = len(candidates)
@@ -184,7 +185,7 @@ def _pick_triangle(positions, candidates, min_dist=0.3, min_angle=30.0):
     return [candidates[0], candidates[1], candidates[2]]
 
 
-def add_boresch_restraints(system, positions, topology, ligand_atom_indices):
+def add_boresch_restraints(system: Any, positions: Any, topology: Any, ligand_atom_indices: List[int]) -> Tuple[Any, float]:
     """Add Boresch orientational restraints to the complex system.
 
     Returns: (restrained_system, dG_restraint_kcal)
@@ -247,7 +248,7 @@ def add_boresch_restraints(system, positions, topology, ligand_atom_indices):
     return system, dG_restraint
 
 
-def build_lambda_schedule(elec_lambdas, steric_lambdas):
+def build_lambda_schedule(elec_lambdas: List[float], steric_lambdas: List[float]) -> List[Tuple[float, float]]:
     """Build deduplicated list of (elec, steric) lambda pairs."""
     pairs = []
     seen = set()
@@ -279,7 +280,7 @@ FF_PRESETS = {
 }
 
 
-def build_system(pdb_path, force_field_preset, ligand_sdf=None):
+def build_system(pdb_path: str, force_field_preset: str, ligand_sdf: Optional[str] = None) -> Tuple[Any, Any, Any]:
     """Build OpenMM system from PDB, replicating run_md_simulation.py patterns."""
     from openmm.app import ForceField, Modeller, PME, HBonds
     from openmm.unit import nanometers
@@ -320,7 +321,7 @@ def build_system(pdb_path, force_field_preset, ligand_sdf=None):
     return system, modeller.topology, modeller.positions
 
 
-def build_solvent_system(ligand_sdf, force_field_preset):
+def build_solvent_system(ligand_sdf: str, force_field_preset: str) -> Tuple[Any, Any, Any, List[int]]:
     """Build a solvent-only system with the ligand in a water box."""
     from openmm.app import ForceField, Modeller, PME, HBonds
     from openmm.unit import nanometers
@@ -368,9 +369,9 @@ def build_solvent_system(ligand_sdf, force_field_preset):
     return system, modeller.topology, modeller.positions, lig_atoms
 
 
-def run_alchemical_leg(system, topology, positions, ligand_indices,
-                       elec_lambdas, steric_lambdas, equil_ns, prod_ns,
-                       snapshot_idx, leg_name, platform_name=None):
+def run_alchemical_leg(system: Any, topology: Any, positions: Any, ligand_indices: List[int],
+                       elec_lambdas: List[float], steric_lambdas: List[float], equil_ns: float, prod_ns: float,
+                       snapshot_idx: int, leg_name: str, platform_name: Optional[str] = None) -> Tuple[float, float]:
     """Run all lambda windows for one leg (complex or solvent).
 
     Creates the alchemical system and simulation ONCE, then iterates
@@ -502,7 +503,7 @@ def run_alchemical_leg(system, topology, positions, ligand_indices,
             return 0.0, float('inf')
 
 
-def detect_platform():
+def detect_platform() -> str:
     """Detect best available OpenMM platform."""
     from openmm import Platform
     for name in ['CUDA', 'OpenCL', 'Metal', 'CPU']:
@@ -514,7 +515,7 @@ def detect_platform():
     return 'CPU'
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='ABFE FEP scoring')
     parser.add_argument('--topology', required=True, help='PDB topology file')
     parser.add_argument('--trajectory', required=True, help='DCD trajectory file')

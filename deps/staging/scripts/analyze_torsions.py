@@ -18,11 +18,12 @@ import os
 import sys
 import tempfile
 import warnings
+from typing import Any
 
 warnings.filterwarnings('ignore')
 
 
-def circular_mean(angles_deg):
+def circular_mean(angles_deg: Any) -> float:
     """Compute circular mean of angles in degrees."""
     import numpy as np
     rads = np.deg2rad(angles_deg)
@@ -30,7 +31,7 @@ def circular_mean(angles_deg):
     return float(np.rad2deg(mean_rad))
 
 
-def circular_std(angles_deg):
+def circular_std(angles_deg: Any) -> float:
     """Compute circular standard deviation of angles in degrees."""
     import numpy as np
     rads = np.deg2rad(angles_deg)
@@ -40,7 +41,7 @@ def circular_std(angles_deg):
     return float(np.rad2deg(np.sqrt(-2.0 * np.log(R)))) if R > 0 else 180.0
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Compute ligand rotatable bond torsion profiles')
     parser.add_argument('--topology', required=True, help='Topology file (PDB)')
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
@@ -414,7 +415,7 @@ def main():
     print("Done!")
 
 
-def _write_empty_results(output_dir, n_frames):
+def _write_empty_results(output_dir: str, n_frames: int) -> None:
     """Write empty results files when no torsions can be analyzed."""
     results = {
         'type': 'torsions',

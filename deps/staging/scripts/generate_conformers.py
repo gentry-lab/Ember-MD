@@ -23,6 +23,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, List, Optional, Tuple
 
 try:
     from rdkit import Chem
@@ -35,7 +36,7 @@ except ImportError:
     sys.exit(1)
 
 
-def read_molecule_from_sdf(sdf_path):
+def read_molecule_from_sdf(sdf_path: str) -> Any:
     """
     Read a molecule from an SDF file.
     Returns the first molecule in the file.
@@ -56,7 +57,7 @@ def read_molecule_from_sdf(sdf_path):
         return None
 
 
-def generate_conformers_etkdg(mol, max_conformers, rmsd_cutoff, energy_window):
+def generate_conformers_etkdg(mol: Any, max_conformers: int, rmsd_cutoff: float, energy_window: float) -> Tuple[Any, List[Tuple[int, float]]]:
     """
     Generate diverse conformers using ETKDG algorithm.
 
@@ -131,7 +132,7 @@ def generate_conformers_etkdg(mol, max_conformers, rmsd_cutoff, energy_window):
     energies = [(cid, e) for cid, e in energies if e - min_energy <= energy_window]
 
     # Diversity filtering by RMSD
-    selected = []
+    selected: List[Tuple[int, float]] = []
     for conf_id, energy in energies:
         if len(selected) >= max_conformers:
             break
@@ -153,7 +154,7 @@ def generate_conformers_etkdg(mol, max_conformers, rmsd_cutoff, energy_window):
     return mol, selected
 
 
-def process_ligand(sdf_path, output_dir, max_conformers, rmsd_cutoff, energy_window):
+def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cutoff: float, energy_window: float) -> List[Tuple[str, str]]:
     """
     Process a single ligand: generate conformers and write to output.
     Returns list of (output_path, parent_name) tuples.
@@ -228,7 +229,7 @@ def process_ligand(sdf_path, output_dir, max_conformers, rmsd_cutoff, energy_win
     return results
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Generate conformers for ligands using ETKDG')
     parser.add_argument('--ligand_list', required=True, help='JSON file with list of SDF paths')
     parser.add_argument('--output_dir', required=True, help='Output directory for conformer SDFs')

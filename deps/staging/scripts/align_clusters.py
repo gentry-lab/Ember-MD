@@ -15,7 +15,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Align multiple PDB structures by backbone')
     parser.add_argument('--pdb_files', nargs='+', required=True, help='PDB files to align')
     parser.add_argument('--output_dir', required=True, help='Output directory for aligned PDBs')

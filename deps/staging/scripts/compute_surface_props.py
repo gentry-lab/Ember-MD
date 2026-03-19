@@ -12,6 +12,7 @@ import argparse
 import json
 import sys
 import warnings
+from typing import Any, List, Optional
 
 warnings.filterwarnings('ignore')
 
@@ -43,7 +44,7 @@ SIDECHAIN_CHARGES = {
 }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description='Compute per-atom surface properties for a protein PDB'
     )
@@ -182,7 +183,7 @@ def main():
         sys.exit(1)
 
 
-def _get_charges(pdb_path, pdb_obj, atom_coords, atom_names, residue_names, n_atoms):
+def _get_charges(pdb_path: str, pdb_obj: Any, atom_coords: Any, atom_names: List[str], residue_names: List[str], n_atoms: int) -> Any:
     """Get per-atom partial charges. Tries three methods in order:
     1. PDBFixer → OpenMM ff14SB (best — works on most real PDBs)
     2. Raw PDB → OpenMM ff14SB (fails if PDB has missing atoms/residues)
@@ -207,7 +208,7 @@ def _get_charges(pdb_path, pdb_obj, atom_coords, atom_names, residue_names, n_at
     return _charges_via_lookup(atom_names, residue_names, n_atoms)
 
 
-def _charges_via_pdbfixer(pdb_path, n_atoms):
+def _charges_via_pdbfixer(pdb_path: str, n_atoms: int) -> Optional[Any]:
     """Use PDBFixer to clean PDB, then assign charges via OpenMM."""
     import numpy as np
     try:
@@ -248,7 +249,7 @@ def _charges_via_pdbfixer(pdb_path, n_atoms):
         return None
 
 
-def _charges_via_openmm_raw(pdb_obj, n_atoms):
+def _charges_via_openmm_raw(pdb_obj: Any, n_atoms: int) -> Optional[Any]:
     """Try raw PDB with OpenMM (no PDBFixer cleanup)."""
     import numpy as np
     try:
@@ -271,7 +272,7 @@ def _charges_via_openmm_raw(pdb_obj, n_atoms):
         return None
 
 
-def _charges_via_lookup(atom_names, residue_names, n_atoms):
+def _charges_via_lookup(atom_names: List[str], residue_names: List[str], n_atoms: int) -> Any:
     """Last resort: use hardcoded AMBER partial charge tables for key atoms."""
     import numpy as np
     charges = np.zeros(n_atoms, dtype=np.float32)

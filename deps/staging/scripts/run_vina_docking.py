@@ -3,8 +3,10 @@
 Single-ligand AutoDock Vina docking via Python API.
 
 Cross-platform replacement for GNINA. Uses Meeko for PDBQT preparation
-and the vina Python package for docking. Output format matches the
-GNINA pipeline so the Electron frontend can parse it unchanged.
+and export (preserves SMILES + atom mapping in PDBQT REMARK lines, so
+bond orders survive the round-trip without coordinate-based heuristics).
+Output format matches the GNINA pipeline so the Electron frontend can
+parse it unchanged.
 
 Usage:
     python run_vina_docking.py \
@@ -22,72 +24,84 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any, List, Tuple
 
 try:
     from vina import Vina
     from rdkit import Chem
     from rdkit.Chem import AllChem, Descriptors, QED
-    from openbabel import openbabel
+    from meeko import (MoleculePreparation, PDBQTWriterLegacy, PDBQTMolecule,
+                       RDKitMolCreate, Polymer, ResidueChemTemplates)
 except ImportError as e:
     print(f"ERROR:Missing dependency: {e}", file=sys.stderr)
-    print("Please install: conda install -c conda-forge vina rdkit openbabel", file=sys.stderr)
+    print("Please install: conda install -c conda-forge vina rdkit meeko", file=sys.stderr)
     sys.exit(1)
 
 
-def sdf_to_pdbqt(sdf_path, pdbqt_path):
-    """Convert SDF to PDBQT using OpenBabel (handles bond orders, charges, torsions)."""
-    obConversion = openbabel.OBConversion()
-    obConversion.SetInAndOutFormats("sdf", "pdbqt")
-    # Add hydrogens and compute Gasteiger charges
-    obConversion.AddOption("h", openbabel.OBConversion.GENOPTIONS)
+def sdf_to_pdbqt_string(sdf_path: str, mol: Any = None) -> str:
+    """Convert SDF to PDBQT string using Meeko.
 
-    mol = openbabel.OBMol()
-    if sdf_path.endswith('.gz'):
-        with gzip.open(sdf_path, 'rt') as f:
-            sdf_content = f.read()
-        obConversion.ReadString(mol, sdf_content)
-    else:
-        obConversion.ReadFile(mol, sdf_path)
+    Meeko embeds the original SMILES and atom index mapping in REMARK lines,
+    allowing correct bond order reconstruction on export. Accepts an optional
+    pre-loaded RDKit mol to avoid re-reading the file.
+    """
+    if mol is None:
+        if sdf_path.endswith('.gz'):
+            with gzip.open(sdf_path, 'rt') as f:
+                mol = Chem.MolFromMolBlock(f.read(), removeHs=False)
+        else:
+            supplier = Chem.SDMolSupplier(sdf_path, removeHs=False)
+            mol = supplier[0]
 
-    if mol.NumAtoms() == 0:
+    if mol is None or mol.GetNumAtoms() == 0:
         raise ValueError(f"Failed to read molecule from {sdf_path}")
 
-    obConversion.WriteFile(mol, pdbqt_path)
-    return pdbqt_path
+    preparator = MoleculePreparation()
+    mol_setups = preparator.prepare(mol)
+    pdbqt_string, is_ok, err_msg = PDBQTWriterLegacy.write_string(mol_setups[0])
+    if not is_ok:
+        raise ValueError(f"Meeko PDBQT preparation failed: {err_msg}")
+
+    return pdbqt_string
 
 
-def pdb_to_pdbqt(pdb_path, pdbqt_path):
-    """Convert receptor PDB to rigid PDBQT using obabel CLI.
+def pdb_to_pdbqt_string(pdb_path: str) -> str:
+    """Convert receptor PDB to rigid PDBQT string using Meeko's Polymer.
 
-    The Python API's -r flag doesn't produce rigid PDBQT (still writes ROOT/BRANCH
-    torsion tree), causing Vina to reject the file. The obabel CLI with -xr correctly
-    outputs flat rigid PDBQT with no torsion tree.
+    Meeko's Polymer parser handles standard amino acids, nucleotides, water, and
+    common cofactors via ResidueChemTemplates. Non-standard residues are skipped
+    with allow_bad_res=True (same behavior as obabel -xr ignoring HETATM).
+    Ions and other residues that Meeko recognizes but cannot assign AD4 atom
+    types to (atom_type=None) are marked is_ignore so the writer skips them.
+    Returns a PDBQT string (no ROOT/BRANCH torsion tree — rigid receptor).
     """
-    import shutil
-    import subprocess
+    import warnings
 
-    obabel_bin = shutil.which('obabel')
-    if not obabel_bin:
-        # Fallback: look in the conda env bin directory
-        env_bin = os.path.dirname(sys.executable)
-        obabel_bin = os.path.join(env_bin, 'obabel')
-        if not os.path.exists(obabel_bin):
-            raise RuntimeError("obabel not found in PATH or conda env")
+    with open(pdb_path) as f:
+        pdb_string = f.read()
 
-    result = subprocess.run(
-        [obabel_bin, pdb_path, '-O', pdbqt_path, '-xr'],
-        capture_output=True, text=True, timeout=120
-    )
+    templates = ResidueChemTemplates.create_from_defaults()
+    mk_prep = MoleculePreparation()
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        polymer = Polymer.from_pdb_string(pdb_string, templates, mk_prep,
+                                          allow_bad_res=True)
 
-    if not os.path.exists(pdbqt_path) or os.path.getsize(pdbqt_path) == 0:
-        raise ValueError(
-            f"Failed to convert receptor to PDBQT: {result.stderr[:300]}"
-        )
+    # Skip atoms without AD4 atom types (e.g. metal ions like NA, MG, ZN)
+    for _res_id, monomer in polymer.get_valid_monomers().items():
+        for atom in monomer.molsetup.atoms:
+            if atom.atom_type is None:
+                atom.is_ignore = True
 
-    return pdbqt_path
+    rigid_pdbqt, _flex_dict = PDBQTWriterLegacy.write_from_polymer(polymer)
+
+    if not rigid_pdbqt or 'ATOM' not in rigid_pdbqt:
+        raise ValueError(f"Meeko Polymer produced empty PDBQT for {pdb_path}")
+
+    return rigid_pdbqt
 
 
-def get_box_from_reference(reference_path, autobox_add=4.0):
+def get_box_from_reference(reference_path: str, autobox_add: float = 4.0) -> Tuple[List[float], List[float]]:
     """Compute docking box center and size from a reference ligand."""
     if reference_path.endswith('.gz'):
         with gzip.open(reference_path, 'rt') as f:
@@ -116,46 +130,35 @@ def get_box_from_reference(reference_path, autobox_add=4.0):
     return center.tolist(), size.tolist()
 
 
-def pdbqt_poses_to_sdf(pdbqt_path, output_sdf_path, original_mol, scores):
-    """Convert Vina output PDBQT poses back to SDF with score properties."""
-    obConversion = openbabel.OBConversion()
-    obConversion.SetInAndOutFormats("pdbqt", "sdf")
+def pdbqt_poses_to_sdf(pdbqt_path: str, output_sdf_path: str, scores: List[float]) -> None:
+    """Convert Vina output PDBQT poses back to SDF with score properties.
 
-    # Read all poses from PDBQT
-    mol = openbabel.OBMol()
-    poses = []
-    obConversion.ReadFile(mol, pdbqt_path)
-    while mol.NumAtoms() > 0:
-        poses.append(mol)
-        mol = openbabel.OBMol()
-        if not obConversion.Read(mol):
-            break
+    Uses Meeko to reconstruct RDKit molecules from the docked PDBQT. Meeko
+    reads the SMILES + atom index mapping it embedded in REMARK lines during
+    ligand preparation, so bond orders and implicit hydrogens are always correct.
+    """
+    pdbqt_mol = PDBQTMolecule.from_file(pdbqt_path, skip_typing=True)
+    rdkit_results = RDKitMolCreate.from_pdbqt_mol(pdbqt_mol)
 
-    # Write poses as SDF with score properties
     writer = Chem.SDWriter(output_sdf_path)
 
     for i, score in enumerate(scores):
-        # Use RDKit to create a molecule with the docked coordinates
-        if i < len(poses):
-            ob_mol = poses[i]
-            # Convert via SDF intermediate
-            sdf_conv = openbabel.OBConversion()
-            sdf_conv.SetOutFormat("sdf")
-            sdf_block = sdf_conv.WriteString(ob_mol)
-            rd_mol = Chem.MolFromMolBlock(sdf_block, removeHs=False, sanitize=False)
-            if rd_mol is not None:
-                try:
-                    Chem.SanitizeMol(rd_mol)
-                except Exception:
-                    pass
-                rd_mol.SetProp("minimizedAffinity", f"{score:.2f}")
-                rd_mol.SetProp("pose_index", str(i))
-                writer.write(rd_mol)
+        if i >= len(rdkit_results):
+            break
+
+        rd_mol = rdkit_results[i]
+        if rd_mol is None:
+            print(f"WARNING: Pose {i} failed Meeko export, skipping", file=sys.stderr)
+            continue
+
+        rd_mol.SetProp("minimizedAffinity", f"{score:.2f}")
+        rd_mol.SetProp("pose_index", str(i))
+        writer.write(rd_mol)
 
     writer.close()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Dock single ligand with AutoDock Vina')
     parser.add_argument('--receptor', required=True, help='Path to receptor PDB file')
     parser.add_argument('--ligand', required=True, help='Path to single ligand SDF file')
@@ -183,15 +186,16 @@ def main():
     t_start = time.time()
 
     with tempfile.TemporaryDirectory(prefix='vina_') as tmp_dir:
-        # 1. Convert receptor PDB → PDBQT
+        # 1. Convert receptor PDB → PDBQT via Meeko Polymer
         print(f'Preparing receptor...', file=sys.stderr)
+        receptor_pdbqt_str = pdb_to_pdbqt_string(args.receptor)
         receptor_pdbqt = os.path.join(tmp_dir, 'receptor.pdbqt')
-        pdb_to_pdbqt(args.receptor, receptor_pdbqt)
+        with open(receptor_pdbqt, 'w') as f:
+            f.write(receptor_pdbqt_str)
 
-        # 2. Convert ligand SDF → PDBQT
+        # 2. Convert ligand SDF → PDBQT string via Meeko
         print(f'Preparing ligand {name}...', file=sys.stderr)
-        ligand_pdbqt = os.path.join(tmp_dir, 'ligand.pdbqt')
-        sdf_to_pdbqt(args.ligand, ligand_pdbqt)
+        ligand_pdbqt_string = sdf_to_pdbqt_string(args.ligand)
 
         # 3. Compute box from reference ligand
         center, size = get_box_from_reference(args.reference, args.autobox_add)
@@ -202,7 +206,7 @@ def main():
         v = Vina(sf_name='vina', cpu=args.cpu if args.cpu > 0 else 0,
                  seed=args.seed if args.seed > 0 else 0)
         v.set_receptor(receptor_pdbqt)
-        v.set_ligand_from_file(ligand_pdbqt)
+        v.set_ligand_from_string(ligand_pdbqt_string)
         v.compute_vina_maps(center=center, box_size=size)
 
         print(f'Docking (exhaustiveness={args.exhaustiveness})...', file=sys.stderr)
@@ -216,19 +220,11 @@ def main():
         output_pdbqt = os.path.join(tmp_dir, f'{name}_docked.pdbqt')
         v.write_poses(output_pdbqt, n_poses=args.num_poses, overwrite=True)
 
-        # 7. Convert docked PDBQT → SDF with scores
+        # 7. Convert docked PDBQT → SDF with scores (Meeko reads its own REMARK lines)
         out_sdf = os.path.join(args.output_dir, f'{name}_docked.sdf.gz')
         temp_sdf = os.path.join(tmp_dir, f'{name}_docked.sdf')
 
-        # Read original mol for property transfer
-        if args.ligand.endswith('.gz'):
-            with gzip.open(args.ligand, 'rt') as f:
-                original_mol = Chem.MolFromMolBlock(f.read(), removeHs=False)
-        else:
-            supplier = Chem.SDMolSupplier(args.ligand, removeHs=False)
-            original_mol = supplier[0]
-
-        pdbqt_poses_to_sdf(output_pdbqt, temp_sdf, original_mol, scores)
+        pdbqt_poses_to_sdf(output_pdbqt, temp_sdf, scores)
 
         # MCS core-constrained alignment
         if args.core_constrain and args.reference_sdf:

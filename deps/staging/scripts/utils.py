@@ -7,7 +7,7 @@ PBC transforms, SA score calculation, and output schemas.
 
 import os
 import sys
-from typing import TypedDict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 # ---------------------------------------------------------------------------
@@ -15,13 +15,20 @@ from typing import TypedDict, List, Optional
 # Used for documentation; enforce with mypy, not at runtime.
 # ---------------------------------------------------------------------------
 
-class DetectedLigand(TypedDict):
+class LigandCentroid(TypedDict):
+    """3D centroid coordinates. Matches shared/types/dock.ts DetectedLigand.centroid."""
+    x: float
+    y: float
+    z: float
+
+class DetectedLigand(TypedDict, total=False):
     """Ligand detected in a PDB file. Matches shared/types/dock.ts DetectedLigand."""
     id: str            # e.g. "ATP_A_501"
     resname: str
     chain: str
     resnum: str        # String, not int (PDB insertion codes)
     num_atoms: int
+    centroid: LigandCentroid
 
 class DockMolecule(TypedDict):
     """Molecule loaded for docking. Matches shared/types/dock.ts DockMolecule."""
@@ -63,7 +70,227 @@ class SurfacePropsResult(TypedDict):
     electrostatic: List[float]   # per-atom, [-1, 1]
 
 
-def convert_cif_to_pdb(cif_path):
+class SingleMoleculeResult(TypedDict, total=False):
+    """Single molecule extraction/conversion result. Matches shared/types/dock.ts SingleMoleculeResult."""
+    sdfPath: str
+    smiles: str
+    name: str
+    qed: float
+    mw: float
+    thumbnail: str       # Base64 PNG
+    method: str          # Extraction method (e.g., 'openbabel', 'biopython')
+
+
+class ClusterResultData(TypedDict, total=False):
+    """Single cluster result. Matches shared/types/ipc.ts ClusterResultData."""
+    clusterId: int
+    frameCount: int
+    population: float          # Percentage
+    centroidFrame: int
+    centroidPdbPath: str
+
+
+class ClusteringResult(TypedDict):
+    """Full clustering output. Matches shared/types/ipc.ts ClusteringResult."""
+    clusters: List[ClusterResultData]
+    frameAssignments: List[int]
+    outputDir: str
+
+
+class BindingSiteMapResult(TypedDict):
+    """Binding site map output. Matches shared/types/ipc.ts BindingSiteMapResult."""
+    hydrophobicDx: str
+    hbondDonorDx: str
+    hbondAcceptorDx: str
+    hotspots: List[BindingSiteHotspot]
+    gridDimensions: List[int]
+    ligandCom: List[float]
+
+
+class FepSnapshotResult(TypedDict):
+    """Single FEP snapshot result. Matches shared/types/ipc.ts FepSnapshotResult."""
+    snapshotIndex: int
+    frameIndex: int
+    timeNs: float
+    deltaG_complex: float
+    deltaG_solvent: float
+    deltaG_bind: float
+    uncertainty: float
+
+
+class ProtonationResult(TypedDict):
+    """Protonation enumeration output. Parsed inline in main.ts."""
+    protonated_paths: List[str]
+    parent_mapping: Dict[str, str]
+
+
+class ConformerResult(TypedDict):
+    """Conformer generation output. Parsed inline in main.ts."""
+    conformer_paths: List[str]
+    parent_mapping: Dict[str, str]
+
+
+# ---------------------------------------------------------------------------
+# Grid / DX utilities — used by map_binding_site, analyze_gist, run_probe_md
+# ---------------------------------------------------------------------------
+
+def write_dx(filepath: str, data: Any, origin: List[float], spacing: float,
+             shape: 'tuple[int, int, int]') -> None:
+    """Write a 3D grid in OpenDX format."""
+    import numpy as np
+    nx, ny, nz = shape
+    flat = data.flatten(order='C')
+    n_full_rows = len(flat) // 3
+    remainder = len(flat) % 3
+    with open(filepath, 'w') as f:
+        f.write(f'object 1 class gridpositions counts {nx} {ny} {nz}\n')
+        f.write(f'origin {origin[0]:.6f} {origin[1]:.6f} {origin[2]:.6f}\n')
+        f.write(f'delta {spacing:.6f} 0.000000 0.000000\n')
+        f.write(f'delta 0.000000 {spacing:.6f} 0.000000\n')
+        f.write(f'delta 0.000000 0.000000 {spacing:.6f}\n')
+        f.write(f'object 2 class gridconnections counts {nx} {ny} {nz}\n')
+        f.write(f'object 3 class array type double rank 0 items {len(flat)} data follows\n')
+        if n_full_rows > 0:
+            rows = flat[:n_full_rows * 3].reshape(-1, 3)
+            lines = '\n'.join(f'{r[0]:.6f} {r[1]:.6f} {r[2]:.6f}' for r in rows)
+            f.write(lines)
+            f.write('\n')
+        if remainder > 0:
+            f.write(' '.join(f'{v:.6f}' for v in flat[n_full_rows * 3:]))
+            f.write('\n')
+        f.write('attribute "dep" string "positions"\n')
+        f.write('object "regular positions regular connections" class field\n')
+        f.write('component "positions" value 1\n')
+        f.write('component "connections" value 2\n')
+        f.write('component "data" value 3\n')
+
+
+def read_dx(filepath: str) -> 'tuple[Any, List[float], float, tuple[int, int, int]]':
+    """Read an OpenDX file into numpy array + grid metadata.
+
+    Returns (data_3d, origin, spacing, shape).
+    """
+    import numpy as np
+
+    origin = [0.0, 0.0, 0.0]
+    spacing = 0.0
+    nx = ny = nz = 0
+    values: List[float] = []
+
+    with open(filepath) as f:
+        in_data = False
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.startswith('object 1'):
+                parts = line.split()
+                nx, ny, nz = int(parts[-3]), int(parts[-2]), int(parts[-1])
+            elif line.startswith('origin'):
+                parts = line.split()
+                origin = [float(parts[1]), float(parts[2]), float(parts[3])]
+            elif line.startswith('delta') and spacing == 0:
+                parts = line.split()
+                spacing = float(parts[1])
+            elif 'data follows' in line:
+                in_data = True
+                continue
+            elif line.startswith('attribute') or line.startswith('object') or line.startswith('component'):
+                in_data = False
+                continue
+            if in_data:
+                values.extend(float(v) for v in line.split())
+
+    data = np.array(values).reshape((nx, ny, nz))
+    return data, origin, spacing, (nx, ny, nz)
+
+
+def normalize_grid(arr: Any) -> Any:
+    """Normalize array to [0, 1] by dividing by max."""
+    vmax = arr.max()
+    if vmax > 0:
+        return arr / vmax
+    return arr
+
+
+def find_hotspots(grid_3d: Any, channel_name: str, grid_origin: List[float],
+                  grid_spacing: float, ligand_com: Any) -> List[dict]:
+    """Find hotspot clusters above 70th percentile.
+
+    Returns list of dicts with type, position, direction, score (top 5 by score).
+    """
+    import numpy as np
+    from scipy import ndimage
+
+    nonzero = grid_3d[grid_3d > 0]
+    if len(nonzero) == 0:
+        return []
+    threshold = np.percentile(nonzero, 70)
+    binary = grid_3d > threshold
+    labeled, num_features = ndimage.label(binary)
+    if num_features == 0:
+        return []
+
+    results = []
+    for label_id in range(1, num_features + 1):
+        cluster_mask = labeled == label_id
+        cluster_scores = grid_3d[cluster_mask]
+        score = float(cluster_scores.mean())
+
+        centroid_idx = ndimage.center_of_mass(grid_3d, labeled, label_id)
+        pos = [
+            grid_origin[0] + centroid_idx[0] * grid_spacing,
+            grid_origin[1] + centroid_idx[1] * grid_spacing,
+            grid_origin[2] + centroid_idx[2] * grid_spacing,
+        ]
+        direction = [pos[0] - ligand_com[0], pos[1] - ligand_com[1], pos[2] - ligand_com[2]]
+        mag = np.sqrt(sum(d ** 2 for d in direction))
+        if mag > 0:
+            direction = [d / mag for d in direction]
+        results.append({
+            'type': channel_name,
+            'position': [round(p, 3) for p in pos],
+            'direction': [round(d, 3) for d in direction],
+            'score': round(score, 4),
+        })
+
+    results.sort(key=lambda h: h['score'], reverse=True)
+    return results[:5]
+
+
+def find_ligand_com(pdb_path: str, ligand_resname: str, ligand_resnum: int) -> Any:
+    """Find ligand center of mass from a PDB/CIF file using BioPython.
+
+    Returns numpy array of shape (3,) with COM coordinates in Angstroms.
+    Exits with error if ligand not found.
+    """
+    import numpy as np
+
+    if pdb_path.lower().endswith('.cif'):
+        from Bio.PDB import MMCIFParser
+        parser = MMCIFParser(QUIET=True)
+    else:
+        from Bio.PDB import PDBParser
+        parser = PDBParser(QUIET=True)
+    structure = parser.get_structure('complex', pdb_path)
+
+    coords = []
+    for chain in structure[0]:
+        for residue in chain:
+            resname = residue.get_resname().strip()
+            resnum = residue.get_id()[1]
+            if resname == ligand_resname and resnum == ligand_resnum:
+                for atom in residue:
+                    coords.append(atom.get_vector().get_array())
+
+    if not coords:
+        print(f"Error: Ligand {ligand_resname} {ligand_resnum} not found", file=sys.stderr)
+        sys.exit(1)
+
+    return np.array(coords).mean(axis=0)
+
+
+def convert_cif_to_pdb(cif_path: str) -> str:
     """Convert mmCIF (.cif) file to PDB format.
 
     Prefers BioPython (preserves all HETATM records including ligands).
@@ -73,7 +300,7 @@ def convert_cif_to_pdb(cif_path):
     if not cif_path.lower().endswith('.cif'):
         return cif_path
 
-    pdb_path = cif_path.rsplit('.', 1)[0] + '_converted.pdb'
+    pdb_path = cif_path.rsplit('.', 1)[0] + '.pdb'
     if os.path.exists(pdb_path):
         print(f'  Using cached CIF->PDB conversion: {os.path.basename(pdb_path)}', file=sys.stderr)
         return pdb_path
@@ -110,7 +337,7 @@ def convert_cif_to_pdb(cif_path):
     return pdb_path
 
 
-def select_ligand_atoms(universe, custom_selection=None):
+def select_ligand_atoms(universe: Any, custom_selection: Optional[str] = None) -> Any:
     """Select ligand atoms from an MDAnalysis Universe.
 
     Two-tier fallback:
@@ -133,7 +360,7 @@ def select_ligand_atoms(universe, custom_selection=None):
     return ligand
 
 
-def apply_pbc_transforms(universe, protein=None, ligand=None):
+def apply_pbc_transforms(universe: Any, protein: Any = None, ligand: Any = None) -> None:
     """Apply PBC unwrapping and centering transformations.
 
     Applies: unwrap → center_in_box → wrap workflow.
@@ -167,7 +394,7 @@ def apply_pbc_transforms(universe, protein=None, ligand=None):
         print(f"Warning: Could not apply PBC transformations: {e}", file=sys.stderr)
 
 
-def calculate_sa_score(mol, default=3.0):
+def calculate_sa_score(mol: Any, default: float = 3.0) -> float:
     """Calculate synthetic accessibility score using RDKit's SA_Score contrib.
 
     Returns SA score (1-10, lower is more synthetically accessible),
@@ -179,6 +406,6 @@ def calculate_sa_score(mol, default=3.0):
         if sa_path not in sys.path:
             sys.path.append(sa_path)
         import sascorer
-        return sascorer.calculateScore(mol)
+        return float(sascorer.calculateScore(mol))
     except Exception:
         return default

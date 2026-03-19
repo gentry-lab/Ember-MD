@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import tempfile
+from typing import Any, Optional, Tuple
 
 
 from utils import convert_cif_to_pdb
@@ -31,7 +32,7 @@ except ImportError:
     sys.exit(1)
 
 
-def extract_ligand_pdb(pdb_path, ligand_id, output_pdb):
+def extract_ligand_pdb(pdb_path: str, ligand_id: str, output_pdb: str) -> None:
     """Extract HETATM records for a specific ligand to a PDB file."""
     resname, chain, resnum = ligand_id.rsplit('_', 2)
 
@@ -46,7 +47,7 @@ def extract_ligand_pdb(pdb_path, ligand_id, output_pdb):
         f_out.write("END\n")
 
 
-def pdb_to_sdf_rdkit(pdb_path):
+def pdb_to_sdf_rdkit(pdb_path: str) -> Tuple[Any, Optional[str]]:
     """Try to convert ligand PDB to RDKit mol using RDKit's PDB reader."""
     mol = Chem.MolFromPDBFile(pdb_path, removeHs=False, sanitize=False)
     if mol is None:
@@ -61,7 +62,7 @@ def pdb_to_sdf_rdkit(pdb_path):
     return mol, None
 
 
-def pdb_to_sdf_obabel(pdb_path, sdf_path):
+def pdb_to_sdf_obabel(pdb_path: str, sdf_path: str) -> Tuple[Any, Optional[str]]:
     """Try to convert ligand PDB to SDF using OpenBabel."""
     import subprocess, shutil
 
@@ -113,7 +114,7 @@ def pdb_to_sdf_obabel(pdb_path, sdf_path):
         return None, str(e)
 
 
-def assign_bond_orders_from_smiles(pdb_path, smiles):
+def assign_bond_orders_from_smiles(pdb_path: str, smiles: str) -> Tuple[Any, Optional[str]]:
     """Load PDB coordinates and assign bond orders from a SMILES template."""
     # Load the PDB (with potentially wrong bond orders)
     pdb_mol = Chem.MolFromPDBFile(pdb_path, removeHs=True, sanitize=False)
@@ -134,7 +135,7 @@ def assign_bond_orders_from_smiles(pdb_path, smiles):
         return None, f"Bond order assignment failed: {e}"
 
 
-def generate_thumbnail(mol, pixels_per_angstrom=32, min_size=150, max_size=600):
+def generate_thumbnail(mol: Any, pixels_per_angstrom: int = 32, min_size: int = 150, max_size: int = 600) -> Tuple[str, int, int]:
     """Generate a 2D PNG thumbnail scaled to molecule size.
 
     Uses MolDraw2DCairo with fixed bond length so the image grows
@@ -179,7 +180,7 @@ def generate_thumbnail(mol, pixels_per_angstrom=32, min_size=150, max_size=600):
     return base64.b64encode(png_data).decode('utf-8'), w, h
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Extract X-ray ligand and convert to SDF')
     parser.add_argument('--pdb', required=True, help='Input PDB file')
     parser.add_argument('--ligand_id', required=True, help='Ligand ID (e.g., STI_A_501)')

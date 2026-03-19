@@ -22,7 +22,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Detect protein-ligand interaction contacts from trajectory')
     parser.add_argument('--topology', required=True, help='Topology file (PDB)')
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
@@ -181,7 +181,7 @@ def main():
     # Data structure: {resnum: {interaction_type: set_of_frame_indices}}
     residue_interactions = {}
 
-    def record(resnum, itype, frame_idx):
+    def record(resnum: int, itype: str, frame_idx: int) -> None:
         if resnum not in residue_interactions:
             residue_interactions[resnum] = {
                 'hbond': set(),

@@ -11,11 +11,12 @@ import json
 import os
 import sys
 import warnings
+from typing import Any
 
 warnings.filterwarnings('ignore')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Analyze protein-ligand H-bonds from trajectory')
     parser.add_argument('--topology', required=True, help='Topology file (PDB)')
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
@@ -122,7 +123,7 @@ def main():
     # Combine results
     hbonds_all = {}
 
-    def process_hbonds(hbond_analysis, direction):
+    def process_hbonds(hbond_analysis: Any, direction: str) -> None:
         if len(hbond_analysis.results.hbonds) == 0:
             return
 

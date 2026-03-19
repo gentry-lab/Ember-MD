@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 from collections import defaultdict
+from typing import Any, Dict, List, Tuple
 
 
 from utils import convert_cif_to_pdb
@@ -47,7 +48,7 @@ STANDARD_RESIDUES = {
 }
 
 
-def parse_cif_ligands(cif_path):
+def parse_cif_ligands(cif_path: str) -> Dict[str, Dict[str, Any]]:
     """Parse mmCIF file and identify ligands using BioPython's MMCIF parser.
 
     This avoids PDB column-width overflow issues with long residue names (>3 chars).
@@ -126,14 +127,14 @@ def parse_cif_ligands(cif_path):
     return valid_ligands
 
 
-def parse_pdb_ligands(pdb_path):
+def parse_pdb_ligands(pdb_path: str) -> Dict[str, Dict[str, Any]]:
     """Parse PDB file and identify ligands.
 
     First checks HETATM records (standard PDB ligands).
     If none found, falls back to scanning ATOM records for non-standard
     residues (handles MDAnalysis-generated PDBs which write ligands as ATOM).
     """
-    ligands = defaultdict(lambda: {'atoms': [], 'coords': []})
+    ligands: Dict[str, Dict[str, Any]] = defaultdict(lambda: {'atoms': [], 'coords': []})
 
     with open(pdb_path, 'r') as f:
         for line in f:
@@ -227,7 +228,7 @@ def parse_pdb_ligands(pdb_path):
     return valid_ligands
 
 
-def extract_ligand(pdb_path, ligand_id, output_path):
+def extract_ligand(pdb_path: str, ligand_id: str, output_path: str) -> bool:
     """Extract a specific ligand to a separate PDB file."""
     ligands = parse_pdb_ligands(pdb_path)
 
@@ -246,7 +247,7 @@ def extract_ligand(pdb_path, ligand_id, output_path):
     return True
 
 
-def _water_near_ligand(water_coords, ligand_coords, distance):
+def _water_near_ligand(water_coords: List[Tuple[float, float, float]], ligand_coords: List[Tuple[float, float, float]], distance: float) -> bool:
     """Check if any water atom is within distance of any ligand atom."""
     for wx, wy, wz in water_coords:
         for lx, ly, lz in ligand_coords:
@@ -260,7 +261,7 @@ def _water_near_ligand(water_coords, ligand_coords, distance):
 WATER_RESIDUES = {'HOH', 'WAT', 'H2O', 'DOD', 'DIS'}
 
 
-def prepare_receptor(pdb_path, ligand_id, output_path, water_distance=0.0, add_hydrogens=True):
+def prepare_receptor(pdb_path: str, ligand_id: str, output_path: str, water_distance: float = 0.0, add_hydrogens: bool = True) -> bool:
     """Prepare receptor by removing the specified ligand and adding hydrogens.
 
     Args:
@@ -315,25 +316,20 @@ def prepare_receptor(pdb_path, ligand_id, output_path, water_distance=0.0, add_h
         if water_distance > 0 and kept_waters:
             f_out.write(f"REMARK  Retained {len(kept_waters)} waters within {water_distance:.1f} A\n")
         for line in f_in:
-            # Skip the target ligand
             if line.startswith('HETATM'):
                 line_resname = line[17:20].strip()
                 line_chain = line[21].strip() or '_'
                 line_resnum = line[22:26].strip()
 
-                # Remove the docking ligand
-                if line_resname == resname and line_chain == chain and line_resnum == resnum:
-                    continue
-
-                # Handle waters: keep if within distance, remove otherwise
+                # Keep crystallographic waters within distance (if requested)
                 if line_resname.upper() in WATER_RESIDUES:
                     if water_distance > 0 and (line_chain, line_resnum) in kept_waters:
-                        f_out.write(line)  # Keep this water
-                    continue  # Skip all other waters
-
-                # Remove other excluded HETATM (ions, buffers, etc.)
-                if line_resname.upper() in EXCLUDE_RESIDUES:
+                        f_out.write(line)
                     continue
+
+                # Remove ALL other HETATM (ligands, ions, buffers, etc.)
+                # This ensures no co-crystallized ligands remain in the receptor
+                continue
 
             f_out.write(line)
 
@@ -442,17 +438,17 @@ def prepare_receptor(pdb_path, ligand_id, output_path, water_distance=0.0, add_h
                 shutil.copy2(current_file, output_path)
 
         # Clean up any remaining temp files
-        for f in [tmp_path, tmp_path.replace('.tmp', '.reduced.pdb')]:
-            if os.path.exists(f) and f != output_path:
+        for tmp_f in [tmp_path, tmp_path.replace('.tmp', '.reduced.pdb')]:
+            if os.path.exists(tmp_f) and tmp_f != output_path:
                 try:
-                    os.remove(f)
+                    os.remove(tmp_f)
                 except OSError:
                     pass
 
     return True
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Detect and extract ligands from PDB')
     parser.add_argument('--pdb', required=True, help='Input PDB file')
     parser.add_argument('--mode', choices=['detect', 'extract', 'prepare_receptor', 'add_hydrogens'],

@@ -12,11 +12,12 @@ import json
 import os
 import sys
 import warnings
+from typing import Any, Dict, Optional
 
 warnings.filterwarnings('ignore')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Compute ligand property timeseries from trajectory')
     parser.add_argument('--topology', required=True, help='Topology file (PDB)')
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
@@ -307,7 +308,7 @@ def main():
     print("PROGRESS:ligand_props:90")
 
     # --- Build stats for JSON ---
-    def prop_stats(name, data):
+    def prop_stats(name: str, data: Optional[Any]) -> Dict[str, Dict[str, Optional[float]]]:
         if data is None or len(data) == 0:
             return {name: {'mean': None, 'std': None, 'min': None, 'max': None}}
         return {name: {
