@@ -455,11 +455,19 @@ def add_hydrogens_with_variants(
             f"Warning: forcefield-guided hydrogen placement failed ({exc}); retrying without forcefield templates",
             file=sys.stderr,
         )
-        modeller = Modeller(topology, positions)
-        actual_variants = modeller.addHydrogens(
-            pH=protonation_ph,
-            variants=list(variants),
-        )
+        try:
+            modeller = Modeller(topology, positions)
+            actual_variants = modeller.addHydrogens(
+                pH=protonation_ph,
+                variants=list(variants),
+            )
+        except Exception as exc2:
+            print(
+                f"Warning: variant-guided hydrogen placement also failed ({exc2}); retrying with default protonation",
+                file=sys.stderr,
+            )
+            modeller = Modeller(topology, positions)
+            actual_variants = modeller.addHydrogens(pH=protonation_ph)
     return modeller.topology, modeller.positions, actual_variants
 
 
