@@ -179,6 +179,7 @@ def candidate_xtb_paths(python_path: str) -> list[str]:
         if dev_bundled_xtb.exists():
             candidates.append(str(dev_bundled_xtb))
         for repo_xtb in (
+            repo_root / "vendor" / "xtb-env" / "bin" / "xtb",
             repo_root / "vendor" / "xtb-6.4.1" / "install" / "bin" / "xtb",
             repo_root / "vendor" / "xtb-6.4.1" / "install-openblas" / "bin" / "xtb",
         ):

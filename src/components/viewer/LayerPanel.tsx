@@ -117,6 +117,7 @@ const LayerPanel: Component<LayerPanelProps> = (props) => {
     if (job.type === 'docking') return 'Dock';
     if (job.type === 'simulation') return 'MD';
     if (job.type === 'conformer') return 'MCMM';
+    if (job.type === 'map') return 'Map';
     return 'Job';
   };
 

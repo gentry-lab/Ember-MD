@@ -37,6 +37,8 @@ import type {
   AnalysisResult,
   MdReportOptions,
   MdReportResult,
+  ScoreMdClustersOptions,
+  ScoreMdClustersResult,
   ScanClusterDirectoryResult,
   LoadedClusterPdb,
   ProjectInfo,
@@ -198,6 +200,23 @@ export interface ElectronAPI {
     chargeMethod?: string
   ) => Promise<Result<{ refinedCount: number; outputDir: string }, AppError>>;
 
+  // Complex scoring (viewer)
+  scoreComplex: (
+    pdbPath: string,
+    ligandSdfPath?: string
+  ) => Promise<Result<{
+    vinaRescore?: number;
+    xtbStrainKcal?: number;
+    cordialExpectedPkd?: number;
+    cordialPHighAffinity?: number;
+    cordialPVeryHighAffinity?: number;
+  }, AppError>>;
+
+  // xTB strain scoring
+  scoreDockingStrain: (
+    dockOutputDir: string
+  ) => Promise<Result<{ count: number }, AppError>>;
+
   // CORDIAL rescoring
   checkCordialInstalled: () => Promise<boolean>;
   runCordialScoring: (
@@ -256,6 +275,7 @@ export interface ElectronAPI {
   exportTrajectoryFrame: (options: ExportFrameOptions) => Promise<Result<{ pdbPath: string }, AppError>>;
   analyzeTrajectory: (options: AnalysisOptions) => Promise<Result<AnalysisResult, AppError>>;
   generateMdReport: (options: MdReportOptions) => Promise<Result<MdReportResult, AppError>>;
+  scoreMdClusters: (options: ScoreMdClustersOptions) => Promise<Result<ScoreMdClustersResult, AppError>>;
   mapBindingSite: (options: BindingSiteMapOptions) => Promise<Result<BindingSiteMapResult, AppError>>;
   computePocketMap: (options: PocketMapOptions) => Promise<Result<BindingSiteMapResult, AppError>>;
   computeSurfaceProps: (pdbPath: string, outputDir: string) => Promise<Result<SurfacePropsResult, AppError>>;

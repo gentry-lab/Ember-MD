@@ -81,6 +81,9 @@ const IpcChannels = {
   EXPORT_TRAJECTORY_FRAME: 'export-trajectory-frame',
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
+  SCORE_MD_CLUSTERS: 'md:score-clusters',
+  SCORE_DOCKING_STRAIN: 'dock:score-strain',
+  SCORE_COMPLEX: 'score-complex',
   MAP_BINDING_SITE: 'map-binding-site',
   COMPUTE_POCKET_MAP: 'compute-pocket-map',
   COMPUTE_SURFACE_PROPS: 'compute-surface-props',
@@ -193,11 +196,25 @@ interface MdReportOptions {
   simInfo?: Record<string, string>;
 }
 
+interface ScoreMdClustersOptions {
+  topologyPath: string;
+  trajectoryPath: string;
+  outputDir: string;
+  inputLigandSdf: string;
+  inputReceptorPdb?: string;
+  numClusters: number;
+  enableVina: boolean;
+  enableXtb: boolean;
+  enableCordial: boolean;
+}
+
 interface BindingSiteMapOptions {
   pdbPath: string;
   ligandResname: string;
   ligandResnum: number;
   outputDir: string;
+  sourcePdbPath?: string;
+  sourceTrajectoryPath?: string;
   boxPadding?: number;
   gridSpacing?: number;
 }
@@ -448,6 +465,14 @@ const electronAPI = {
     chargeMethod
   ),
 
+  // Complex scoring (viewer)
+  scoreComplex: (pdbPath: string, ligandSdfPath?: string) =>
+    ipcRenderer.invoke(IpcChannels.SCORE_COMPLEX, pdbPath, ligandSdfPath),
+
+  // xTB strain scoring
+  scoreDockingStrain: (dockOutputDir: string) =>
+    ipcRenderer.invoke(IpcChannels.SCORE_DOCKING_STRAIN, dockOutputDir),
+
   // CORDIAL rescoring
   checkCordialInstalled: () => ipcRenderer.invoke(IpcChannels.CHECK_CORDIAL_INSTALLED),
 
@@ -541,6 +566,9 @@ const electronAPI = {
 
   generateMdReport: (options: MdReportOptions) =>
     ipcRenderer.invoke(IpcChannels.GENERATE_MD_REPORT, options),
+
+  scoreMdClusters: (options: ScoreMdClustersOptions) =>
+    ipcRenderer.invoke(IpcChannels.SCORE_MD_CLUSTERS, options),
 
   mapBindingSite: (options: BindingSiteMapOptions) =>
     ipcRenderer.invoke(IpcChannels.MAP_BINDING_SITE, options),

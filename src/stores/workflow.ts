@@ -24,6 +24,8 @@ import {
   DEFAULT_CONFORMER_CONFIG,
   RefinementConfig,
   DEFAULT_REFINEMENT_CONFIG,
+  XtbConfig,
+  DEFAULT_XTB_CONFIG,
   LigandSource,
   DetectedLigand,
   DetectedLigand as DockDetectedLigand,
@@ -33,9 +35,10 @@ export type WorkflowMode = 'dock' | 'md' | 'score' | 'viewer' | 'map' | 'conform
 export type DockStep = 'dock-load' | 'dock-configure' | 'dock-progress' | 'dock-results';
 export type MDStep = 'md-home' | 'md-load' | 'md-configure' | 'md-progress' | 'md-results';
 export type ConformStep = 'conform-load' | 'conform-configure' | 'conform-progress' | 'conform-results';
+export type MapStep = 'map-load' | 'map-configure' | 'map-progress' | 'map-results';
 
 // Map mode types — mirrors PocketMapMethod in shared/types/ipc.ts
-import type { PocketMapMethod } from '../../shared/types/ipc';
+import type { PocketMapMethod, ScoredClusterResult } from '../../shared/types/ipc';
 export type MapMethod = PocketMapMethod;
 
 // Viewer state types
@@ -130,7 +133,14 @@ export interface BindingSiteMapState {
   hbondDonorDx: string;
   hbondAcceptorDx: string;
   hotspots: Array<{ type: string; position: number[]; direction: number[]; score: number }>;
-  method?: 'static' | 'solvation' | 'probe';
+  method?: PocketMapMethod;
+}
+
+export interface MapResultState extends BindingSiteMapState {
+  method: MapMethod;
+  pdbPath: string;
+  outputDir: string;
+  trajectoryPath: string | null;
 }
 
 export interface ViewerState {
@@ -187,6 +197,7 @@ interface OpenViewerSessionOptions {
 }
 
 export interface MapState {
+  step: MapStep;
   method: MapMethod;
   isComputing: boolean;
   progress: string;
@@ -194,6 +205,11 @@ export interface MapState {
   error: string | null;
   showMdConfirm: boolean;
   estimatedTimeMin: number | null;
+  pdbPath: string | null;
+  detectedLigands: DetectedLigand[];
+  selectedLigandId: string | null;
+  isDetecting: boolean;
+  result: MapResultState | null;
 }
 
 export interface ConformState {
@@ -228,6 +244,7 @@ export interface DockState {
   stereoisomerConfig: StereoisomerConfig;
   conformerConfig: ConformerConfig;
   refinementConfig: RefinementConfig;
+  xtbConfig: XtbConfig;
   cachedConformerPaths: string[];
   dockingOutputDir: string | null;
   totalLigands: number;
@@ -257,6 +274,7 @@ export interface MDState {
   systemInfo: MDSystemInfo | null;
   benchmarkResult: MDBenchmarkResult | null;
   isBenchmarking: boolean;
+  clusterScores: ScoredClusterResult[];
 }
 
 export interface WorkflowState {
@@ -295,6 +313,7 @@ const defaultDockState: DockState = {
   stereoisomerConfig: { ...DEFAULT_STEREOISOMER_CONFIG },
   conformerConfig: { ...DEFAULT_CONFORMER_CONFIG },
   refinementConfig: { ...DEFAULT_REFINEMENT_CONFIG },
+  xtbConfig: { ...DEFAULT_XTB_CONFIG },
   cachedConformerPaths: [],
   dockingOutputDir: null,
   totalLigands: 0,
@@ -324,16 +343,23 @@ const defaultMDState: MDState = {
   systemInfo: null,
   benchmarkResult: null,
   isBenchmarking: false,
+  clusterScores: [],
 };
 
 const defaultMapState: MapState = {
-  method: 'static',
+  step: 'map-load',
+  method: 'solvation',
   isComputing: false,
   progress: '',
   progressPct: 0,
   error: null,
   showMdConfirm: false,
   estimatedTimeMin: null,
+  pdbPath: null,
+  detectedLigands: [],
+  selectedLigandId: null,
+  isDetecting: false,
+  result: null,
 };
 
 const defaultConformState: ConformState = {
@@ -516,6 +542,9 @@ function createWorkflowStore() {
   const setDockRefinementConfig = (refinementConfig: Partial<RefinementConfig>) =>
     setState((s) => ({ ...s, dock: { ...s.dock, refinementConfig: { ...s.dock.refinementConfig, ...refinementConfig } } }));
 
+  const setDockXtbConfig = (xtbConfig: Partial<XtbConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, xtbConfig: { ...s.dock.xtbConfig, ...xtbConfig } } }));
+
   const setDockCachedConformerPaths = (cachedConformerPaths: string[]) =>
     setState((s) => ({ ...s, dock: { ...s.dock, cachedConformerPaths } }));
 
@@ -605,6 +634,9 @@ function createWorkflowStore() {
 
   const setMdIsBenchmarking = (isBenchmarking: boolean) =>
     setState((s) => ({ ...s, md: { ...s.md, isBenchmarking } }));
+
+  const setMdClusterScores = (clusterScores: ScoredClusterResult[]) =>
+    setState((s) => ({ ...s, md: { ...s.md, clusterScores } }));
 
   // Viewer state setters
   const setViewerPdbPath = (pdbPath: string | null) =>
@@ -851,6 +883,9 @@ function createWorkflowStore() {
   const setMapMethod = (method: MapMethod) =>
     setState((s) => ({ ...s, map: { ...s.map, method } }));
 
+  const setMapStep = (step: MapStep) =>
+    setState((s) => ({ ...s, map: { ...s.map, step } }));
+
   const setMapIsComputing = (isComputing: boolean) =>
     setState((s) => ({ ...s, map: { ...s.map, isComputing } }));
 
@@ -872,6 +907,21 @@ function createWorkflowStore() {
         ...(estimatedTimeMin !== undefined ? { estimatedTimeMin } : {}),
       },
     }));
+
+  const setMapPdbPath = (pdbPath: string | null) =>
+    setState((s) => ({ ...s, map: { ...s.map, pdbPath } }));
+
+  const setMapDetectedLigands = (detectedLigands: DetectedLigand[]) =>
+    setState((s) => ({ ...s, map: { ...s.map, detectedLigands } }));
+
+  const setMapSelectedLigandId = (selectedLigandId: string | null) =>
+    setState((s) => ({ ...s, map: { ...s.map, selectedLigandId } }));
+
+  const setMapIsDetecting = (isDetecting: boolean) =>
+    setState((s) => ({ ...s, map: { ...s.map, isDetecting } }));
+
+  const setMapResult = (result: MapResultState | null) =>
+    setState((s) => ({ ...s, map: { ...s.map, result } }));
 
   const resetMap = () =>
     setState((s) => ({ ...s, map: { ...defaultMapState } }));
@@ -1012,6 +1062,7 @@ function createWorkflowStore() {
     setDockStereoisomerConfig,
     setDockConformerConfig,
     setDockRefinementConfig,
+    setDockXtbConfig,
     setDockCachedConformerPaths,
     setDockOutputDir,
     setDockTotalLigands,
@@ -1039,6 +1090,7 @@ function createWorkflowStore() {
     setMdSystemInfo,
     setMdBenchmarkResult,
     setMdIsBenchmarking,
+    setMdClusterScores,
     // Viewer state
     setViewerPdbPath,
     setViewerPdbQueue,
@@ -1091,10 +1143,16 @@ function createWorkflowStore() {
     clearViewerLayers,
     // Map state
     setMapMethod,
+    setMapStep,
     setMapIsComputing,
     setMapProgress,
     setMapError,
     setMapShowMdConfirm,
+    setMapPdbPath,
+    setMapDetectedLigands,
+    setMapSelectedLigandId,
+    setMapIsDetecting,
+    setMapResult,
     resetMap,
     // Conform state
     setConformLigandSdf,

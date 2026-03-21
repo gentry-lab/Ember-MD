@@ -23,6 +23,9 @@ const STAGES: StageInfo[] = [
   { id: 'release', label: 'Release', description: 'Gradual restraint release' },
   { id: 'equilibration', label: 'Free Equil', description: 'Unrestrained NPT equilibration' },
   { id: 'production', label: 'Production', description: 'Running production MD' },
+  { id: 'clustering', label: 'Clustering', description: 'Clustering trajectory into 10 centroids' },
+  { id: 'scoring', label: 'Scoring', description: 'Scoring clusters (xTB + Vina + CORDIAL)' },
+  { id: 'report', label: 'Report', description: 'Generating analysis report' },
 ];
 
 const MDStepProgress: Component = () => {
@@ -34,6 +37,7 @@ const MDStepProgress: Component = () => {
     setMdStageProgress,
     setMdSystemInfo,
     setMdResult,
+    setMdClusterScores,
     setIsRunning,
     setIsPaused,
     setCurrentPhase,
@@ -97,7 +101,7 @@ const MDStepProgress: Component = () => {
       });
     }
 
-    // Parse SUCCESS:path line
+    // Parse SUCCESS:path line — simulation done, auto-trigger scoring
     const successMatch = data.data.match(/SUCCESS:(.+)/);
     if (successMatch) {
       const trajectoryPath = successMatch[1].trim();
@@ -107,17 +111,100 @@ const MDStepProgress: Component = () => {
       const isUnprefixed = trajBasename === 'trajectory.dcd';
       const jobPrefix = isUnprefixed ? '' : (trajBasename.replace(/_trajectory\.dcd$/, '') || '');
       const pf = (name: string) => jobPrefix ? `${jobPrefix}_${name}` : name;
-      setMdResult({
+      const mdResult = {
         systemPdbPath: path.join(outputDir, pf('system.pdb')),
         trajectoryPath: trajectoryPath,
         equilibratedPdbPath: path.join(outputDir, pf('equilibrated.pdb')),
         finalPdbPath: path.join(outputDir, pf('final.pdb')),
         energyCsvPath: path.join(outputDir, pf('energy.csv')),
-      });
-      setCurrentPhase('complete');
-      setIsRunning(false);
+      };
+      setMdResult(mdResult);
+
+      // Auto-trigger clustering + scoring + report
+      runPostSimulation(mdResult.systemPdbPath, trajectoryPath, outputDir);
+    }
+
+    // Parse post-simulation scoring progress
+    const scoringMatch = data.data.match(/PROGRESS:(clustering|scoring_split|scoring_xtb|scoring_vina|scoring_cordial|scoring):(\d+)/);
+    if (scoringMatch) {
+      const step = scoringMatch[1];
+      const pct = parseInt(scoringMatch[2]);
+      if (step === 'clustering') {
+        setMdCurrentStage('clustering');
+      } else if (step.startsWith('scoring')) {
+        setMdCurrentStage('scoring');
+      }
+      setMdStageProgress(pct);
     }
   });
+
+  const runPostSimulation = async (topologyPath: string, trajectoryPath: string, resultsDir: string) => {
+    const analysisDir = path.join(resultsDir, 'analysis');
+    const isLigandOnly = state().md.inputMode === 'ligand_only';
+    // resultsDir = simulations/{run}/results/, simRunRoot = simulations/{run}/
+    const simRunRoot = path.dirname(resultsDir);
+    const inputLigandSdf = path.join(simRunRoot, 'inputs', 'ligand.sdf');
+    const inputReceptorPdb = isLigandOnly ? undefined : path.join(simRunRoot, 'inputs', 'receptor.pdb');
+
+    // Step 1: Cluster + Score
+    setMdCurrentStage('clustering');
+    setMdStageProgress(0);
+    appendLog('\n=== Auto-scoring: clustering + scoring ===\n');
+
+    try {
+      const scoreResult = await api.scoreMdClusters({
+        topologyPath,
+        trajectoryPath,
+        outputDir: analysisDir,
+        inputLigandSdf,
+        inputReceptorPdb,
+        numClusters: 10,
+        enableVina: !isLigandOnly,
+        enableXtb: true,
+        enableCordial: !isLigandOnly,
+      });
+
+      if (scoreResult.ok) {
+        setMdClusterScores(scoreResult.value.clusters);
+        appendLog(`\nScored ${scoreResult.value.clusters.length} clusters\n`);
+      } else {
+        appendLog(`\nCluster scoring failed: ${scoreResult.error.message}\n`);
+      }
+    } catch (err) {
+      appendLog(`\nCluster scoring error: ${(err as Error).message}\n`);
+    }
+
+    // Step 2: Generate report
+    setMdCurrentStage('report');
+    setMdStageProgress(0);
+    appendLog('\n=== Generating analysis report ===\n');
+
+    try {
+      const simInfo: Record<string, string> = {};
+      const si = state().md.systemInfo;
+      if (si) simInfo.atoms = si.atomCount.toLocaleString();
+      simInfo.temperature = `${state().md.config.temperatureK} K`;
+      simInfo.duration = `${state().md.config.productionNs} ns`;
+      simInfo.forceField = state().md.config.forceFieldPreset || 'ff19SB/OPC';
+      if (state().md.benchmarkResult) {
+        simInfo.performance = `${state().md.benchmarkResult!.nsPerDay.toFixed(1)} ns/day`;
+      }
+      simInfo.jobName = state().jobName.trim() || 'job';
+
+      await api.generateMdReport({
+        topologyPath,
+        trajectoryPath,
+        outputDir: analysisDir,
+        simInfo,
+      });
+    } catch (err) {
+      appendLog(`\nReport generation error: ${(err as Error).message}\n`);
+    }
+
+    // Done — transition to results
+    setCurrentPhase('complete');
+    setIsRunning(false);
+  };
 
   const runSimulation = async () => {
     const isLigandOnly = state().md.inputMode === 'ligand_only';

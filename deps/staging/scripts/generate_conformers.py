@@ -703,7 +703,214 @@ def generate_conformers_mcmm(
     return mol, selected
 
 
-def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cutoff: float, energy_window: float, method: str = 'etkdg', mcmm_steps: int = 100, mcmm_temperature: float = 298.0, sample_amides: bool = True) -> List[Tuple[str, str]]:
+def xtb_rerank_conformers(
+    mol: Any,
+    selected_conformers: List[Tuple[int, float]],
+    xtb_binary: str,
+    energy_window: float,
+) -> List[Tuple[int, float]]:
+    """Re-rank conformers by GFN2-xTB single-point energy with ALPB water.
+
+    Replaces force-field energies with xTB energies and re-filters by energy window.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from score_xtb_strain import single_point, HARTREE_TO_KCAL
+
+    print(f"  xTB reranking {len(selected_conformers)} conformers...", file=sys.stderr)
+
+    # Write all conformers to temp SDFs first
+    conf_files = []
+    tmpdir = tempfile.mkdtemp(prefix='xtb_rerank_')
+    for conf_id, ff_energy in selected_conformers:
+        tmp_path = os.path.join(tmpdir, f'conf_{conf_id}.sdf')
+        conf_mol = Chem.Mol(mol, confId=conf_id)
+        writer = Chem.SDWriter(tmp_path)
+        writer.write(conf_mol)
+        writer.close()
+        conf_files.append((conf_id, ff_energy, tmp_path))
+
+    # Run xTB single-points in parallel (xTB is single-threaded with OMP_NUM_THREADS=1)
+    def score_one(item: tuple) -> tuple:
+        cid, ff_e, sdf_path = item
+        try:
+            e_hartree = single_point(xtb_binary, sdf_path, solvent='water')
+            return (cid, e_hartree * HARTREE_TO_KCAL)
+        except Exception as e:
+            print(f"  Warning: xTB failed for conformer {cid}: {e}", file=sys.stderr)
+            return (cid, ff_e)
+
+    xtb_energies = []
+    n_workers = min(4, len(conf_files))
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        futures = {executor.submit(score_one, item): item for item in conf_files}
+        for future in as_completed(futures):
+            xtb_energies.append(future.result())
+
+    # Cleanup temp files
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+    if not xtb_energies:
+        return selected_conformers
+
+    # Re-sort by xTB energy and apply energy window
+    xtb_energies.sort(key=lambda x: x[1])
+    min_energy = xtb_energies[0][1]
+    filtered = [(cid, e) for cid, e in xtb_energies if e - min_energy <= energy_window]
+
+    print(f"  xTB reranking: {len(selected_conformers)} → {len(filtered)} conformers "
+          f"(window={energy_window} kcal/mol)", file=sys.stderr)
+
+    return filtered
+
+
+def generate_conformers_crest(
+    mol: Any,
+    max_conformers: int,
+    rmsd_cutoff: float,
+    energy_window: float,
+    crest_binary: str,
+    xtb_binary: str,
+    threads: int = 4,
+) -> Tuple[Any, List[Tuple[int, float]]]:
+    """Generate conformers using CREST (GFN2-xTB metadynamics).
+
+    CREST performs exhaustive conformer searching at the semiempirical QM level,
+    providing more diverse and better-ranked conformers than force-field methods.
+    """
+    with tempfile.TemporaryDirectory(prefix='crest_') as tmpdir:
+        # Write input XYZ
+        mol_h = Chem.AddHs(mol, addCoords=True)
+        if mol_h.GetNumConformers() == 0:
+            AllChem.EmbedMolecule(mol_h, AllChem.ETKDGv3())
+            AllChem.MMFFOptimizeMolecule(mol_h)
+
+        input_xyz = os.path.join(tmpdir, 'input.xyz')
+        conf = mol_h.GetConformer()
+        n_atoms = mol_h.GetNumAtoms()
+        with open(input_xyz, 'w') as f:
+            f.write(f"{n_atoms}\n")
+            f.write("input for CREST\n")
+            for i in range(n_atoms):
+                pos = conf.GetAtomPosition(i)
+                sym = mol_h.GetAtomWithIdx(i).GetSymbol()
+                f.write(f"{sym}  {pos.x:.8f}  {pos.y:.8f}  {pos.z:.8f}\n")
+
+        # Resolve xTB environment
+        xtb_root = str(Path(xtb_binary).parent.parent)
+        xtb_share = os.path.join(xtb_root, 'share', 'xtb')
+        env = os.environ.copy()
+        if os.path.isdir(xtb_share):
+            env['XTBPATH'] = xtb_share
+        env['OMP_NUM_THREADS'] = str(threads)
+        env['OMP_STACKSIZE'] = '1G'
+        # CREST needs xTB on PATH
+        env['PATH'] = str(Path(xtb_binary).parent) + ':' + env.get('PATH', '')
+
+        # Run CREST
+        cmd = [
+            crest_binary, input_xyz,
+            '--gfn2',
+            '--alpb', 'water',
+            '--ewin', str(energy_window),
+            '--rthr', str(rmsd_cutoff),
+            '--T', str(threads),
+        ]
+
+        print(f"  Running CREST: {' '.join(cmd[:6])}...", file=sys.stderr)
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=tmpdir,
+            env=env,
+            timeout=600,
+        )
+
+        if result.returncode != 0:
+            print(f"  CREST stderr: {result.stderr[:500]}", file=sys.stderr)
+            raise RuntimeError(f"CREST failed (exit {result.returncode})")
+
+        # Parse crest_conformers.xyz
+        crest_output = os.path.join(tmpdir, 'crest_conformers.xyz')
+        if not os.path.exists(crest_output):
+            raise RuntimeError("CREST did not produce crest_conformers.xyz")
+
+        # Parse multi-structure XYZ file
+        conformer_data = []
+        with open(crest_output) as f:
+            while True:
+                line = f.readline()
+                if not line:
+                    break
+                try:
+                    n = int(line.strip())
+                except ValueError:
+                    continue
+                comment = f.readline().strip()
+                # Energy is typically in the comment line
+                energy = 0.0
+                for token in comment.split():
+                    try:
+                        energy = float(token)
+                        break
+                    except ValueError:
+                        continue
+
+                coords = []
+                symbols = []
+                for _ in range(n):
+                    parts = f.readline().split()
+                    symbols.append(parts[0])
+                    coords.append((float(parts[1]), float(parts[2]), float(parts[3])))
+
+                conformer_data.append((energy, symbols, coords))
+
+        if not conformer_data:
+            raise RuntimeError("No conformers parsed from CREST output")
+
+        print(f"  CREST found {len(conformer_data)} conformers", file=sys.stderr)
+
+        # Convert to RDKit mol with multiple conformers
+        # Use the input mol as template for bond orders
+        template = Chem.AddHs(mol, addCoords=True)
+
+        # Limit to max_conformers
+        conformer_data = conformer_data[:max_conformers]
+
+        # Build mol with conformers
+        result_mol = Chem.RWMol(template)
+        result_mol.RemoveAllConformers()
+
+        selected = []
+        min_energy = conformer_data[0][0] if conformer_data else 0.0
+
+        for idx, (energy, symbols, coords) in enumerate(conformer_data):
+            # Energy window filter (CREST energies are in Hartree)
+            e_kcal = (energy - min_energy) * 627.5095
+            if e_kcal > energy_window:
+                continue
+
+            if len(coords) != result_mol.GetNumAtoms():
+                # Atom count mismatch — skip
+                continue
+
+            new_conf = Chem.Conformer(result_mol.GetNumAtoms())
+            for i, (x, y, z) in enumerate(coords):
+                new_conf.SetAtomPosition(i, Point3D(x, y, z))
+            conf_id = result_mol.AddConformer(new_conf, assignId=True)
+            selected.append((conf_id, e_kcal))
+
+        if not selected:
+            raise RuntimeError("No conformers passed energy window filter")
+
+        print(f"  Selected {len(selected)} conformers within {energy_window} kcal/mol window",
+              file=sys.stderr)
+
+        return result_mol.GetMol(), selected
+
+
+def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cutoff: float, energy_window: float, method: str = 'etkdg', mcmm_steps: int = 100, mcmm_temperature: float = 298.0, sample_amides: bool = True, xtb_rerank: bool = False, xtb_binary: str = '', crest_binary: str = '') -> List[Tuple[str, str]]:
     """
     Process a single ligand: generate conformers and write to output.
     Returns list of (output_path, parent_name) tuples.
@@ -728,7 +935,12 @@ def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cut
         original_props[prop] = mol.GetProp(prop)
 
     # Generate conformers using selected method
-    if method == 'mcmm':
+    if method == 'crest' and crest_binary and xtb_binary:
+        mol_with_confs, selected_conformers = generate_conformers_crest(
+            mol, max_conformers, rmsd_cutoff, energy_window,
+            crest_binary, xtb_binary
+        )
+    elif method == 'mcmm':
         mol_with_confs, selected_conformers = generate_conformers_mcmm(
             mol, max_conformers, rmsd_cutoff, energy_window,
             mcmm_steps, mcmm_temperature, sample_amides
@@ -736,6 +948,12 @@ def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cut
     else:
         mol_with_confs, selected_conformers = generate_conformers_etkdg(
             mol, max_conformers, rmsd_cutoff, energy_window
+        )
+
+    # Optional xTB reranking (for ETKDG/MCMM — CREST already uses xTB)
+    if xtb_rerank and xtb_binary and method != 'crest' and selected_conformers:
+        selected_conformers = xtb_rerank_conformers(
+            mol_with_confs, selected_conformers, xtb_binary, energy_window
         )
 
     if not selected_conformers:
@@ -791,10 +1009,13 @@ def main() -> None:
     parser.add_argument('--max_conformers', type=int, default=10, help='Maximum conformers per molecule')
     parser.add_argument('--rmsd_cutoff', type=float, default=0.5, help='RMSD cutoff for diversity (Angstroms)')
     parser.add_argument('--energy_window', type=float, default=10.0, help='Energy window for filtering (kcal/mol)')
-    parser.add_argument('--method', choices=['etkdg', 'mcmm'], default='etkdg', help='Conformer generation method')
+    parser.add_argument('--method', choices=['etkdg', 'mcmm', 'crest'], default='etkdg', help='Conformer generation method')
     parser.add_argument('--mcmm_steps', type=int, default=100, help='MCMM search steps (MCMM only)')
     parser.add_argument('--mcmm_temperature', type=float, default=298.0, help='MCMM temperature in K (MCMM only)')
     parser.add_argument('--sample_amides', action='store_true', help='Sample amide cis/trans rotations (MCMM only)')
+    parser.add_argument('--xtb_rerank', action='store_true', help='Re-rank conformers by GFN2-xTB energy')
+    parser.add_argument('--xtb_binary', type=str, default='', help='Path to xtb executable')
+    parser.add_argument('--crest_binary', type=str, default='', help='Path to crest executable')
     args = parser.parse_args()
 
     # Read ligand list
@@ -822,6 +1043,11 @@ def main() -> None:
         print(f"MCMM steps: {args.mcmm_steps}")
         print(f"Temperature: {args.mcmm_temperature} K")
         print(f"Sample amides: {args.sample_amides}")
+    if args.method == 'crest':
+        print(f"CREST binary: {args.crest_binary}")
+        print(f"xTB binary: {args.xtb_binary}")
+    if args.xtb_rerank:
+        print(f"xTB reranking: enabled")
     print()
 
     # Process each ligand
@@ -838,6 +1064,9 @@ def main() -> None:
             mcmm_steps=args.mcmm_steps,
             mcmm_temperature=args.mcmm_temperature,
             sample_amides=args.sample_amides,
+            xtb_rerank=args.xtb_rerank,
+            xtb_binary=args.xtb_binary,
+            crest_binary=args.crest_binary,
         )
 
         for output_path, parent_name in results:

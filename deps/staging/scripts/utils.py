@@ -394,6 +394,23 @@ def apply_pbc_transforms(universe: Any, protein: Any = None, ligand: Any = None)
         print(f"Warning: Could not apply PBC transformations: {e}", file=sys.stderr)
 
 
+def load_sdf(path: str, remove_hs: bool = False) -> Any:
+    """Load the first molecule from an SDF or SDF.gz file.
+
+    Returns an RDKit Mol or None if loading fails.
+    """
+    import gzip
+    from rdkit import Chem
+
+    lower = path.lower()
+    if lower.endswith('.sdf.gz'):
+        with gzip.open(path, 'rb') as fh:
+            suppl = Chem.ForwardSDMolSupplier(fh, removeHs=remove_hs)
+            return next(suppl, None)
+    suppl = Chem.SDMolSupplier(path, removeHs=remove_hs)
+    return suppl[0] if len(suppl) > 0 else None
+
+
 def calculate_sa_score(mol: Any, default: float = 3.0) -> float:
     """Calculate synthetic accessibility score using RDKit's SA_Score contrib.
 

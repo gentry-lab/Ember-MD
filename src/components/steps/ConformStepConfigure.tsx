@@ -66,11 +66,14 @@ const ConformStepConfigure: Component = () => {
               >
                 <option value="etkdg">ETKDG</option>
                 <option value="mcmm">MCMM</option>
+                <option value="crest">CREST</option>
               </select>
             </div>
 
             <p class="text-[10px] text-base-content/50 ml-1 mt-0.5">
-              {state().conform.config.method === 'mcmm'
+              {state().conform.config.method === 'crest'
+                ? 'CREST uses GFN2-xTB metadynamics for exhaustive QM-level conformer search.'
+                : state().conform.config.method === 'mcmm'
                 ? 'MCMM uses OpenFF Sage 2.3.0 + OBC2 implicit solvent.'
                 : 'ETKDG gives a fast RDKit conformer ensemble from the same saved run layout.'}
             </p>
@@ -120,6 +123,22 @@ const ConformStepConfigure: Component = () => {
                   class="checkbox checkbox-xs checkbox-primary"
                   checked={state().conform.config.sampleAmides}
                   onChange={(e) => setConformConfig({ sampleAmides: e.currentTarget.checked })}
+                />
+              </label>
+            </Show>
+
+            <Show when={state().conform.config.method !== 'crest'}>
+              <div class="border-t border-base-300 my-2" />
+              <label class="label cursor-pointer py-0">
+                <span class="label-text text-[10px]">
+                  xTB reranking
+                  <span class="text-base-content/50"> (GFN2-xTB + ALPB water)</span>
+                </span>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs checkbox-primary"
+                  checked={state().conform.config.xtbRerank}
+                  onChange={(e) => setConformConfig({ xtbRerank: e.currentTarget.checked })}
                 />
               </label>
             </Show>

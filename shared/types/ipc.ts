@@ -206,6 +206,9 @@ export const IpcChannels = {
   EXPORT_TRAJECTORY_FRAME: 'export-trajectory-frame',
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
+  SCORE_MD_CLUSTERS: 'md:score-clusters',
+  SCORE_DOCKING_STRAIN: 'dock:score-strain',
+  SCORE_COMPLEX: 'score-complex',
   MAP_BINDING_SITE: 'map-binding-site',
   COMPUTE_SURFACE_PROPS: 'compute-surface-props',
 
@@ -270,6 +273,37 @@ export interface ClusterResultData {
 export interface ClusteringResult {
   clusters: ClusterResultData[];
   frameAssignments: number[];  // Cluster ID for each frame
+  outputDir: string;
+}
+
+// Scored cluster result from xTB strain + Vina rescore + CORDIAL
+export interface ScoredClusterResult {
+  clusterId: number;
+  frameCount: number;
+  population: number;           // Percentage
+  centroidFrame: number;
+  centroidPdbPath: string;
+  vinaRescore?: number;         // kcal/mol
+  xtbStrainKcal?: number;       // kcal/mol
+  cordialExpectedPkd?: number;
+  cordialPHighAffinity?: number;
+  cordialPVeryHighAffinity?: number;
+}
+
+export interface ScoreMdClustersOptions {
+  topologyPath: string;
+  trajectoryPath: string;
+  outputDir: string;
+  inputLigandSdf: string;
+  inputReceptorPdb?: string;
+  numClusters: number;
+  enableVina: boolean;
+  enableXtb: boolean;
+  enableCordial: boolean;
+}
+
+export interface ScoreMdClustersResult {
+  clusters: ScoredClusterResult[];
   outputDir: string;
 }
 
@@ -403,13 +437,14 @@ export interface ProjectJobPose {
 
 export interface ProjectJob {
   id: string;               // Unique key: "dock:Vina_HWF" or "sim:ff19sb-OPC_MD-300K-1ns"
-  type: 'docking' | 'docking-pose' | 'simulation' | 'conformer';
+  type: 'docking' | 'docking-pose' | 'simulation' | 'conformer' | 'map';
   folder: string;           // Run folder name (e.g., "Vina_HWF")
   label: string;            // Display name
   path: string;             // Root path of the job directory
   parentId?: string;
   parentLabel?: string;
   sortKey?: number;
+  lastModified?: number;
 
   // Docking-specific
   receptorPdb?: string;
@@ -428,6 +463,13 @@ export interface ProjectJob {
   // Conformer-specific
   conformerPaths?: string[];
   conformerCount?: number;
+
+  // Map-specific
+  mapMethod?: PocketMapMethod;
+  mapResultJson?: string;
+  mapPdb?: string;
+  mapTrajectoryDcd?: string;
+  hotspotCount?: number;
 }
 
 // Keep legacy alias for backward compat during transition
@@ -441,6 +483,8 @@ export interface BindingSiteMapOptions {
   ligandResname: string;
   ligandResnum: number;
   outputDir: string;
+  sourcePdbPath?: string;
+  sourceTrajectoryPath?: string;
   boxPadding?: number;
   gridSpacing?: number;
 }
@@ -463,7 +507,7 @@ export interface BindingSiteMapResult {
 
 // === Pocket map types ===
 
-export type PocketMapMethod = 'static' | 'solvation' | 'probe';
+export type PocketMapMethod = 'solvation';
 
 export interface PocketMapOptions {
   method: PocketMapMethod;
@@ -472,6 +516,8 @@ export interface PocketMapOptions {
   ligandResnum: number;
   outputDir: string;
   trajectoryPath?: string;  // For solvation with existing trajectory
+  sourcePdbPath?: string;
+  sourceTrajectoryPath?: string;
   boxPadding?: number;
   gridSpacing?: number;
 }

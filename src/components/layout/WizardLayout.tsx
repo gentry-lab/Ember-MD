@@ -38,9 +38,17 @@ const conformSteps: StepInfo[] = [
   { id: 'conform-results', label: 'Results', icon: '4' },
 ];
 
+const mapSteps: StepInfo[] = [
+  { id: 'map-load', label: 'Load', icon: '1' },
+  { id: 'map-configure', label: 'Configure', icon: '2' },
+  { id: 'map-progress', label: 'Map', icon: '3' },
+  { id: 'map-results', label: 'Results', icon: '4' },
+];
+
 const dockStepOrder = dockSteps.map((s) => s.id);
 const mdStepOrder = mdSteps.map((s) => s.id);
 const conformStepOrder = conformSteps.map((s) => s.id);
+const mapStepOrder = mapSteps.map((s) => s.id);
 
 type PickerView = 'list' | 'rename' | 'delete';
 
@@ -218,6 +226,14 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
       const currentStep = state().conformStep;
       const currentIndex = conformStepOrder.indexOf(currentStep);
       const stepIndex = conformStepOrder.indexOf(stepId);
+      if (stepIndex < currentIndex) return 'done';
+      if (stepIndex === currentIndex) return 'active';
+      return 'pending';
+    }
+    if (state().mode === 'map') {
+      const currentStep = state().map.step;
+      const currentIndex = mapStepOrder.indexOf(currentStep);
+      const stepIndex = mapStepOrder.indexOf(stepId);
       if (stepIndex < currentIndex) return 'done';
       if (stepIndex === currentIndex) return 'active';
       return 'pending';
@@ -452,7 +468,21 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
 
         {/* Step indicators — Map mode */}
         <Show when={state().mode === 'map' && state().projectReady}>
-          <span class="text-xs text-base-content/60">Pocket Mapping</span>
+          <ul class="steps steps-horizontal">
+            <For each={mapSteps}>{(step) => {
+              const status = () => getStepStatus(step.id);
+              return (
+                <li
+                  class={`step step-sm ${status() === 'done' || status() === 'active' ? 'step-primary' : ''}`}
+                  data-content={status() === 'done' ? '✓' : step.icon}
+                >
+                  <span class={`text-xs ${status() === 'active' ? 'font-semibold' : 'text-base-content/90'}`}>
+                    {step.label}
+                  </span>
+                </li>
+              );
+            }}</For>
+          </ul>
         </Show>
         </div>
       </header>

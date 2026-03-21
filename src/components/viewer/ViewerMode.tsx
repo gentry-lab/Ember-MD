@@ -16,6 +16,7 @@ import ClusteringModal from './ClusteringModal';
 import AnalysisPanel from './AnalysisPanel';
 import BindingSiteMapPanel from './BindingSiteMapPanel';
 import LayerPanel from './LayerPanel';
+import ScoringPanel from './ScoringPanel';
 import { projectPaths } from '../../utils/projectPaths';
 import { loadProjectJob } from '../../utils/projectJobLoader';
 import { theme } from '../../utils/theme';
@@ -511,10 +512,9 @@ const ViewerMode: Component = () => {
   const surfacePropsLoading = () => surfacePropsLoadingCount() > 0;
 
   const sortedRecentJobs = (jobs: ProjectJob[]) => {
-    const typeOrder: Record<string, number> = { docking: 0, simulation: 1, conformer: 2 };
     return [...jobs].sort((a, b) => {
-      const typeCmp = (typeOrder[a.type] ?? 99) - (typeOrder[b.type] ?? 99);
-      return typeCmp !== 0 ? typeCmp : a.label.localeCompare(b.label);
+      const modifiedCmp = (b.lastModified ?? 0) - (a.lastModified ?? 0);
+      return modifiedCmp !== 0 ? modifiedCmp : a.label.localeCompare(b.label);
     });
   };
 
@@ -2229,6 +2229,9 @@ const ViewerMode: Component = () => {
 
   // FEP scoring overlay
 
+  // Scoring panel
+  const [showScoringPanel, setShowScoringPanel] = createSignal(false);
+
   // Clustering modal (for trajectory analysis — separate from multi-PDB import)
   const [showClusteringModal, setShowClusteringModal] = createSignal(false);
   const handleOpenClustering = () => setShowClusteringModal(true);
@@ -2816,21 +2819,22 @@ const ViewerMode: Component = () => {
   };
 
   const tryAutoLoadBindingSiteMap = async (pdbPath: string) => {
-    // Check if binding_site_map/ exists in surfaces/ of the project, or next to the PDB
     const pdbDir = pdbPath.replace(/\/[^/]+$/, '');
-    // Walk up to project root (handles simulations/{run}/ or docking/{run}/ nesting)
     const projectDir = pdbDir.replace(/\/(simulations|docking)\/[^/]+$/, '');
-    const mapDir = projectDir !== pdbDir
-      ? `${projectDir}/surfaces/binding_site_map`
-      : `${pdbDir}/binding_site_map`;
-    // Try prefixed results file first, then legacy unprefixed
     const projName = projectDir !== pdbDir ? projectDir.split('/').pop() || '' : '';
-    const prefixedPath = projName ? `${mapDir}/${projName}_binding_site_results.json` : null;
-    const legacyPath = `${mapDir}/binding_site_results.json`;
+    const candidateDirs = projectDir !== pdbDir
+      ? [`${projectDir}/surfaces/pocket_map_static`, `${projectDir}/surfaces/binding_site_map`]
+      : [`${pdbDir}/pocket_map_static`, `${pdbDir}/binding_site_map`];
 
     try {
-      const data = (prefixedPath ? await api.readJsonFile(prefixedPath) as BindingSiteResultsJson | null : null)
-        || await api.readJsonFile(legacyPath) as BindingSiteResultsJson | null;
+      let data: BindingSiteResultsJson | null = null;
+      for (const mapDir of candidateDirs) {
+        const prefixedPath = projName ? `${mapDir}/${projName}_binding_site_results.json` : null;
+        const legacyPath = `${mapDir}/binding_site_results.json`;
+        data = (prefixedPath ? await api.readJsonFile(prefixedPath) as BindingSiteResultsJson | null : null)
+          || await api.readJsonFile(legacyPath) as BindingSiteResultsJson | null;
+        if (data?.hydrophobicDx) break;
+      }
       if (!data || !data.hydrophobicDx) return;
 
       const mapState = buildMapState(data);
@@ -2869,18 +2873,20 @@ const ViewerMode: Component = () => {
         }
       }
 
-      // Output dir: surfaces/binding_site_map in the project, or next to the PDB
+      // Output dir: surfaces/pocket_map_static in the project, or next to the PDB
       const pdbDir = pdbPath.replace(/\/[^/]+$/, '');
       const projectDir = pdbDir.replace(/\/(simulations|docking)\/[^/]+$/, '');
       const outputDir = projectDir !== pdbDir
-        ? `${projectDir}/surfaces/binding_site_map`
-        : `${pdbDir}/binding_site_map`;
+        ? `${projectDir}/surfaces/pocket_map_static`
+        : `${pdbDir}/pocket_map_static`;
 
       const result = await api.mapBindingSite({
         pdbPath: targetPdb,
         ligandResname: ligand.resname,
         ligandResnum: parseInt(ligand.resnum, 10),
         outputDir,
+        sourcePdbPath: pdbPath,
+        sourceTrajectoryPath: trajectoryPath || undefined,
       });
 
       if (result.ok) {
@@ -3216,6 +3222,16 @@ const ViewerMode: Component = () => {
                   </Show>
                 </button>
               </Show>
+              {/* Score (visible when a ligand is loaded with a structure) */}
+              <Show when={state().viewer.pdbPath && hasAnyLigand()}>
+                <button
+                  class={`btn btn-sm btn-ghost ${showScoringPanel() ? 'bg-primary text-primary-content' : 'bg-base-300/80 hover:bg-base-300'}`}
+                  onClick={() => setShowScoringPanel(!showScoringPanel())}
+                  title="Score — compute Vina, xTB strain, and CORDIAL scores"
+                >
+                  <span class="font-mono text-xs">SCORE</span>
+                </button>
+              </Show>
               {/* Simulate (visible when a ligand is loaded with a structure) */}
               <Show when={state().viewer.pdbPath && hasAnyLigand()}>
                 <button
@@ -3240,6 +3256,16 @@ const ViewerMode: Component = () => {
                 </button>
               </Show>
             </div>
+          </div>
+        </Show>
+        {/* Scoring panel overlay */}
+        <Show when={showScoringPanel() && state().viewer.pdbPath}>
+          <div class="absolute top-14 right-2 z-10 w-64">
+            <ScoringPanel
+              pdbPath={state().viewer.pdbPath!}
+              ligandSdfPath={state().viewer.ligandPath || undefined}
+              onClose={() => setShowScoringPanel(false)}
+            />
           </div>
         </Show>
         <Show when={isLoading()}>

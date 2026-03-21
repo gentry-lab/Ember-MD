@@ -107,7 +107,10 @@ export type MDStage =
   | 'release'
   | 'equilibration'
   | 'production'
-  | 'benchmark';
+  | 'benchmark'
+  | 'clustering'
+  | 'scoring'
+  | 'report';
 
 export interface MDProgress {
   stage: MDStage;

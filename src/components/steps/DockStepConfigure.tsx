@@ -14,6 +14,7 @@ const DockStepConfigure: Component = () => {
     setDockStereoisomerConfig,
     setDockConformerConfig,
     setDockRefinementConfig,
+    setDockXtbConfig,
     setDockCordialAvailable,
     setDockCachedConformerPaths,
   } = workflowStore;
@@ -396,6 +397,35 @@ const DockStepConfigure: Component = () => {
                   <p class="text-[10px] text-base-content/70 ml-1 mt-0.5">Not installed</p>
                 </Show>
               </Show>
+
+              <div class="border-t border-base-300 my-2" />
+
+              <label class="label cursor-pointer py-0.5">
+                <span class="label-text text-xs">
+                  xTB strain filter
+                  <span class="text-base-content/50"> (GFN2-xTB)</span>
+                </span>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm checkbox-primary"
+                  checked={state().dock.xtbConfig.strainFilter}
+                  onChange={(e) => setDockXtbConfig({ strainFilter: e.currentTarget.checked })}
+                />
+              </label>
+              <p class="text-[10px] text-base-content/50 ml-1">Flag high-strain poses via semiempirical QM</p>
+
+              <label class="label cursor-pointer py-0.5">
+                <span class="label-text text-xs">
+                  xTB pre-optimization
+                </span>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm checkbox-primary"
+                  checked={state().dock.xtbConfig.preOptimize}
+                  onChange={(e) => setDockXtbConfig({ preOptimize: e.currentTarget.checked })}
+                />
+              </label>
+              <p class="text-[10px] text-base-content/50 ml-1">Optimize ligand geometry before docking</p>
             </div>
           </div>
         </div>

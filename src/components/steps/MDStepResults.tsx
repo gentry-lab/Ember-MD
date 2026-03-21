@@ -1,105 +1,77 @@
-import { Component, Show, For, createSignal } from 'solid-js';
+import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { workflowStore, ViewerQueueItem } from '../../stores/workflow';
-import { ClusterResultData } from '../../../shared/types/ipc';
+import { ScoredClusterResult } from '../../../shared/types/ipc';
 import path from 'path';
+
+type SortField = 'clusterId' | 'population' | 'vinaRescore' | 'xtbStrainKcal' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity';
+type SortDirection = 'asc' | 'desc';
 
 const MDStepResults: Component = () => {
   const { state, openViewerSession, resetMd } = workflowStore;
   const api = window.electronAPI;
 
-  // Analysis state
-  const [isAnalyzing, setIsAnalyzing] = createSignal(false);
-  const [analysisProgress, setAnalysisProgress] = createSignal(0);
-  const [analysisStep, setAnalysisStep] = createSignal('');
-  const [reportPath, setReportPath] = createSignal<string | null>(null);
-  const [analysisDir, setAnalysisDir] = createSignal<string | null>(null);
-  const [analysisError, setAnalysisError] = createSignal<string | null>(null);
-  const [clusterResults, setClusterResults] = createSignal<ClusterResultData[]>([]);
+  const [sortField, setSortField] = createSignal<SortField>('population');
+  const [sortDirection, setSortDirection] = createSignal<SortDirection>('desc');
+  const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
 
   const result = () => state().md.result;
   const systemInfo = () => state().md.systemInfo;
-  const jobName = () => state().jobName.trim() || 'job';
+  const clusters = () => state().md.clusterScores;
 
-  const stepNames: Record<string, string> = {
-    'analyze_contacts': 'Computing contacts...',
-    'analyze_rmsd': 'RMSD analysis...',
-    'analyze_rmsf': 'RMSF analysis...',
-    'analyze_sse': 'Secondary structure...',
-    'analyze_hbonds': 'H-bond analysis...',
-    'analyze_ligand_props': 'Ligand properties...',
-    'analyze_torsions': 'Torsion analysis...',
-    'clustering': 'Clustering trajectory...',
-    'compile_pdf': 'Compiling report...',
-    'done': 'Complete',
-  };
+  const hasVina = createMemo(() => clusters().some(c => c.vinaRescore != null));
+  const hasXtb = createMemo(() => clusters().some(c => c.xtbStrainKcal != null));
+  const hasCordial = createMemo(() => clusters().some(c => c.cordialPHighAffinity != null));
 
-  const runAnalysis = async () => {
-    if (!result()) return;
-
-    setIsAnalyzing(true);
-    setAnalysisError(null);
-    setAnalysisProgress(0);
-    setAnalysisStep('Starting analysis...');
-    setReportPath(null);
-    setClusterResults([]);
-
-    const outputDir = path.dirname(result()!.trajectoryPath);
-    const analysisOutputDir = path.join(outputDir, 'analysis');
-
-    const cleanup = api.onMdOutput((data) => {
-      const text = data.data;
-      const progressMatch = text.match(/PROGRESS:(\w+):(\d+)/);
-      if (progressMatch) {
-        const step = progressMatch[1];
-        const pct = parseInt(progressMatch[2], 10);
-        setAnalysisProgress(pct);
-        setAnalysisStep(stepNames[step] || step);
-      }
-    });
-
-    try {
-      const simInfo: Record<string, string> = {};
-      const si = systemInfo();
-      if (si) simInfo.atoms = si.atomCount.toLocaleString();
-      simInfo.temperature = `${state().md.config.temperatureK} K`;
-      simInfo.duration = `${state().md.config.productionNs} ns`;
-      simInfo.forceField = state().md.config.forceFieldPreset || 'ff19SB/OPC';
-      if (state().md.benchmarkResult) {
-        simInfo.performance = `${state().md.benchmarkResult!.nsPerDay.toFixed(1)} ns/day`;
-      }
-      simInfo.jobName = jobName();
-
-      const reportResult = await api.generateMdReport({
-        topologyPath: result()!.systemPdbPath,
-        trajectoryPath: result()!.trajectoryPath,
-        outputDir: analysisOutputDir,
-        ligandSelection: undefined,
-        simInfo,
-      });
-
-      if (reportResult.ok) {
-        setReportPath(reportResult.value.reportPath);
-        setAnalysisDir(reportResult.value.analysisDir);
-        if (reportResult.value.clusteringResults) {
-          setClusterResults(reportResult.value.clusteringResults);
-        }
-        setAnalysisProgress(100);
-        setAnalysisStep('Complete');
-      } else {
-        setAnalysisError(reportResult.error.message);
-      }
-    } catch (err) {
-      setAnalysisError((err as Error).message);
-    } finally {
-      setIsAnalyzing(false);
-      cleanup();
+  const handleSort = (field: SortField) => {
+    if (sortField() === field) {
+      setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection(
+        field === 'clusterId' ? 'asc'
+          : field === 'vinaRescore' || field === 'xtbStrainKcal' ? 'asc'
+          : 'desc'
+      );
     }
   };
 
-  const openReport = () => {
-    const rp = reportPath();
-    if (rp) api.openFolder(rp);
+  const sortIndicator = (field: SortField) => {
+    if (sortField() !== field) return '';
+    return sortDirection() === 'asc' ? ' \u25B2' : ' \u25BC';
   };
+
+  const sortedClusters = createMemo(() => {
+    const items = [...clusters()];
+    const field = sortField();
+    const dir = sortDirection();
+
+    items.sort((a, b) => {
+      let va: number | null = null;
+      let vb: number | null = null;
+
+      switch (field) {
+        case 'clusterId': va = a.clusterId; vb = b.clusterId; break;
+        case 'population': va = a.population; vb = b.population; break;
+        case 'vinaRescore': va = a.vinaRescore ?? null; vb = b.vinaRescore ?? null; break;
+        case 'xtbStrainKcal': va = a.xtbStrainKcal ?? null; vb = b.xtbStrainKcal ?? null; break;
+        case 'cordialPHighAffinity': va = a.cordialPHighAffinity ?? null; vb = b.cordialPHighAffinity ?? null; break;
+        case 'cordialPVeryHighAffinity': va = a.cordialPVeryHighAffinity ?? null; vb = b.cordialPVeryHighAffinity ?? null; break;
+      }
+
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      return dir === 'asc' ? va - vb : vb - va;
+    });
+
+    return items;
+  });
+
+  const selectedCluster = createMemo(() => {
+    const idx = selectedIndex();
+    if (idx == null) return null;
+    return sortedClusters()[idx] ?? null;
+  });
 
   const openTrajectoryInViewer = () => {
     if (!result()) return;
@@ -109,10 +81,26 @@ const MDStepResults: Component = () => {
     });
   };
 
-  const openClustersInViewer = () => {
-    const clusters = clusterResults().filter(c => c.centroidPdbPath);
-    if (clusters.length === 0) return;
-    const queue: ViewerQueueItem[] = clusters.map(c => ({
+  const openClusterInViewer = (cluster: ScoredClusterResult) => {
+    if (!cluster.centroidPdbPath) return;
+    const queue: ViewerQueueItem[] = sortedClusters()
+      .filter(c => c.centroidPdbPath)
+      .map(c => ({
+        pdbPath: c.centroidPdbPath!,
+        label: `Cluster ${c.clusterId + 1} (${c.population.toFixed(0)}%)`,
+      }));
+    const queueIndex = queue.findIndex(q => q.pdbPath === cluster.centroidPdbPath);
+    openViewerSession({
+      pdbPath: cluster.centroidPdbPath,
+      pdbQueue: queue,
+      pdbQueueIndex: queueIndex >= 0 ? queueIndex : 0,
+    });
+  };
+
+  const openAllClustersInViewer = () => {
+    const withPdb = sortedClusters().filter(c => c.centroidPdbPath);
+    if (withPdb.length === 0) return;
+    const queue: ViewerQueueItem[] = withPdb.map(c => ({
       pdbPath: c.centroidPdbPath!,
       label: `Cluster ${c.clusterId + 1} (${c.population.toFixed(0)}%)`,
     }));
@@ -130,90 +118,152 @@ const MDStepResults: Component = () => {
     }
   };
 
+  const openReport = () => {
+    if (!result()) return;
+    const dir = path.dirname(result()!.trajectoryPath);
+    const reportPath = path.join(dir, 'analysis', 'full_report.pdf');
+    api.openFolder(reportPath);
+  };
+
   return (
     <div class="h-full flex flex-col">
-      {/* Title */}
-      <div class="text-center mb-4">
-        <h2 class="text-xl font-bold">Simulation Complete</h2>
-        <div class="flex justify-center gap-3 mt-1 text-xs text-base-content/70">
-          <span>{state().md.config.productionNs} ns</span>
-          <Show when={systemInfo()}>
-            <span>{systemInfo()!.atomCount.toLocaleString()} atoms</span>
-          </Show>
-          <Show when={state().md.benchmarkResult}>
-            <span>{state().md.benchmarkResult!.nsPerDay.toFixed(1)} ns/day</span>
-          </Show>
+      {/* Header */}
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h2 class="text-lg font-bold">Simulation Complete</h2>
+          <div class="flex gap-3 text-xs text-base-content/70">
+            <span>{state().md.config.productionNs} ns</span>
+            <Show when={systemInfo()}>
+              <span>{systemInfo()!.atomCount.toLocaleString()} atoms</span>
+            </Show>
+            <Show when={state().md.benchmarkResult}>
+              <span>{state().md.benchmarkResult!.nsPerDay.toFixed(1)} ns/day</span>
+            </Show>
+          </div>
         </div>
-      </div>
-
-      {/* Main content: two rows */}
-      <div class="flex-1 flex flex-col gap-3 min-h-0">
-        {/* Row 1: Quick actions */}
-        <div class="flex gap-2 justify-center">
-          <button class="btn btn-primary btn-sm" onClick={openTrajectoryInViewer}>
-            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+        <div class="flex gap-1.5">
+          <button class="btn btn-outline btn-xs" onClick={openTrajectoryInViewer}>
             Play Trajectory
           </button>
-          <Show when={!reportPath() && !isAnalyzing()}>
-            <button class="btn btn-outline btn-sm" onClick={runAnalysis}>
-              <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              Run Analysis
-            </button>
-          </Show>
-          <Show when={reportPath()}>
-            <button class="btn btn-outline btn-sm" onClick={openReport}>
-              <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Open Report
+          <button class="btn btn-outline btn-xs" onClick={openReport}>
+            Open Report
+          </button>
+          <Show when={clusters().length > 0}>
+            <button class="btn btn-outline btn-xs" onClick={openAllClustersInViewer}>
+              View All Clusters
             </button>
           </Show>
         </div>
+      </div>
 
-        {/* Analysis progress */}
-        <Show when={isAnalyzing()}>
-          <div class="flex items-center gap-3 px-4">
-            <span class="loading loading-spinner loading-xs text-primary" />
-            <progress class="progress progress-primary flex-1" value={analysisProgress()} max="100" />
-            <span class="text-xs text-base-content/60 min-w-[120px] text-right">{analysisStep()}</span>
+      {/* Scored clusters table */}
+      <Show
+        when={clusters().length > 0}
+        fallback={
+          <div class="flex-1 flex items-center justify-center text-base-content/50 text-sm">
+            No cluster scores available
           </div>
-        </Show>
-
-        {/* Analysis error */}
-        <Show when={analysisError() && !isAnalyzing()}>
-          <div class="alert alert-error py-2 mx-4">
-            <span class="text-xs">{analysisError()}</span>
-            <button class="btn btn-ghost btn-xs" onClick={runAnalysis}>Retry</button>
-          </div>
-        </Show>
-
-        {/* Cluster results (shown after analysis) */}
-        <Show when={clusterResults().length > 0}>
-          <div class="px-4">
-            <div class="flex items-center gap-2 mb-2">
-              <span class="text-xs font-semibold">Clusters</span>
-              <button class="btn btn-outline btn-xs" onClick={openClustersInViewer}>
-                View in 3D
-              </button>
-            </div>
-            <div class="flex gap-1.5 flex-wrap">
-              <For each={clusterResults()}>
-                {(cluster) => (
-                  <div class="badge badge-lg gap-1.5">
-                    <div class="w-3 h-3 rounded-full bg-primary" />
-                    <span class="text-xs font-mono">{cluster.population.toFixed(0)}%</span>
-                  </div>
+        }
+      >
+        <div class="flex-1 overflow-auto min-h-0">
+          <table class="table table-xs table-pin-rows">
+            <thead>
+              <tr class="bg-base-200">
+                <th class="cursor-pointer select-none" onClick={() => handleSort('clusterId')}>
+                  Cluster{sortIndicator('clusterId')}
+                </th>
+                <th class="cursor-pointer select-none text-right" onClick={() => handleSort('population')}>
+                  Pop%{sortIndicator('population')}
+                </th>
+                <Show when={hasVina()}>
+                  <th class="cursor-pointer select-none text-right" onClick={() => handleSort('vinaRescore')}>
+                    Vina{sortIndicator('vinaRescore')}
+                  </th>
+                </Show>
+                <Show when={hasXtb()}>
+                  <th class="cursor-pointer select-none text-right" onClick={() => handleSort('xtbStrainKcal')}>
+                    Strain{sortIndicator('xtbStrainKcal')}
+                  </th>
+                </Show>
+                <Show when={hasCordial()}>
+                  <th class="cursor-pointer select-none text-right" onClick={() => handleSort('cordialPHighAffinity')}>
+                    P(&lt;1uM){sortIndicator('cordialPHighAffinity')}
+                  </th>
+                  <th class="cursor-pointer select-none text-right" onClick={() => handleSort('cordialPVeryHighAffinity')}>
+                    P(&lt;100nM){sortIndicator('cordialPVeryHighAffinity')}
+                  </th>
+                </Show>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={sortedClusters()}>
+                {(cluster, index) => (
+                  <tr
+                    class={`cursor-pointer hover:bg-base-200 ${
+                      selectedIndex() === index() ? 'bg-primary/10' : ''
+                    }`}
+                    onClick={() => setSelectedIndex(index())}
+                    onDblClick={() => openClusterInViewer(cluster)}
+                  >
+                    <td class="font-mono text-xs">
+                      {cluster.clusterId + 1}
+                    </td>
+                    <td class="text-right font-mono text-xs">
+                      {cluster.population.toFixed(1)}%
+                    </td>
+                    <Show when={hasVina()}>
+                      <td class="text-right font-mono text-xs">
+                        {cluster.vinaRescore != null ? cluster.vinaRescore.toFixed(1) : '-'}
+                      </td>
+                    </Show>
+                    <Show when={hasXtb()}>
+                      <td class={`text-right font-mono text-xs ${
+                        cluster.xtbStrainKcal != null && cluster.xtbStrainKcal > 8 ? 'text-error'
+                          : cluster.xtbStrainKcal != null && cluster.xtbStrainKcal > 5 ? 'text-warning' : ''
+                      }`}>
+                        {cluster.xtbStrainKcal != null ? cluster.xtbStrainKcal.toFixed(1) : '-'}
+                      </td>
+                    </Show>
+                    <Show when={hasCordial()}>
+                      <td class="text-right font-mono text-xs">
+                        {cluster.cordialPHighAffinity != null
+                          ? `${(cluster.cordialPHighAffinity * 100).toFixed(0)}%`
+                          : '-'}
+                      </td>
+                      <td class="text-right font-mono text-xs">
+                        {cluster.cordialPVeryHighAffinity != null
+                          ? `${(cluster.cordialPVeryHighAffinity * 100).toFixed(0)}%`
+                          : '-'}
+                      </td>
+                    </Show>
+                  </tr>
                 )}
               </For>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Selected cluster detail */}
+        <Show when={selectedCluster()}>
+          <div class="border-t border-base-300 pt-2 mt-2 flex items-center justify-between">
+            <div class="text-xs text-base-content/70">
+              <span class="font-semibold">Cluster {selectedCluster()!.clusterId + 1}</span>
+              <span class="mx-2">|</span>
+              <span>{selectedCluster()!.population.toFixed(1)}% of trajectory</span>
+              <span class="mx-2">|</span>
+              <span>{selectedCluster()!.frameCount} frames</span>
+              <span class="mx-2">|</span>
+              <span>Centroid: frame {selectedCluster()!.centroidFrame}</span>
             </div>
+            <button
+              class="btn btn-primary btn-xs"
+              onClick={() => openClusterInViewer(selectedCluster()!)}
+            >
+              View 3D
+            </button>
           </div>
         </Show>
-      </div>
+      </Show>
 
       {/* Bottom actions */}
       <div class="flex justify-between mt-3">

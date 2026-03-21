@@ -293,6 +293,7 @@ function getQupkakeXtbPath(): string | null {
   }
 
   const repoXtbCandidates = [
+    path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-env', 'bin', 'xtb'),
     path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-6.4.1', 'install', 'bin', 'xtb'),
     path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-6.4.1', 'install-openblas', 'bin', 'xtb'),
   ];
@@ -438,6 +439,15 @@ function getSurfaceGenPythonPath(): string | null {
 let condaPythonPath: string | null = null;
 let condaEnvBin: string | null = null; // bin/ dir of the conda env, for PATH
 let surfaceGenPythonPath: string | null = null;
+
+type MapJobMetadata = {
+  method?: 'static' | 'solvation' | 'probe';
+  sourcePdbPath?: string;
+  sourceTrajectoryPath?: string;
+  ligandResname?: string;
+  ligandResnum?: number;
+  computedAt?: string;
+};
 let fraggenRoot: string = '';
 let qupkakeCapabilityCache: QupkakeCapabilityResult | null = null;
 
@@ -446,6 +456,105 @@ function getSpawnEnv(): NodeJS.ProcessEnv {
   if (!condaEnvBin) return { ...process.env };
   const currentPath = process.env.PATH || '';
   return { ...process.env, PATH: `${condaEnvBin}:${currentPath}` };
+}
+
+/**
+ * Spawn a Python script and collect stdout/stderr. Handles childProcesses tracking.
+ * Use for accumulate-then-parse patterns (not real-time streaming).
+ */
+function spawnPythonScript(
+  args: string[],
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    cwd?: string;
+    onStdout?: (text: string) => void;
+    onStderr?: (text: string) => void;
+  }
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    if (!condaPythonPath) {
+      resolve({ stdout: '', stderr: 'Python not found', code: 1 });
+      return;
+    }
+    const proc = spawn(condaPythonPath, args, {
+      env: options?.env || getSpawnEnv(),
+      cwd: options?.cwd,
+    });
+    childProcesses.add(proc);
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stdout += text;
+      options?.onStdout?.(text);
+    });
+
+    proc.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stderr += text;
+      options?.onStderr?.(text);
+    });
+
+    proc.on('close', (code: number | null) => {
+      childProcesses.delete(proc);
+      resolve({ stdout, stderr, code: code ?? 1 });
+    });
+
+    proc.on('error', (err: Error) => {
+      childProcesses.delete(proc);
+      resolve({ stdout, stderr: err.message, code: 1 });
+    });
+  });
+}
+
+/**
+ * Load and merge CORDIAL scores from a JSON file into an array of result objects.
+ * Handles the results/ vs top-level path fallback and best-score deduplication.
+ */
+function loadAndMergeCordialScores(
+  baseDir: string,
+  items: Array<Record<string, any>>,
+  nameKey: string = 'ligandName'
+): void {
+  const newPath = path.join(baseDir, 'results', 'cordial_scores.json');
+  const legacyPath = path.join(baseDir, 'cordial_scores.json');
+  const cordialJsonPath = fs.existsSync(newPath) ? newPath : legacyPath;
+  if (!fs.existsSync(cordialJsonPath)) return;
+
+  try {
+    const cordialData = JSON.parse(fs.readFileSync(cordialJsonPath, 'utf-8'));
+    const cordialByName = new Map<string, {
+      expectedPkd: number;
+      pHighAffinity: number;
+      pVeryHighAffinity: number;
+    }>();
+
+    for (const entry of cordialData) {
+      const entryName = entry.source_name;
+      const pHighAffinity = entry.cordial_p_high_affinity;
+      const existing = cordialByName.get(entryName);
+      if (!existing || pHighAffinity > existing.pHighAffinity) {
+        cordialByName.set(entryName, {
+          expectedPkd: entry.cordial_expected_pkd,
+          pHighAffinity,
+          pVeryHighAffinity: entry.cordial_p_very_high_affinity || 0,
+        });
+      }
+    }
+
+    for (const item of items) {
+      const scores = cordialByName.get(item[nameKey]);
+      if (scores) {
+        item.cordialExpectedPkd = scores.expectedPkd;
+        item.cordialPHighAffinity = scores.pHighAffinity;
+        item.cordialPVeryHighAffinity = scores.pVeryHighAffinity;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load CORDIAL scores:', e);
+  }
 }
 
 function getQupkakeSpawnEnv(): NodeJS.ProcessEnv {
@@ -2099,35 +2208,22 @@ ipcMain.handle(
       });
       const results: Array<any> = await Promise.all(parsePromises);
 
-      // Load CORDIAL scores if available (check results/ first, then top-level)
-      const newCordialPath = path.join(outputDir, 'results', 'cordial_scores.json');
-      const cordialJsonPath = fs.existsSync(newCordialPath) ? newCordialPath : path.join(outputDir, 'cordial_scores.json');
-      if (fs.existsSync(cordialJsonPath)) {
+      loadAndMergeCordialScores(outputDir, results, 'ligandName');
+
+      // Load xTB strain scores if available
+      const xtbStrainPath = path.join(outputDir, 'results', 'xtb_strain.json');
+      if (fs.existsSync(xtbStrainPath)) {
         try {
-          const cordialData = JSON.parse(fs.readFileSync(cordialJsonPath, 'utf-8'));
-          const cordialByName = new Map<string, { expectedPkd: number; pHighAffinity: number; pVeryHighAffinity: number }>();
-          for (const entry of cordialData) {
-            const entryName = entry.source_name;
-            const pHighAffinity = entry.cordial_p_high_affinity;
-            const existing = cordialByName.get(entryName);
-            if (!existing || pHighAffinity > existing.pHighAffinity) {
-              cordialByName.set(entryName, {
-                expectedPkd: entry.cordial_expected_pkd,
-                pHighAffinity,
-                pVeryHighAffinity: entry.cordial_p_very_high_affinity || 0,
-              });
-            }
-          }
+          const xtbData = JSON.parse(fs.readFileSync(xtbStrainPath, 'utf-8'));
+          // xtb_strain.json: { "ligandName_poseIndex": strain_kcal, ... }
           for (const result of results) {
-            const scores = cordialByName.get(result.ligandName);
-            if (scores) {
-              result.cordialExpectedPkd = scores.expectedPkd;
-              result.cordialPHighAffinity = scores.pHighAffinity;
-              result.cordialPVeryHighAffinity = scores.pVeryHighAffinity;
+            const key = `${result.ligandName}_${result.poseIndex}`;
+            if (key in xtbData) {
+              result.xtbStrainKcal = xtbData[key];
             }
           }
         } catch (e) {
-          console.error('Failed to load CORDIAL scores:', e);
+          console.error('Failed to load xTB strain scores:', e);
         }
       }
 
@@ -3312,7 +3408,7 @@ ipcMain.handle(
     rmsdCutoff: number,
     energyWindow: number,
     method?: string,
-    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean; xtbRerank?: boolean }
   ): Promise<Result<{
     conformerPaths: string[];
     parentMapping: Record<string, string>;
@@ -3370,6 +3466,12 @@ ipcMain.handle(
         if (mcmmOptions.sampleAmides) {
           args.push('--sample_amides');
         }
+      }
+
+      // xTB reranking support for docking conformer generation
+      const xtbPathDock = getQupkakeXtbPath();
+      if (xtbPathDock) {
+        args.push('--xtb_binary', xtbPathDock);
       }
 
       const methodLabel = effectiveMethod.toUpperCase();
@@ -3464,7 +3566,7 @@ ipcMain.handle(
     rmsdCutoff: number,
     energyWindow: number,
     method: string,
-    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean; xtbRerank?: boolean }
   ): Promise<Result<{
     conformerPaths: string[];
     parentMapping: Record<string, string>;
@@ -3515,6 +3617,27 @@ ipcMain.handle(
         args.push('--mcmm_temperature', String(mcmmOptions.temperature));
         if (mcmmOptions.sampleAmides) {
           args.push('--sample_amides');
+        }
+      }
+
+      // xTB reranking and CREST support
+      const xtbPath = getQupkakeXtbPath();
+      if (xtbPath) {
+        args.push('--xtb_binary', xtbPath);
+        if (mcmmOptions?.xtbRerank) {
+          args.push('--xtb_rerank');
+        }
+      }
+
+      if (effectiveMethod === 'crest') {
+        // Look for CREST binary
+        const crestCandidates = [
+          condaEnvBin ? path.join(condaEnvBin, 'crest') : '',
+          '/usr/local/bin/crest',
+        ].filter(Boolean);
+        const crestPath = crestCandidates.find(p => fs.existsSync(p));
+        if (crestPath) {
+          args.push('--crest_binary', crestPath);
         }
       }
 
@@ -3863,37 +3986,7 @@ ipcMain.handle(
       const parsedLigands = await Promise.all(parsePromises);
       ligands.push(...parsedLigands.filter((ligand): ligand is MDLoadedLigand => ligand !== null));
 
-      // Load CORDIAL scores if available (check results/ first, then top-level)
-      const newCordialJsonPath = path.join(dirPath, 'results', 'cordial_scores.json');
-      const cordialJsonPath = fs.existsSync(newCordialJsonPath) ? newCordialJsonPath : path.join(dirPath, 'cordial_scores.json');
-      if (fs.existsSync(cordialJsonPath)) {
-        try {
-          const cordialData = JSON.parse(fs.readFileSync(cordialJsonPath, 'utf-8'));
-          // cordialData is array of { source_name, pose_index, cordial_expected_pkd, cordial_p_high_affinity, ... }
-          // Group by source_name and get best score (pose_index 0 is usually best)
-          const cordialByName = new Map<string, { pHighAffinity: number; expectedPkd: number }>();
-          for (const entry of cordialData) {
-            const name = entry.source_name;
-            const pHighAffinity = entry.cordial_p_high_affinity;
-            const expectedPkd = entry.cordial_expected_pkd;
-            // Keep the best score (highest pHighAffinity) for each ligand
-            const existing = cordialByName.get(name);
-            if (!existing || pHighAffinity > existing.pHighAffinity) {
-              cordialByName.set(name, { pHighAffinity, expectedPkd });
-            }
-          }
-          // Merge into ligands
-          for (const ligand of ligands) {
-            const cordialScores = cordialByName.get(ligand.name);
-            if (cordialScores) {
-              ligand.cordialPHighAffinity = cordialScores.pHighAffinity;
-              ligand.cordialExpectedPkd = cordialScores.expectedPkd;
-            }
-          }
-        } catch (e) {
-          console.error('Failed to load CORDIAL scores:', e);
-        }
-      }
+      loadAndMergeCordialScores(dirPath, ligands, 'name');
 
       // Sort by vinaAffinity ascending (most negative = best)
       ligands.sort((a, b) => a.vinaAffinity - b.vinaAffinity);
@@ -4322,13 +4415,22 @@ ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
           || (fs.existsSync(legacyPosesPath) && fs.readdirSync(legacyPosesPath).some((f: string) => f.endsWith('_docked.sdf.gz')));
         // New layout: inputs/ dir with receptor.pdb indicates a docking run even without results yet
         const hasInputs = fs.existsSync(path.join(runPath, 'inputs', 'receptor.pdb'));
-        if (!hasSimOutput && !hasDockOutput && !hasInputs) return null;
+        const hasConformerOutput = runFiles.some((f: string) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f));
+        const hasMapOutput = runFiles.some((f: string) => f === 'binding_site_results.json' || f.endsWith('_binding_site_results.json'));
+        if (!hasSimOutput && !hasDockOutput && !hasInputs && !hasConformerOutput && !hasMapOutput) return null;
         const stat = fs.statSync(runPath);
+        const type = hasMapOutput
+          ? 'map'
+          : hasConformerOutput
+            ? 'conformer'
+            : hasSimOutput
+              ? 'simulation'
+              : 'docking';
         return {
           folderName,
           path: runPath,
           lastModified: stat.mtimeMs,
-          type: hasSimOutput ? 'simulation' : 'docking',
+          type,
           hasTrajectory: runFiles.some((f: string) => f.endsWith('_trajectory.dcd') || f === 'trajectory.dcd')
             || resultsFiles.some((f: string) => f === 'trajectory.dcd'),
           hasFinalPdb: runFiles.some((f: string) => f.endsWith('_final.pdb') || f === 'final.pdb')
@@ -4346,7 +4448,7 @@ ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
           if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
 
           // New layout: runs live under simulations/ and docking/ subdirectories
-          if (sub.name === 'simulations' || sub.name === 'docking') {
+          if (sub.name === 'simulations' || sub.name === 'docking' || sub.name === 'conformers') {
             const typeDir = path.join(entryPath, sub.name);
             try {
               const typeEntries = fs.readdirSync(typeDir, { withFileTypes: true });
@@ -4356,6 +4458,24 @@ ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
                 if (runInfo) runs.push(runInfo);
               }
             } catch { /* skip unreadable */ }
+            continue;
+          }
+
+          if (sub.name === 'surfaces') {
+            const surfaceDir = path.join(entryPath, sub.name);
+            try {
+              const typeEntries = fs.readdirSync(surfaceDir, { withFileTypes: true });
+              for (const runEntry of typeEntries) {
+                if (!runEntry.isDirectory() || runEntry.name.startsWith('.')) continue;
+                if (runEntry.name !== 'binding_site_map' && !runEntry.name.startsWith('pocket_map_')) continue;
+                const runInfo = scanRunDir(path.join(surfaceDir, runEntry.name), `${sub.name}/${runEntry.name}`);
+                if (runInfo) runs.push(runInfo);
+              }
+            } catch { /* skip unreadable */ }
+            continue;
+          }
+
+          if (sub.name === 'structures' || sub.name === 'fep' || sub.name === 'raw' || sub.name === 'prepared' || sub.name === 'ligands') {
             continue;
           }
 
@@ -4582,11 +4702,40 @@ const extractVinaAffinity = (sdfGzPath: string): number | undefined => {
   return undefined;
 };
 
+const readJsonIfExists = <T>(jsonPath: string): T | null => {
+  try {
+    if (!fs.existsSync(jsonPath)) return null;
+    return JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as T;
+  } catch {
+    return null;
+  }
+};
+
+const getBindingSiteResultFile = (outputDir: string, projectName?: string): string | null => {
+  const prefixedPath = projectName ? path.join(outputDir, `${projectName}_binding_site_results.json`) : null;
+  if (prefixedPath && fs.existsSync(prefixedPath)) return prefixedPath;
+
+  const legacyPath = path.join(outputDir, 'binding_site_results.json');
+  if (fs.existsSync(legacyPath)) return legacyPath;
+
+  return null;
+};
+
+const writeMapMetadata = (
+  outputDir: string,
+  metadata: MapJobMetadata,
+) => {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const metadataPath = path.join(outputDir, 'map_metadata.json');
+  fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+};
+
 const findDockingRunJobs = (
   runPath: string,
   runName: string,
   stripPrefix: (name: string) => string,
 ): ProjectJob[] => {
+  const stat = fs.statSync(runPath);
   const runFiles = fs.readdirSync(runPath);
   const newReceptor = path.join(runPath, 'inputs', 'receptor.pdb');
   const legacyReceptorFile = runFiles.find((f) => f.includes('_receptor_prepared') && f.endsWith('.pdb'));
@@ -4628,6 +4777,7 @@ const findDockingRunJobs = (
     folder: runName,
     label: `${runName} (${poses.length} poses)`,
     path: runPath,
+    lastModified: stat.mtimeMs,
     parentId: groupId,
     parentLabel: runName,
     sortKey: 0,
@@ -4641,6 +4791,7 @@ const findDockingRunJobs = (
     folder: runName,
     label: `${pose.name}${pose.affinity != null ? ` (${pose.affinity.toFixed(1)})` : ''}`,
     path: runPath,
+    lastModified: stat.mtimeMs,
     parentId: groupId,
     parentLabel: runName,
     sortKey: index + 1,
@@ -4654,6 +4805,7 @@ const findDockingRunJobs = (
 };
 
 const findSimulationJob = (runPath: string, runName: string): ProjectJob | null => {
+  const stat = fs.statSync(runPath);
   const runFiles = fs.readdirSync(runPath);
   const resultsDir = path.join(runPath, 'results');
   const resultsFiles = fs.existsSync(resultsDir) ? fs.readdirSync(resultsDir) : [];
@@ -4685,13 +4837,19 @@ const findSimulationJob = (runPath: string, runName: string): ProjectJob | null 
 
   let clusterCount = 0;
   let clusterDirPath: string | undefined;
-  const newClusterDir = path.join(runPath, 'analysis', 'clustering');
+  const newClusterDir = path.join(runPath, 'results', 'analysis', 'scored_clusters');
+  const altClusterDir = path.join(runPath, 'results', 'analysis', 'clustering');
+  const legacyScoredDir = path.join(runPath, 'analysis', 'scored_clusters');
   const legacyClusterDir = path.join(runPath, 'clustering');
   const resolvedClusterDir = fs.existsSync(newClusterDir)
     ? newClusterDir
-    : fs.existsSync(legacyClusterDir)
-      ? legacyClusterDir
-      : null;
+    : fs.existsSync(altClusterDir)
+      ? altClusterDir
+      : fs.existsSync(legacyScoredDir)
+        ? legacyScoredDir
+        : fs.existsSync(legacyClusterDir)
+          ? legacyClusterDir
+          : null;
   if (resolvedClusterDir) {
     const clusterFiles = fs.readdirSync(resolvedClusterDir).filter((f: string) => f.match(/cluster_\d+_centroid\.pdb/));
     if (clusterFiles.length > 0) {
@@ -4711,6 +4869,7 @@ const findSimulationJob = (runPath: string, runName: string): ProjectJob | null 
     folder: runName,
     label: `${runName}${suffix}`,
     path: runPath,
+    lastModified: stat.mtimeMs,
     systemPdb: systemPdbPath,
     trajectoryDcd: trajectoryDcdPath,
     finalPdb: finalPdbPath,
@@ -4722,6 +4881,7 @@ const findSimulationJob = (runPath: string, runName: string): ProjectJob | null 
 
 const findConformerJob = (runPath: string, runName: string): ProjectJob | null => {
   if (!fs.existsSync(runPath)) return null;
+  const stat = fs.statSync(runPath);
 
   const conformerPaths = fs.readdirSync(runPath)
     .filter((f) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f))
@@ -4736,12 +4896,111 @@ const findConformerJob = (runPath: string, runName: string): ProjectJob | null =
     folder: runName,
     label: `${runName} (${conformerPaths.length} conformers)`,
     path: runPath,
+    lastModified: stat.mtimeMs,
     conformerPaths,
     conformerCount: conformerPaths.length,
   };
 };
 
-// Scan project artifacts as ProjectJob[] — docking runs/poses, simulation runs, and MCMM runs
+const inferPreferredMapSources = (projectDir: string): { pdbPath?: string; trajectoryPath?: string } => {
+  const simsDir = path.join(projectDir, 'simulations');
+  if (fs.existsSync(simsDir)) {
+    const simRuns = fs.readdirSync(simsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => {
+        const runPath = path.join(simsDir, entry.name);
+        return {
+          job: findSimulationJob(runPath, entry.name),
+          mtime: fs.statSync(runPath).mtimeMs,
+        };
+      })
+      .filter((entry): entry is { job: ProjectJob; mtime: number } => entry.job !== null)
+      .sort((a, b) => b.mtime - a.mtime);
+
+    const latestSimulation = simRuns[0]?.job;
+    if (latestSimulation) {
+      return {
+        pdbPath: latestSimulation.finalPdb || latestSimulation.systemPdb,
+        trajectoryPath: latestSimulation.trajectoryDcd,
+      };
+    }
+  }
+
+  const dockingDir = path.join(projectDir, 'docking');
+  if (fs.existsSync(dockingDir)) {
+    const dockRuns = fs.readdirSync(dockingDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => {
+        const runPath = path.join(dockingDir, entry.name);
+        const jobs = findDockingRunJobs(runPath, entry.name, (name) => name);
+        return {
+          receptorPdb: jobs.find((job) => job.type === 'docking')?.receptorPdb,
+          mtime: fs.statSync(runPath).mtimeMs,
+        };
+      })
+      .filter((entry) => !!entry.receptorPdb)
+      .sort((a, b) => b.mtime - a.mtime);
+
+    if (dockRuns[0]?.receptorPdb) {
+      return { pdbPath: dockRuns[0].receptorPdb };
+    }
+  }
+
+  const structuresDir = path.join(projectDir, 'structures');
+  if (fs.existsSync(structuresDir)) {
+    const structure = fs.readdirSync(structuresDir)
+      .filter((fileName) => /\.(pdb|cif)$/i.test(fileName))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0];
+    if (structure) {
+      return { pdbPath: path.join(structuresDir, structure) };
+    }
+  }
+
+  return {};
+};
+
+const findMapJob = (projectDir: string, runPath: string, runName: string): ProjectJob | null => {
+  if (!fs.existsSync(runPath)) return null;
+
+  const stat = fs.statSync(runPath);
+  const projectName = path.basename(projectDir);
+  const metadata = readJsonIfExists<MapJobMetadata>(path.join(runPath, 'map_metadata.json'));
+  const resultJson = getBindingSiteResultFile(runPath, projectName);
+  const result = resultJson
+    ? readJsonIfExists<{
+        hydrophobicDx?: string;
+        hbondDonorDx?: string;
+        hbondAcceptorDx?: string;
+        hotspots?: unknown[];
+      }>(resultJson)
+    : null;
+
+  if (!resultJson || !result?.hydrophobicDx || !result.hbondDonorDx || !result.hbondAcceptorDx) {
+    return null;
+  }
+
+  const inferredMethod: 'solvation' = 'solvation';
+
+  const inferredSources = inferPreferredMapSources(projectDir);
+  const methodLabel = 'Water Map (GIST)';
+  const hotspotCount = Array.isArray(result.hotspots) ? result.hotspots.length : 0;
+
+  return {
+    id: `map:${runName}`,
+    type: 'map',
+    folder: runName,
+    label: `${methodLabel}${hotspotCount > 0 ? ` (${hotspotCount} hotspots)` : ''}`,
+    path: runPath,
+    lastModified: stat.mtimeMs,
+    mapMethod: inferredMethod,
+    mapResultJson: resultJson,
+    mapPdb: metadata?.sourcePdbPath || inferredSources.pdbPath,
+    mapTrajectoryDcd: metadata?.sourceTrajectoryPath || inferredSources.trajectoryPath,
+    hotspotCount,
+  };
+};
+
+// Scan project artifacts as ProjectJob[] — docking runs/poses, simulation runs, MCMM runs, and maps
 ipcMain.handle(
   IpcChannels.SCAN_PROJECT_ARTIFACTS,
   async (_event: any, projectName: string): Promise<ProjectJob[]> => {
@@ -4798,7 +5057,22 @@ ipcMain.handle(
       } catch { /* skip */ }
     }
 
-    return jobs;
+    // 4. Scan surfaces/ for map runs
+    const surfacesDir = path.join(projectDir, 'surfaces');
+    if (fs.existsSync(surfacesDir)) {
+      try {
+        const surfaceRuns = fs.readdirSync(surfacesDir, { withFileTypes: true });
+        for (const run of surfaceRuns) {
+          if (!run.isDirectory() || run.name.startsWith('.')) continue;
+          if (run.name !== 'binding_site_map' && !run.name.startsWith('pocket_map_')) continue;
+          const runPath = path.join(surfacesDir, run.name);
+          const job = findMapJob(projectDir, runPath, run.name);
+          if (job) jobs.push(job);
+        }
+      } catch { /* skip */ }
+    }
+
+    return jobs.sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0));
   }
 );
 
@@ -4817,6 +5091,7 @@ ipcMain.handle(
     const folderPath = result.filePaths[0];
     const folderName = path.basename(folderPath);
     const folderFiles = fs.readdirSync(folderPath);
+    const folderStat = fs.statSync(folderPath);
 
     // Check for docking job: inputs/receptor.pdb + results/poses/*_docked.sdf.gz
     const newReceptor = path.join(folderPath, 'inputs', 'receptor.pdb');
@@ -4845,6 +5120,7 @@ ipcMain.handle(
         folder: folderName,
         label: `${folderName} (${poses.length} poses)`,
         path: folderPath,
+        lastModified: folderStat.mtimeMs,
         receptorPdb,
         poses,
       };
@@ -4876,9 +5152,48 @@ ipcMain.handle(
         folder: folderName,
         label: folderName,
         path: folderPath,
+        lastModified: folderStat.mtimeMs,
         systemPdb,
         trajectoryDcd,
         hasTrajectory: !!trajectoryDcd,
+      };
+    }
+
+    const conformerFiles = folderFiles
+      .filter((f) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (conformerFiles.length > 0) {
+      return {
+        id: `conformer:${folderName}`,
+        type: 'conformer',
+        folder: folderName,
+        label: `${folderName} (${conformerFiles.length} conformers)`,
+        path: folderPath,
+        lastModified: folderStat.mtimeMs,
+        conformerPaths: conformerFiles.map((f) => path.join(folderPath, f)),
+        conformerCount: conformerFiles.length,
+      };
+    }
+
+    const projectDir = path.dirname(path.dirname(folderPath));
+    const projectName = path.basename(projectDir);
+    const mapResultJson = getBindingSiteResultFile(folderPath, projectName);
+    if (mapResultJson) {
+      const metadata = readJsonIfExists<MapJobMetadata>(path.join(folderPath, 'map_metadata.json'));
+      const mapResult = readJsonIfExists<{ hotspots?: unknown[] }>(mapResultJson);
+      const inferredMethod: 'solvation' = 'solvation';
+      return {
+        id: `map:${folderName}`,
+        type: 'map',
+        folder: folderName,
+        label: folderName,
+        path: folderPath,
+        lastModified: folderStat.mtimeMs,
+        mapMethod: inferredMethod,
+        mapResultJson,
+        mapPdb: metadata?.sourcePdbPath,
+        mapTrajectoryDcd: metadata?.sourceTrajectoryPath,
+        hotspotCount: Array.isArray(mapResult?.hotspots) ? mapResult.hotspots.length : 0,
       };
     }
 
@@ -5264,6 +5579,186 @@ ipcMain.handle(
           type: 'QUPKAKE_FAILED',
           message: `Failed to start QupKake prediction: ${err.message}`,
         }));
+      });
+    });
+  }
+);
+
+// Score a single protein-ligand complex (viewer scoring)
+ipcMain.handle(
+  IpcChannels.SCORE_COMPLEX,
+  async (
+    _event,
+    pdbPath: string,
+    ligandSdfPath?: string
+  ): Promise<Result<{
+    vinaRescore?: number;
+    xtbStrainKcal?: number;
+    cordialExpectedPkd?: number;
+    cordialPHighAffinity?: number;
+    cordialPVeryHighAffinity?: number;
+  }, AppError>> => {
+    console.log(`[Score] Scoring complex: ${pdbPath}${ligandSdfPath ? ` + ${ligandSdfPath}` : ''}`);
+
+    if (!condaPythonPath) {
+      console.error('[Score] Python not found');
+      return Err({ type: 'PYTHON_NOT_FOUND', message: 'Python not found' });
+    }
+
+    const result: {
+      vinaRescore?: number;
+      xtbStrainKcal?: number;
+      cordialExpectedPkd?: number;
+      cordialPHighAffinity?: number;
+      cordialPVeryHighAffinity?: number;
+    } = {};
+
+    const xtbPath = getQupkakeXtbPath();
+    const strainScript = path.join(fraggenRoot, 'score_xtb_strain.py');
+    const vinaScript = path.join(fraggenRoot, 'run_vina_docking.py');
+
+    const tasks: Promise<void>[] = [];
+
+    if (ligandSdfPath && xtbPath && fs.existsSync(strainScript)) {
+      tasks.push((async () => {
+        try {
+          console.log('[Score] Running xTB strain...');
+          const { stdout, code } = await spawnPythonScript([
+            strainScript, '--ligand', ligandSdfPath!, '--xtb_binary', xtbPath, '--mode', 'strain',
+          ]);
+          if (code !== 0) {
+            console.error(`[Score] xTB strain failed (exit ${code})`);
+            return;
+          }
+          const match = stdout.match(/XTB_STRAIN:([-\d.]+)/);
+          if (match) {
+            result.xtbStrainKcal = Math.round(parseFloat(match[1]) * 10) / 10;
+            console.log(`[Score] xTB strain: ${result.xtbStrainKcal} kcal/mol`);
+          }
+        } catch (e) {
+          console.error('[Score] xTB strain error:', e);
+        }
+      })());
+    }
+
+    if (ligandSdfPath && fs.existsSync(pdbPath) && fs.existsSync(vinaScript)) {
+      tasks.push((async () => {
+        try {
+          console.log('[Score] Running Vina score_only...');
+          const tmpDir = path.join(os.tmpdir(), `ember_score_${Date.now()}`);
+          fs.mkdirSync(tmpDir, { recursive: true });
+          const tmpOut = path.join(tmpDir, 'scored.sdf.gz');
+          const { stdout, code } = await spawnPythonScript([
+            vinaScript, '--receptor', pdbPath, '--ligand', ligandSdfPath!,
+            '--reference', ligandSdfPath!, '--output_dir', tmpDir,
+            '--autobox_add', '4', '--cpu', '1', '--score_only', '--score_only_output_sdf', tmpOut,
+          ]);
+          if (code === 0) {
+            const scoreMatch = stdout.match(/SCORE_ONLY:\S+:([-\d.]+)/);
+            if (scoreMatch) {
+              result.vinaRescore = parseFloat(scoreMatch[1]);
+              console.log(`[Score] Vina rescore: ${result.vinaRescore} kcal/mol`);
+            }
+          } else {
+            console.error(`[Score] Vina score_only failed (exit ${code})`);
+          }
+          try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
+        } catch (e) {
+          console.error('[Score] Vina score_only error:', e);
+        }
+      })());
+    }
+
+    await Promise.all(tasks);
+    console.log('[Score] Complete:', JSON.stringify(result));
+    return Ok(result);
+  }
+);
+
+// Score docked poses with xTB strain energy
+ipcMain.handle(
+  IpcChannels.SCORE_DOCKING_STRAIN,
+  async (
+    event,
+    dockOutputDir: string
+  ): Promise<Result<{ count: number }, AppError>> => {
+    const xtbPath = getQupkakeXtbPath();
+    if (!xtbPath) {
+      return Err({ type: 'DOCKING_FAILED', message: 'xTB binary not found' });
+    }
+
+    if (!condaPythonPath) {
+      return Err({ type: 'PYTHON_NOT_FOUND', message: 'Python not found' });
+    }
+
+    const scriptPath = path.join(fraggenRoot, 'score_xtb_strain.py');
+    if (!fs.existsSync(scriptPath)) {
+      return Err({ type: 'SCRIPT_NOT_FOUND', path: scriptPath, message: 'score_xtb_strain.py not found' });
+    }
+
+    const posesDir = path.join(dockOutputDir, 'results', 'poses');
+    if (!fs.existsSync(posesDir)) {
+      return Err({ type: 'FILE_NOT_FOUND', path: posesDir, message: 'No poses directory found' });
+    }
+
+    const resultsDir = path.join(dockOutputDir, 'results');
+    const outputJson = path.join(resultsDir, 'xtb_strain.json');
+
+    // Find reference ligand for free-ligand optimization
+    const refCandidates = [
+      path.join(dockOutputDir, 'inputs', 'reference_ligand.sdf'),
+      path.join(dockOutputDir, 'prep', 'reference_ligand.sdf'),
+    ];
+    const inputLigandsDir = path.join(dockOutputDir, 'inputs', 'ligands');
+    if (fs.existsSync(inputLigandsDir)) {
+      const sdfs = fs.readdirSync(inputLigandsDir).filter((f: string) => f.endsWith('.sdf'));
+      if (sdfs.length > 0) refCandidates.push(path.join(inputLigandsDir, sdfs[0]));
+    }
+    const referenceSdf = refCandidates.find(p => fs.existsSync(p));
+
+    // Single Python invocation — batch mode handles optimize + all single-points
+    const args = [
+      scriptPath,
+      '--xtb_binary', xtbPath,
+      '--mode', 'batch_strain',
+      '--ligand_dir', posesDir,
+      '--output_json', outputJson,
+    ];
+    if (referenceSdf) args.push('--reference_sdf', referenceSdf);
+
+    event.sender.send(IpcChannels.DOCK_OUTPUT, {
+      type: 'stdout', data: `=== xTB Strain Scoring (batch) ===\n`,
+    });
+
+    return new Promise((resolve) => {
+      const proc = spawn(condaPythonPath!, args, { env: getSpawnEnv() });
+      childProcesses.add(proc);
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: data.toString() });
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: data.toString() });
+      });
+
+      proc.on('close', (code: number | null) => {
+        childProcesses.delete(proc);
+        if (code === 0 && fs.existsSync(outputJson)) {
+          try {
+            const results = JSON.parse(fs.readFileSync(outputJson, 'utf-8'));
+            resolve(Ok({ count: Object.keys(results).length }));
+          } catch {
+            resolve(Ok({ count: 0 }));
+          }
+        } else {
+          resolve(Err({ type: 'DOCKING_FAILED', message: `xTB batch strain failed (exit ${code})` }));
+        }
+      });
+
+      proc.on('error', (err: Error) => {
+        childProcesses.delete(proc);
+        resolve(Err({ type: 'DOCKING_FAILED', message: err.message }));
       });
     });
   }
@@ -5921,7 +6416,7 @@ ipcMain.handle(
         childProcesses.delete(proc);
 
         const resultFile = path.join(options.outputDir, 'clustering_results.json');
-        if (code === 0 && fs.existsSync(resultFile)) {
+        if (code === 0 && resultFile && fs.existsSync(resultFile)) {
           try {
             const content = fs.readFileSync(resultFile, 'utf-8');
             const result = JSON.parse(content);
@@ -6336,7 +6831,7 @@ ipcMain.handle(
         childProcesses.delete(proc);
 
         const resultFile = path.join(options.outputDir, `${options.analysisType}_results.json`);
-        if (code === 0 && fs.existsSync(resultFile)) {
+        if (code === 0 && resultFile && fs.existsSync(resultFile)) {
           try {
             const content = fs.readFileSync(resultFile, 'utf-8');
             const result = JSON.parse(content);
@@ -6500,6 +6995,334 @@ ipcMain.handle(
   }
 );
 
+// Score MD cluster centroids with xTB strain + Vina rescore (+ CORDIAL via separate call)
+ipcMain.handle(
+  IpcChannels.SCORE_MD_CLUSTERS,
+  async (
+    event,
+    options: {
+      topologyPath: string;
+      trajectoryPath: string;
+      outputDir: string;
+      inputLigandSdf: string;
+      inputReceptorPdb?: string;
+      numClusters: number;
+      enableVina: boolean;
+      enableXtb: boolean;
+      enableCordial: boolean;
+    }
+  ): Promise<Result<{
+    clusters: Array<{
+      clusterId: number;
+      frameCount: number;
+      population: number;
+      centroidFrame: number;
+      centroidPdbPath: string;
+      vinaRescore?: number;
+      xtbStrainKcal?: number;
+      cordialExpectedPkd?: number;
+      cordialPHighAffinity?: number;
+      cordialPVeryHighAffinity?: number;
+    }>;
+    outputDir: string;
+  }, AppError>> => {
+    if (!condaPythonPath || !fs.existsSync(condaPythonPath)) {
+      return Err({
+        type: 'PYTHON_NOT_FOUND',
+        message: 'Python not found. Please install miniconda and create the openmm-metal environment.',
+      });
+    }
+
+    const scoredClustersDir = path.join(options.outputDir, 'scored_clusters');
+    fs.mkdirSync(scoredClustersDir, { recursive: true });
+
+    // --- Step 1: Cluster trajectory ---
+    const clusterScript = path.join(fraggenRoot, 'cluster_trajectory.py');
+    if (!fs.existsSync(clusterScript)) {
+      return Err({
+        type: 'SCRIPT_NOT_FOUND',
+        path: clusterScript,
+        message: `Clustering script not found: ${clusterScript}`,
+      });
+    }
+
+    event.sender.send(IpcChannels.MD_OUTPUT, {
+      type: 'stdout',
+      data: `=== Clustering into ${options.numClusters} centroids ===\n`,
+    });
+
+    const clusterResult = await new Promise<Result<void, AppError>>((resolve) => {
+      const args = [
+        clusterScript,
+        '--topology', options.topologyPath,
+        '--trajectory', options.trajectoryPath,
+        '--n_clusters', String(options.numClusters),
+        '--method', 'kmeans',
+        '--selection', 'ligand',
+        '--strip_waters',
+        '--output_dir', scoredClustersDir,
+      ];
+
+      const proc = spawn(condaPythonPath!, args, { env: getSpawnEnv() });
+      childProcesses.add(proc);
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
+        // Parse clustering progress
+        const match = text.match(/Calculated (\d+)\/(\d+)/);
+        if (match) {
+          const pct = Math.round(100 * parseInt(match[1]) / parseInt(match[2]));
+          event.sender.send(IpcChannels.MD_OUTPUT, {
+            type: 'stdout', data: `PROGRESS:clustering:${pct}\n`,
+          });
+        }
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: data.toString() });
+      });
+
+      proc.on('close', (code: number | null) => {
+        childProcesses.delete(proc);
+        if (code === 0) {
+          resolve(Ok(undefined));
+        } else {
+          resolve(Err({ type: 'CLUSTERING_FAILED', message: `Clustering failed with exit code ${code}` }));
+        }
+      });
+
+      proc.on('error', (err: Error) => {
+        childProcesses.delete(proc);
+        resolve(Err({ type: 'CLUSTERING_FAILED', message: err.message }));
+      });
+    });
+
+    if (!clusterResult.ok) {
+      return Err(clusterResult.error);
+    }
+
+    // --- Step 2: Score centroids (xTB + Vina) ---
+    const scoreScript = path.join(fraggenRoot, 'score_cluster_centroids.py');
+    if (!fs.existsSync(scoreScript)) {
+      return Err({
+        type: 'SCRIPT_NOT_FOUND',
+        path: scoreScript,
+        message: `Scoring script not found: ${scoreScript}`,
+      });
+    }
+
+    event.sender.send(IpcChannels.MD_OUTPUT, {
+      type: 'stdout',
+      data: `=== Scoring cluster centroids ===\n`,
+    });
+
+    const scoreResult = await new Promise<Result<void, AppError>>((resolve) => {
+      const args = [
+        scoreScript,
+        '--clustering_dir', scoredClustersDir,
+        '--input_ligand_sdf', options.inputLigandSdf,
+        '--output_dir', scoredClustersDir,
+      ];
+
+      if (options.inputReceptorPdb) {
+        args.push('--input_receptor_pdb', options.inputReceptorPdb);
+      }
+
+      const xtbPath = getQupkakeXtbPath();
+      if (options.enableXtb && xtbPath) {
+        args.push('--xtb_binary', xtbPath);
+      } else {
+        args.push('--skip_xtb');
+      }
+
+      if (!options.enableVina || !options.inputReceptorPdb) {
+        args.push('--skip_vina');
+      }
+
+      const proc = spawn(condaPythonPath!, args, { env: getSpawnEnv() });
+      childProcesses.add(proc);
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: data.toString() });
+      });
+
+      proc.on('close', (code: number | null) => {
+        childProcesses.delete(proc);
+        if (code === 0) {
+          resolve(Ok(undefined));
+        } else {
+          resolve(Err({
+            type: 'CLUSTER_SCORING_FAILED',
+            message: `Cluster scoring failed with exit code ${code}`,
+          }));
+        }
+      });
+
+      proc.on('error', (err: Error) => {
+        childProcesses.delete(proc);
+        resolve(Err({ type: 'CLUSTER_SCORING_FAILED', message: err.message }));
+      });
+    });
+
+    if (!scoreResult.ok) {
+      return Err(scoreResult.error);
+    }
+
+    // --- Step 3: CORDIAL scoring (if enabled and available) ---
+    if (options.enableCordial && options.inputReceptorPdb) {
+      const cordialRoot = getCordialRoot();
+      if (cordialRoot) {
+        event.sender.send(IpcChannels.MD_OUTPUT, {
+          type: 'stdout',
+          data: `=== CORDIAL rescoring cluster centroids ===\n`,
+        });
+
+        let cordialScript = path.join(fraggenRoot, 'score_cordial.py');
+        if (!fs.existsSync(cordialScript)) {
+          const projectRoot = path.resolve(__dirname, '..', '..');
+          cordialScript = path.join(projectRoot, 'scripts', 'score_cordial.py');
+        }
+
+        if (fs.existsSync(cordialScript)) {
+          // Create a temporary directory with the layout CORDIAL expects:
+          // inputs/receptor.pdb, results/poses/*.sdf (as uncompressed individual files)
+          const cordialTmpDir = path.join(scoredClustersDir, 'cordial_input');
+          const cordialInputsDir = path.join(cordialTmpDir, 'inputs');
+          const cordialPosesDir = path.join(cordialTmpDir, 'results', 'poses');
+          fs.mkdirSync(cordialInputsDir, { recursive: true });
+          fs.mkdirSync(cordialPosesDir, { recursive: true });
+
+          // Copy receptor
+          const cordialReceptor = path.join(cordialInputsDir, 'receptor.pdb');
+          // Use the first split receptor PDB (they're all from the same protein)
+          const clusterFiles = fs.readdirSync(scoredClustersDir)
+            .filter((f: string) => f.match(/^cluster_\d+_receptor\.pdb$/));
+          if (clusterFiles.length > 0) {
+            fs.copyFileSync(path.join(scoredClustersDir, clusterFiles[0]), cordialReceptor);
+          }
+
+          // Copy each cluster ligand SDF as a "docked" file
+          const ligandFiles = fs.readdirSync(scoredClustersDir)
+            .filter((f: string) => f.match(/^cluster_\d+_ligand\.sdf$/));
+          for (const lf of ligandFiles) {
+            const dockName = lf.replace('_ligand.sdf', '_docked.sdf');
+            fs.copyFileSync(path.join(scoredClustersDir, lf), path.join(cordialPosesDir, dockName));
+          }
+
+          await new Promise<void>((resolve) => {
+            const args = [
+              cordialScript,
+              '--dock_dir', cordialTmpDir,
+              '--cordial_root', cordialRoot,
+              '--output', path.join(scoredClustersDir, 'cordial_scores.csv'),
+              '--batch_size', '32',
+            ];
+
+            const proc = spawn(condaPythonPath!, args, {
+              cwd: cordialRoot,
+              env: {
+                ...getSpawnEnv(),
+                PYTHONPATH: cordialRoot,
+                KMP_DUPLICATE_LIB_OK: 'TRUE',
+              },
+            });
+            childProcesses.add(proc);
+
+            proc.stdout?.on('data', (data: Buffer) => {
+              const text = data.toString();
+              event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
+            });
+
+            proc.stderr?.on('data', (data: Buffer) => {
+              event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: data.toString() });
+            });
+
+            proc.on('close', () => {
+              childProcesses.delete(proc);
+              resolve();
+            });
+
+            proc.on('error', () => {
+              childProcesses.delete(proc);
+              resolve();
+            });
+          });
+        }
+      }
+    }
+
+    // --- Step 4: Read and merge all results ---
+    const clusterScoresFile = path.join(scoredClustersDir, 'cluster_scores.json');
+    if (!fs.existsSync(clusterScoresFile)) {
+      return Err({
+        type: 'CLUSTER_SCORING_FAILED',
+        message: 'Cluster scores JSON not found after scoring',
+      });
+    }
+
+    let scoredClusters;
+    try {
+      const scoreData = JSON.parse(fs.readFileSync(clusterScoresFile, 'utf-8'));
+      scoredClusters = scoreData.clusters;
+    } catch (e) {
+      return Err({
+        type: 'CLUSTER_SCORING_FAILED',
+        message: `Failed to parse cluster scores: ${e}`,
+      });
+    }
+
+    // Merge CORDIAL scores if available
+    const cordialJsonPath = path.join(scoredClustersDir, 'cordial_scores.json');
+    if (fs.existsSync(cordialJsonPath)) {
+      try {
+        const cordialData = JSON.parse(fs.readFileSync(cordialJsonPath, 'utf-8'));
+        const cordialByName = new Map<string, {
+          expectedPkd: number;
+          pHighAffinity: number;
+          pVeryHighAffinity: number;
+        }>();
+
+        for (const entry of cordialData) {
+          const name = entry.source_name;
+          cordialByName.set(name, {
+            expectedPkd: entry.cordial_expected_pkd,
+            pHighAffinity: entry.cordial_p_high_affinity,
+            pVeryHighAffinity: entry.cordial_p_very_high_affinity || 0,
+          });
+        }
+
+        for (const cluster of scoredClusters) {
+          const cordialKey = `cluster_${cluster.clusterId}`;
+          const scores = cordialByName.get(cordialKey);
+          if (scores) {
+            cluster.cordialExpectedPkd = scores.expectedPkd;
+            cluster.cordialPHighAffinity = scores.pHighAffinity;
+            cluster.cordialPVeryHighAffinity = scores.pVeryHighAffinity;
+          }
+        }
+      } catch {
+        // Non-fatal — CORDIAL scores are optional
+      }
+    }
+
+    event.sender.send(IpcChannels.MD_OUTPUT, {
+      type: 'stdout',
+      data: `PROGRESS:scoring:100\n=== Cluster scoring complete ===\n`,
+    });
+
+    return Ok({
+      clusters: scoredClusters,
+      outputDir: scoredClustersDir,
+    });
+  }
+);
+
 // Map binding site interaction potentials around a ligand
 ipcMain.handle(
   IpcChannels.MAP_BINDING_SITE,
@@ -6510,6 +7333,8 @@ ipcMain.handle(
       ligandResname: string;
       ligandResnum: number;
       outputDir: string;
+      sourcePdbPath?: string;
+      sourceTrajectoryPath?: string;
       boxPadding?: number;
       gridSpacing?: number;
     }
@@ -6583,13 +7408,19 @@ ipcMain.handle(
         childProcesses.delete(proc);
 
         // Try prefixed results first, fall back to unprefixed
-        const prefixedResultFile = path.join(options.outputDir, `${bsmProjectName}_binding_site_results.json`);
-        const legacyResultFile = path.join(options.outputDir, 'binding_site_results.json');
-        const resultFile = fs.existsSync(prefixedResultFile) ? prefixedResultFile : legacyResultFile;
-        if (code === 0 && fs.existsSync(resultFile)) {
+        const resultFile = getBindingSiteResultFile(options.outputDir, bsmProjectName);
+        if (code === 0 && resultFile && fs.existsSync(resultFile)) {
           try {
             const content = fs.readFileSync(resultFile, 'utf-8');
             const result = JSON.parse(content);
+            writeMapMetadata(options.outputDir, {
+              method: 'static',
+              sourcePdbPath: options.sourcePdbPath || options.pdbPath,
+              sourceTrajectoryPath: options.sourceTrajectoryPath,
+              ligandResname: options.ligandResname,
+              ligandResnum: options.ligandResnum,
+              computedAt: new Date().toISOString(),
+            });
             resolve(Ok(result));
           } catch (err) {
             resolve(Err({
@@ -6725,6 +7556,8 @@ ipcMain.handle(
       ligandResnum: number;
       outputDir: string;
       trajectoryPath?: string;
+      sourcePdbPath?: string;
+      sourceTrajectoryPath?: string;
       boxPadding?: number;
       gridSpacing?: number;
     }
@@ -6846,16 +7679,22 @@ ipcMain.handle(
         childProcesses.delete(proc);
 
         // Find results JSON (try prefixed first, fall back to unprefixed)
-        const prefixedResultFile = path.join(options.outputDir, `${projectName}_binding_site_results.json`);
-        const legacyResultFile = path.join(options.outputDir, 'binding_site_results.json');
-        const resultFile = fs.existsSync(prefixedResultFile) ? prefixedResultFile : legacyResultFile;
+        const resultFile = getBindingSiteResultFile(options.outputDir, projectName);
 
-        if (code === 0 && fs.existsSync(resultFile)) {
+        if (code === 0 && resultFile && fs.existsSync(resultFile)) {
           try {
             const content = fs.readFileSync(resultFile, 'utf-8');
             const result = JSON.parse(content);
             // Tag with the method so the frontend knows which produced this
             result.method = options.method;
+            writeMapMetadata(options.outputDir, {
+              method: options.method,
+              sourcePdbPath: options.sourcePdbPath || options.pdbPath,
+              sourceTrajectoryPath: options.sourceTrajectoryPath || options.trajectoryPath,
+              ligandResname: options.ligandResname,
+              ligandResnum: options.ligandResnum,
+              computedAt: new Date().toISOString(),
+            });
             resolve(Ok(result));
           } catch (err) {
             resolve(Err({

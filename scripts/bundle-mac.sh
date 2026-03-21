@@ -28,7 +28,7 @@ QUPKAKE_PACK_FILE="$BUNDLE_DIR/qupkake-python-env.tar.gz"
 mkdir -p "$BUNDLE_DIR"
 
 if [ ! -f "$CONDA_PACK_FILE" ]; then
-    conda run -n "$CONDA_ENV" conda-pack -n "$CONDA_ENV" -o "$CONDA_PACK_FILE" --ignore-editable-packages --ignore-missing-files 2>&1 | tail -5
+    conda-pack -n "$CONDA_ENV" -o "$CONDA_PACK_FILE" --ignore-editable-packages --ignore-missing-files 2>&1 | tail -5
     echo "  Packed to $CONDA_PACK_FILE ($(du -sh "$CONDA_PACK_FILE" | cut -f1))"
 else
     echo "  Using cached pack: $CONDA_PACK_FILE ($(du -sh "$CONDA_PACK_FILE" | cut -f1))"
@@ -37,7 +37,7 @@ fi
 
 echo "  Packing dedicated QupKake environment ($QUPKAKE_ENV)..."
 if [ ! -f "$QUPKAKE_PACK_FILE" ]; then
-    conda run -n "$QUPKAKE_ENV" conda-pack -n "$QUPKAKE_ENV" -o "$QUPKAKE_PACK_FILE" --ignore-editable-packages --ignore-missing-files 2>&1 | tail -5
+    conda-pack -n "$QUPKAKE_ENV" -o "$QUPKAKE_PACK_FILE" --ignore-editable-packages --ignore-missing-files 2>&1 | tail -5
     echo "  Packed to $QUPKAKE_PACK_FILE ($(du -sh "$QUPKAKE_PACK_FILE" | cut -f1))"
 else
     echo "  Using cached pack: $QUPKAKE_PACK_FILE ($(du -sh "$QUPKAKE_PACK_FILE" | cut -f1))"
@@ -89,6 +89,7 @@ cd "$PROJECT_DIR"
 QUPKAKE_XTB_ROOT=""
 for candidate in \
     "${QUPKAKE_XTB_ROOT:-}" \
+    "$PROJECT_DIR/vendor/xtb-env" \
     "$PROJECT_DIR/vendor/xtb-6.4.1/install-openblas" \
     "$PROJECT_DIR/vendor/xtb-6.4.1/install" \
     "$HOME/xtb-6.4.1/install-openblas" \

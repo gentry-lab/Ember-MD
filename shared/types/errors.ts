@@ -37,6 +37,7 @@ export type AppError =
   | { type: 'IMPORT_FAILED'; message: string }
   | { type: 'FEP_SCORING_CANCELLED'; message: string }
   | { type: 'REFINEMENT_FAILED'; message: string }
+  | { type: 'CLUSTER_SCORING_FAILED'; message: string }
   | { type: 'UNKNOWN'; message: string };
 
 export function createError(
@@ -107,6 +108,8 @@ export function formatError(error: AppError): string {
       return `Binding site mapping failed: ${error.message}`;
     case 'POCKET_MAP_FAILED':
       return `Pocket map failed: ${error.message}`;
+    case 'CLUSTER_SCORING_FAILED':
+      return `Cluster scoring failed: ${error.message}`;
     default:
       return error.message;
   }

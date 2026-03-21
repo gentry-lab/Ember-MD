@@ -16,12 +16,69 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
     setMdResult,
     setMdOutputDir,
     setMdStep,
+    setMdClusterScores,
     setConformOutputDir,
     setConformPaths,
     setConformOutputName,
     setConformLigandName,
     setConformStep,
+    setMapMethod,
+    setMapStep,
+    setMapPdbPath,
+    setMapDetectedLigands,
+    setMapSelectedLigandId,
+    setMapIsDetecting,
+    setMapResult,
   } = workflowStore;
+
+  const loadClusterScores = async () => {
+    const candidatePaths = [
+      `${job.path}/results/analysis/scored_clusters/cluster_scores.json`,
+      `${job.path}/analysis/scored_clusters/cluster_scores.json`,
+    ];
+    for (const candidatePath of candidatePaths) {
+      const scoreData = await api.readJsonFile(candidatePath) as { clusters?: unknown[] } | null;
+      if (scoreData && Array.isArray(scoreData.clusters)) {
+        return scoreData.clusters as any[];
+      }
+    }
+    return [];
+  };
+
+  const loadMapResult = async () => {
+    const pathParts = job.path.split('/');
+    const projectName = pathParts.length >= 3 ? pathParts[pathParts.length - 3] : '';
+    const candidatePaths = [
+      job.mapResultJson,
+      projectName ? `${job.path}/${projectName}_binding_site_results.json` : null,
+      `${job.path}/binding_site_results.json`,
+    ].filter((candidate): candidate is string => Boolean(candidate));
+
+    for (const candidatePath of candidatePaths) {
+      const result = await api.readJsonFile(candidatePath) as {
+        hydrophobicDx?: string;
+        hbondDonorDx?: string;
+        hbondAcceptorDx?: string;
+        hotspots?: Array<{ type: string; position: number[]; direction: number[]; score: number }>;
+        method?: string;
+      } | null;
+      if (!result?.hydrophobicDx || !result.hbondDonorDx || !result.hbondAcceptorDx) continue;
+      return {
+        hydrophobic: { visible: true, isolevel: 0.3, opacity: 0.7 },
+        hbondDonor: { visible: true, isolevel: 0.3, opacity: 0.7 },
+        hbondAcceptor: { visible: true, isolevel: 0.3, opacity: 0.7 },
+        hydrophobicDx: result.hydrophobicDx,
+        hbondDonorDx: result.hbondDonorDx,
+        hbondAcceptorDx: result.hbondAcceptorDx,
+        hotspots: result.hotspots || [],
+        method: (job.mapMethod || result.method || 'solvation') as 'solvation',
+        pdbPath: job.mapPdb || '',
+        outputDir: job.path,
+        trajectoryPath: job.mapTrajectoryDcd || null,
+      };
+    }
+    return null;
+  };
 
   if (job.type === 'docking-pose') {
     if (!job.receptorPdb || !job.poses || job.poses.length === 0) return;
@@ -72,14 +129,19 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
     const systemPdb = job.systemPdb || '';
     const trajectoryDcd = job.trajectoryDcd || '';
     const finalPdb = job.finalPdb || systemPdb;
+    const trajectoryName = trajectoryDcd.split('/').pop() || '';
+    const energyCsvPath = trajectoryName.endsWith('_trajectory.dcd')
+      ? trajectoryDcd.replace(/_trajectory\.dcd$/, '_energy.csv')
+      : trajectoryDcd.replace(/trajectory\.dcd$/, 'energy.csv');
 
     if (systemPdb && trajectoryDcd) {
+      setMdClusterScores(await loadClusterScores());
       setMdResult({
         systemPdbPath: systemPdb,
         trajectoryPath: trajectoryDcd,
         equilibratedPdbPath: systemPdb,
         finalPdbPath: finalPdb,
-        energyCsvPath: trajectoryDcd.replace('trajectory.dcd', 'energy.csv'),
+        energyCsvPath,
       });
       setMdOutputDir(job.path);
       setMode('md');
@@ -100,5 +162,44 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
     setConformLigandName(job.folder);
     setMode('conform');
     setConformStep('conform-results');
+    return;
+  }
+
+  if (job.type === 'map') {
+    const mapResult = await loadMapResult();
+    if (!mapResult) {
+      if (job.mapPdb) {
+        openViewerSession({
+          pdbPath: job.mapPdb,
+          trajectoryPath: job.mapTrajectoryDcd || null,
+        });
+      }
+      return;
+    }
+
+    setMapMethod(mapResult.method);
+    setMapPdbPath(mapResult.pdbPath || null);
+    if (mapResult.pdbPath) {
+      try {
+        const detected = await api.detectPdbLigands(mapResult.pdbPath);
+        if (detected.ok) {
+          setMapDetectedLigands(detected.value);
+          setMapSelectedLigandId(detected.value[0]?.id || null);
+        } else {
+          setMapDetectedLigands([]);
+          setMapSelectedLigandId(null);
+        }
+      } catch {
+        setMapDetectedLigands([]);
+        setMapSelectedLigandId(null);
+      }
+    } else {
+      setMapDetectedLigands([]);
+      setMapSelectedLigandId(null);
+    }
+    setMapIsDetecting(false);
+    setMapResult(mapResult);
+    setMode('map');
+    setMapStep('map-results');
   }
 }

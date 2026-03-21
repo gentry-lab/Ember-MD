@@ -263,6 +263,21 @@ const DockStepProgress: Component = () => {
         setCordialRunning(false);
       }
 
+      // Run xTB strain scoring if enabled
+      if (dock.xtbConfig?.strainFilter) {
+        appendLog('\n--- Computing xTB strain energies... ---\n');
+        try {
+          const strainResult = await api.scoreDockingStrain(outputDir);
+          if (strainResult.ok) {
+            appendLog(`\nxTB strain scoring complete: ${strainResult.value.count} poses scored\n`);
+          } else {
+            appendLog(`\nxTB strain scoring failed: ${strainResult.error.message}\n`);
+          }
+        } catch (err) {
+          appendLog(`\nxTB strain scoring error: ${(err as Error).message}\n`);
+        }
+      }
+
       // Parse results
       const parseResult = await api.parseDockResults(outputDir);
       if (parseResult.ok) {

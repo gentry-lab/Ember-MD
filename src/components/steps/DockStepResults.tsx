@@ -3,7 +3,7 @@ import { workflowStore } from '../../stores/workflow';
 import { buildDockingViewerQueue } from '../../utils/viewerQueue';
 import path from 'path';
 
-type SortField = 'ligandName' | 'vinaAffinity' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity' | 'qed' | 'coreRmsd';
+type SortField = 'ligandName' | 'vinaAffinity' | 'xtbStrainKcal' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity' | 'qed' | 'coreRmsd';
 type SortDirection = 'asc' | 'desc';
 
 const PAGE_SIZE = 25;
@@ -13,6 +13,7 @@ const DockStepResults: Component = () => {
   const api = window.electronAPI;
 
   const cordialScored = () => state().dock.cordialScored;
+  const hasStrain = createMemo(() => results().some(r => r.xtbStrainKcal != null));
   const [sortField, setSortField] = createSignal<SortField>(cordialScored() ? 'cordialPHighAffinity' : 'vinaAffinity');
   const [sortDirection, setSortDirection] = createSignal<SortDirection>(cordialScored() ? 'desc' : 'asc');
   const [selectedIndex, setSelectedIndex] = createSignal<number | null>(0);
@@ -220,15 +221,22 @@ const DockStepResults: Component = () => {
 
   return (
     <div class="h-full flex flex-col">
-      {/* Title */}
-      <div class="text-center mb-2">
-        <h2 class="text-xl font-bold">Docking Complete</h2>
-        <p class="text-sm text-base-content/70">
-          {dockedResults().length} docked poses from {uniqueLigandCount()} ligands
-          <Show when={referenceCount() > 0}>
-            {' '}+ {referenceCount()} reference pose
-          </Show>
-        </p>
+      {/* Header */}
+      <div class="mb-2 flex flex-col gap-2">
+        <div class="flex flex-wrap gap-2 self-start">
+          <button class="btn btn-ghost btn-xs" onClick={handleOpenFolder}>Open Folder</button>
+          <button class="btn btn-ghost btn-xs" onClick={handleExportCsv}>Export CSV</button>
+          <button class="btn btn-ghost btn-xs" onClick={handleNewDocking}>New Docking</button>
+        </div>
+        <div class="text-center">
+          <h2 class="text-xl font-bold">Docking Complete</h2>
+          <p class="text-sm text-base-content/70">
+            {dockedResults().length} docked poses from {uniqueLigandCount()} ligands
+            <Show when={referenceCount() > 0}>
+              {' '}+ {referenceCount()} reference pose
+            </Show>
+          </p>
+        </div>
       </div>
 
       {/* Main content: table + preview side panel */}
@@ -246,6 +254,11 @@ const DockStepResults: Component = () => {
                   <th class="cursor-pointer select-none text-right text-xs font-semibold w-16" onClick={() => handleSort('vinaAffinity')}>
                     Vina{sortIndicator('vinaAffinity')}
                   </th>
+                  <Show when={hasStrain()}>
+                    <th class="cursor-pointer select-none text-right text-xs font-semibold w-16" onClick={() => handleSort('xtbStrainKcal')}>
+                      Strain{sortIndicator('xtbStrainKcal')}
+                    </th>
+                  </Show>
                   <Show when={cordialScored()}>
                     <th class="cursor-pointer select-none text-right text-xs font-semibold w-20" onClick={() => handleSort('cordialPHighAffinity')}>
                       {"P(< 1\u00B5M)"}{sortIndicator('cordialPHighAffinity')}
@@ -290,6 +303,14 @@ const DockStepResults: Component = () => {
                           </Show>
                         </td>
                         <td class="text-right font-mono text-xs">{formatScore(row)}</td>
+                        <Show when={hasStrain()}>
+                          <td class={`text-right font-mono text-xs ${
+                            row.xtbStrainKcal != null && row.xtbStrainKcal > 8 ? 'text-error'
+                              : row.xtbStrainKcal != null && row.xtbStrainKcal > 5 ? 'text-warning' : ''
+                          }`}>
+                            {row.xtbStrainKcal != null ? row.xtbStrainKcal.toFixed(1) : '-'}
+                          </td>
+                        </Show>
                         <Show when={cordialScored()}>
                           <td class="text-right font-mono text-xs">
                             {row.cordialPHighAffinity != null ? (row.cordialPHighAffinity * 100).toFixed(0) + '%' : '-'}
@@ -430,8 +451,8 @@ const DockStepResults: Component = () => {
         </div>
       </div>
 
-      {/* Scoring legend + bottom actions */}
-      <div class="flex items-start justify-between mt-2 pt-2 border-t border-base-300">
+      {/* Scoring legend */}
+      <div class="mt-2 pt-2 border-t border-base-300">
         <div class="text-xs text-base-content/50 leading-relaxed max-w-[420px]">
           <span class="font-semibold text-base-content/70">Vina</span> = docked affinity
           {' '}<span class="mx-1 text-base-content/30">|</span>{' '}
@@ -442,11 +463,6 @@ const DockStepResults: Component = () => {
           </Show>
           {' '}<span class="mx-1 text-base-content/30">|</span>{' '}
           <span class="font-semibold text-base-content/70">QED</span> = drug-likeness (0-1)
-        </div>
-        <div class="flex gap-2 flex-shrink-0">
-          <button class="btn btn-ghost btn-xs" onClick={handleOpenFolder}>Open Folder</button>
-          <button class="btn btn-ghost btn-xs" onClick={handleExportCsv}>Export CSV</button>
-          <button class="btn btn-ghost btn-xs" onClick={handleNewDocking}>New Docking</button>
         </div>
       </div>
     </div>

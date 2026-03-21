@@ -1,132 +1,105 @@
-import { Component, Show, For, createSignal, onCleanup } from 'solid-js';
+import { Component, For, Show, createSignal, onCleanup } from 'solid-js';
 import type { MapMethod } from '../../stores/workflow';
 import { workflowStore } from '../../stores/workflow';
-import type { DetectedLigand } from '../../../shared/types/dock';
 
-interface MethodCard {
-  id: MapMethod;
-  name: string;
-  subtitle: string;
-  description: string;
-  requires: string;
-  time: string;
-  needsMd: boolean;
-}
+const METHOD_LABEL = 'Water Map (GIST)';
 
-const METHODS: MethodCard[] = [
-  {
-    id: 'static',
-    name: 'Pocket Properties',
-    subtitle: 'SiteMap-style',
-    description:
-      'Energy-based scoring of the binding pocket surface. Computes Lennard-Jones + electrostatic potential at each grid point to determine hydrophobic, H-bond donor, and acceptor character. Single unified map colored by dominant interaction type.',
-    requires: 'PDB with bound ligand',
-    time: '~5 seconds',
-    needsMd: false,
-  },
-  {
-    id: 'solvation',
-    name: 'Water Thermodynamics',
-    subtitle: 'WaterMap / GIST',
-    description:
-      'Analyzes water molecule behavior from an MD trajectory using Grid Inhomogeneous Solvation Theory. Identifies thermodynamically unfavorable hydration sites where ligand expansion would gain binding affinity. Shows both what to put where and how much you would gain.',
-    requires: 'MD trajectory (or runs 2-5 ns simulation)',
-    time: '~2-10 min (analysis) or ~30-60 min (with MD)',
-    needsMd: true,
-  },
-  {
-    id: 'probe',
-    name: 'Fragment Mapping',
-    subtitle: 'SILCS-style',
-    description:
-      'Competitive probe saturation: runs MD with the protein soaked in a mixture of small probe molecules (benzene, methanol, formamide, etc.). Probes compete for binding sites, generating Grid Free Energy maps that show where each functional group type prefers to bind.',
-    requires: 'Runs dedicated ~2 ns probe simulation',
-    time: '~2-4 hours',
-    needsMd: true,
-  },
-];
+const buildDefaultChannels = () => ({
+  hydrophobic: { visible: true, isolevel: 0.3, opacity: 0.7 },
+  hbondDonor: { visible: true, isolevel: 0.3, opacity: 0.7 },
+  hbondAcceptor: { visible: true, isolevel: 0.3, opacity: 0.7 },
+});
 
 const MapMode: Component = () => {
   const {
     state,
+    openViewerSession,
     setMapMethod,
+    setMapStep,
     setMapIsComputing,
     setMapProgress,
     setMapError,
     setMapShowMdConfirm,
-    openViewerSession,
+    setMapPdbPath,
+    setMapDetectedLigands,
+    setMapSelectedLigandId,
+    setMapIsDetecting,
+    setMapResult,
   } = workflowStore;
 
-  const [hoveredMethod, setHoveredMethod] = createSignal<MapMethod | null>(null);
-
-  // Local structure state — fully independent of viewer
-  const [localPdbPath, setLocalPdbPath] = createSignal<string | null>(null);
-  const [localLigands, setLocalLigands] = createSignal<DetectedLigand[]>([]);
-  const [localSelectedLigandId, setLocalSelectedLigandId] = createSignal<string | null>(null);
-  const [isDetecting, setIsDetecting] = createSignal(false);
-
-  // Track active listener cleanup to prevent leaks on unmount or rapid re-invocation
   let activeListenerCleanup: (() => void) | null = null;
-  onCleanup(() => { activeListenerCleanup?.(); activeListenerCleanup = null; });
 
+  onCleanup(() => {
+    activeListenerCleanup?.();
+    activeListenerCleanup = null;
+  });
+
+  const api = window.electronAPI;
   const map = () => state().map;
-  // Use viewer trajectory if available (loaded from a prior simulation)
+  const result = () => map().result;
   const hasTrajectory = () => !!state().viewer.trajectoryPath;
-
-  const hasPdb = () => !!localPdbPath();
-  const hasLigand = () => !!localSelectedLigandId();
+  const hasPdb = () => !!map().pdbPath;
+  const hasLigand = () => !!map().selectedLigandId;
 
   const pdbName = () => {
-    const p = localPdbPath();
-    if (!p) return null;
-    return p.split('/').pop() || p;
+    const pdbPath = map().pdbPath;
+    if (!pdbPath) return null;
+    return pdbPath.split('/').pop() || pdbPath;
   };
 
   const selectedLigand = () =>
-    localLigands().find((l) => l.id === localSelectedLigandId()) ?? null;
+    map().detectedLigands.find((ligand) => ligand.id === map().selectedLigandId) ?? null;
+
+  const resetRunState = (nextStep?: 'map-load' | 'map-configure') => {
+    setMapIsComputing(false);
+    setMapProgress('', 0);
+    setMapError(null);
+    setMapResult(null);
+    setMapStep(nextStep ?? (map().pdbPath ? 'map-configure' : 'map-load'));
+  };
 
   const handleSelectPdb = async () => {
-    const api = window.electronAPI;
-    const path = await api.selectPdbFile();
-    if (!path) return;
+    const pdbPath = await api.selectPdbFile();
+    if (!pdbPath) return;
 
-    setLocalPdbPath(path);
-    setLocalLigands([]);
-    setLocalSelectedLigandId(null);
-    setIsDetecting(true);
+    setMapPdbPath(pdbPath);
+    setMapDetectedLigands([]);
+    setMapSelectedLigandId(null);
+    setMapIsDetecting(true);
     setMapError(null);
+    setMapResult(null);
+    setMapProgress('', 0);
+    setMapStep('map-configure');
 
     try {
-      const result = await api.detectPdbLigands(path);
-      if (result.ok && result.value.length > 0) {
-        setLocalLigands(result.value);
-        setLocalSelectedLigandId(result.value[0].id);
+      const detected = await api.detectPdbLigands(pdbPath);
+      if (detected.ok && detected.value.length > 0) {
+        setMapDetectedLigands(detected.value);
+        setMapSelectedLigandId(detected.value[0].id);
       }
     } catch (err) {
       console.error('[Map] Failed to detect ligands:', err);
     } finally {
-      setIsDetecting(false);
+      setMapIsDetecting(false);
     }
   };
 
-  const canCompute = (method: MapMethod) => {
-    if (!hasPdb() || !hasLigand()) return false;
-    return true;
-  };
+  const canCompute = () => hasPdb() && hasLigand() && !map().isComputing;
 
-  /** Derive output dir from the PDB path (~/Ember/{project}/...) */
   const getOutputDir = (method: MapMethod): string => {
-    const pdb = localPdbPath();
-    if (!pdb) return '';
-    const emberIdx = pdb.indexOf('/Ember/');
+    const pdbPath = map().pdbPath;
+    if (!pdbPath) return '';
+
+    const emberIdx = pdbPath.indexOf('/Ember/');
     if (emberIdx >= 0) {
-      const afterEmber = pdb.substring(emberIdx + 7);
+      const afterEmber = pdbPath.substring(emberIdx + 7);
       const projectName = afterEmber.split('/')[0];
-      const projectRoot = pdb.substring(0, emberIdx + 7) + projectName;
+      const projectRoot = pdbPath.substring(0, emberIdx + 7) + projectName;
       return `${projectRoot}/surfaces/pocket_map_${method}`;
     }
-    const dir = pdb.replace(/\/[^/]+$/, '');
-    return `${dir}/pocket_map_${method}`;
+
+    const pdbDir = pdbPath.replace(/\/[^/]+$/, '');
+    return `${pdbDir}/pocket_map_${method}`;
   };
 
   const estimateMdTime = (): number => {
@@ -137,69 +110,69 @@ const MapMode: Component = () => {
     return 30;
   };
 
-  const handleCompute = (method: MapMethod) => {
-    setMapMethod(method);
-    setMapError(null);
-
-    if (method !== 'static' && !hasTrajectory()) {
-      const est = method === 'probe' ? estimateMdTime() * 4 : estimateMdTime();
-      setMapShowMdConfirm(true, est);
-      return;
-    }
-
-    runComputation(method);
-  };
-
-  const handleConfirmMd = () => {
-    setMapShowMdConfirm(false);
-    const method = map().method;
-    if (method === 'solvation') {
-      runMdThenComputation(method);
-    } else {
-      runComputation(method);
-    }
-  };
-
-  const handleCancelMd = () => {
-    setMapShowMdConfirm(false);
+  const loadMapResult = (
+    payload: {
+      hydrophobicDx: string;
+      hbondDonorDx: string;
+      hbondAcceptorDx: string;
+      hotspots?: Array<{ type: string; position: number[]; direction: number[]; score: number }>;
+    },
+    method: MapMethod,
+    outputDir: string,
+    pdbPath: string,
+    trajectoryPath: string | null,
+  ) => {
+    setMapResult({
+      ...buildDefaultChannels(),
+      hydrophobicDx: payload.hydrophobicDx,
+      hbondDonorDx: payload.hbondDonorDx,
+      hbondAcceptorDx: payload.hbondAcceptorDx,
+      hotspots: payload.hotspots || [],
+      method,
+      pdbPath,
+      outputDir,
+      trajectoryPath,
+    });
+    setMapProgress('Done', 100);
+    setMapStep('map-results');
   };
 
   const runMdThenComputation = async (method: MapMethod) => {
-    const api = window.electronAPI;
-    const pdb = localPdbPath();
-    const lig = selectedLigand();
-    if (!lig || !pdb) return;
+    const pdbPath = map().pdbPath;
+    const ligand = selectedLigand();
+    if (!ligand || !pdbPath) return;
 
     setMapIsComputing(true);
+    setMapStep('map-progress');
     setMapProgress('Running short MD simulation for water analysis...', 5);
 
     activeListenerCleanup?.();
     const cleanup = api.onMdOutput((data) => {
-      if (data.data.includes('PROGRESS:')) {
-        const msg = data.data.replace(/.*PROGRESS:\s*/, '').trim();
-        const pctMatch = msg.match(/(\d+)%/);
-        if (pctMatch) {
-          setMapProgress(msg, Math.min(50, parseInt(pctMatch[1]) / 2));
-        } else {
-          setMapProgress(msg);
-        }
+      if (!data.data.includes('PROGRESS:')) return;
+      const msg = data.data.replace(/.*PROGRESS:\s*/, '').trim();
+      const pctMatch = msg.match(/(\d+)%/);
+      if (pctMatch) {
+        setMapProgress(msg, Math.min(50, parseInt(pctMatch[1], 10) / 2));
+      } else {
+        setMapProgress(msg);
       }
     });
     activeListenerCleanup = cleanup;
 
     try {
       const outputDir = getOutputDir(method);
-      const mdOutputDir = outputDir + '/md_temp';
+      const mdOutputDir = `${outputDir}/md_temp`;
 
       const mdResult = await api.runMdSimulation(
-        pdb,
-        lig.id,
+        pdbPath,
+        ligand.id,
         mdOutputDir,
         { productionNs: 2, forceFieldPreset: 'ff14sb-tip3p' } as any,
       );
 
       if (!mdResult.ok) {
         setMapError(`MD simulation failed: ${mdResult.error.message}`);
+        setMapStep('map-configure');
         return;
       }
 
@@ -207,22 +180,26 @@ const MapMode: Component = () => {
       const trajectoryPath = `${mdOutputDir}/trajectory.dcd`;
       const systemPdb = `${mdOutputDir}/system.pdb`;
 
-      const result = await api.computePocketMap({
+      const computed = await api.computePocketMap({
         method: 'solvation',
         pdbPath: systemPdb,
-        ligandResname: lig.resname,
-        ligandResnum: parseInt(lig.resnum as string),
+        ligandResname: ligand.resname,
+        ligandResnum: parseInt(ligand.resnum as string, 10),
         outputDir,
         trajectoryPath,
+        sourcePdbPath: systemPdb,
+        sourceTrajectoryPath: trajectoryPath,
       });
 
-      if (result.ok) {
-        loadMapResult(result.value, method);
+      if (computed.ok) {
+        loadMapResult(computed.value, method, outputDir, systemPdb, trajectoryPath);
       } else {
-        setMapError(result.error.message);
+        setMapError(computed.error.message);
+        setMapStep('map-configure');
       }
     } catch (err) {
       setMapError((err as Error).message);
+      setMapStep('map-configure');
     } finally {
       cleanup();
       activeListenerCleanup = null;
@@ -231,52 +208,54 @@ const MapMode: Component = () => {
   };
 
   const runComputation = async (method: MapMethod) => {
-    const api = window.electronAPI;
-    const pdb = localPdbPath();
-    const lig = selectedLigand();
-
-    if (!lig || !pdb) {
+    const pdbPath = map().pdbPath;
+    const ligand = selectedLigand();
+    if (!ligand || !pdbPath) {
       setMapError('No PDB or ligand selected');
       return;
     }
 
     setMapIsComputing(true);
+    setMapStep('map-progress');
     setMapProgress('Initializing...', 0);
 
     activeListenerCleanup?.();
     const cleanup = api.onMdOutput((data) => {
-      if (data.data.includes('PROGRESS:')) {
-        const msg = data.data.replace(/.*PROGRESS:\s*/, '').trim();
-        const pctMatch = msg.match(/(\d+)%/);
-        if (pctMatch) {
-          setMapProgress(msg, parseInt(pctMatch[1]));
-        } else {
-          setMapProgress(msg);
-        }
+      if (!data.data.includes('PROGRESS:')) return;
+      const msg = data.data.replace(/.*PROGRESS:\s*/, '').trim();
+      const pctMatch = msg.match(/(\d+)%/);
+      if (pctMatch) {
+        setMapProgress(msg, parseInt(pctMatch[1], 10));
+      } else {
+        setMapProgress(msg);
       }
     });
     activeListenerCleanup = cleanup;
 
     try {
       const outputDir = getOutputDir(method);
-      const trajectoryPath = state().viewer.trajectoryPath || undefined;
+      const trajectoryPath = method === 'solvation' ? state().viewer.trajectoryPath : null;
 
-      const result = await api.computePocketMap({
+      const computed = await api.computePocketMap({
         method,
-        pdbPath: pdb,
-        ligandResname: lig.resname,
-        ligandResnum: parseInt(lig.resnum as string),
+        pdbPath,
+        ligandResname: ligand.resname,
+        ligandResnum: parseInt(ligand.resnum as string, 10),
         outputDir,
-        trajectoryPath: method === 'solvation' ? trajectoryPath : undefined,
+        trajectoryPath: trajectoryPath || undefined,
+        sourcePdbPath: pdbPath,
+        sourceTrajectoryPath: trajectoryPath || undefined,
       });
 
-      if (result.ok) {
-        loadMapResult(result.value, method);
+      if (computed.ok) {
+        loadMapResult(computed.value, method, outputDir, pdbPath, trajectoryPath);
       } else {
-        setMapError(result.error.message);
+        setMapError(computed.error.message);
+        setMapStep('map-configure');
       }
     } catch (err) {
       setMapError((err as Error).message);
+      setMapStep('map-configure');
     } finally {
       cleanup();
       activeListenerCleanup = null;
@@ -284,27 +263,134 @@ const MapMode: Component = () => {
     }
   };
 
-  const loadMapResult = (result: any, method: MapMethod) => {
+  const handleCompute = () => {
+    setMapMethod('solvation');
+    setMapError(null);
+
+    if (!hasTrajectory()) {
+      setMapShowMdConfirm(true, estimateMdTime());
+      return;
+    }
+
+    runComputation('solvation');
+  };
+
+  const handleConfirmMd = () => {
+    setMapShowMdConfirm(false);
+    runMdThenComputation('solvation');
+  };
+
+  const handleOpenResults = () => {
+    const mapResult = result();
+    if (!mapResult?.pdbPath) return;
+
     openViewerSession({
-      pdbPath: localPdbPath(),
+      pdbPath: mapResult.pdbPath,
+      trajectoryPath: mapResult.trajectoryPath,
       bindingSiteMap: {
-      hydrophobic: { visible: true, isolevel: 0.3, opacity: 0.7 },
-      hbondDonor: { visible: true, isolevel: 0.3, opacity: 0.7 },
-      hbondAcceptor: { visible: true, isolevel: 0.3, opacity: 0.7 },
-      hydrophobicDx: result.hydrophobicDx,
-      hbondDonorDx: result.hbondDonorDx,
-      hbondAcceptorDx: result.hbondAcceptorDx,
-      hotspots: result.hotspots || [],
-      method,
+        hydrophobic: { ...mapResult.hydrophobic },
+        hbondDonor: { ...mapResult.hbondDonor },
+        hbondAcceptor: { ...mapResult.hbondAcceptor },
+        hydrophobicDx: mapResult.hydrophobicDx,
+        hbondDonorDx: mapResult.hbondDonorDx,
+        hbondAcceptorDx: mapResult.hbondAcceptorDx,
+        hotspots: mapResult.hotspots,
+        method: mapResult.method,
       },
     });
-    setMapProgress('Done', 100);
   };
+
+  const handleOpenFolder = () => {
+    const outputDir = result()?.outputDir;
+    if (outputDir) {
+      api.openFolder(outputDir);
+    }
+  };
+
+  const renderResults = () => {
+    const mapResult = result();
+    if (!mapResult) return null;
+
+    return (
+      <div class="h-full flex flex-col">
+        <div class="text-center mb-3">
+          <h2 class="text-xl font-bold">Map Results</h2>
+          <p class="text-sm text-base-content/70">
+            {METHOD_LABEL} {mapResult.hotspots.length > 0 ? `• ${mapResult.hotspots.length} hotspots` : ''}
+          </p>
+        </div>
+
+        <div class="flex-1 min-h-0 overflow-auto">
+          <div class="card bg-base-200 shadow-lg">
+            <div class="card-body p-4">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold">Computed Pocket Map</h3>
+                <span class="badge badge-primary badge-sm">{METHOD_LABEL}</span>
+              </div>
+
+              <div class="mb-3 rounded-lg bg-base-300 px-3 py-2">
+                <p class="text-[10px] uppercase tracking-wider text-base-content/60">Saved Run</p>
+                <p class="text-xs font-mono break-all">{mapResult.outputDir}</p>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div class="rounded border border-base-300 bg-base-100/60 p-3">
+                  <p class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">Structure</p>
+                  <p class="font-mono break-all">{mapResult.pdbPath}</p>
+                </div>
+                <div class="rounded border border-base-300 bg-base-100/60 p-3">
+                  <p class="text-[10px] uppercase tracking-wider text-base-content/60 mb-1">Trajectory</p>
+                  <p class="font-mono break-all">{mapResult.trajectoryPath || 'None'}</p>
+                </div>
+              </div>
+
+              <div class="mt-4 flex items-center gap-4 py-1">
+                <div class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full inline-block" style={{ background: '#22c55e' }} />
+                  <span class="text-[10px] text-base-content/60">Hydrophobic</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full inline-block" style={{ background: '#3b82f6' }} />
+                  <span class="text-[10px] text-base-content/60">H-Donor</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="w-2 h-2 rounded-full inline-block" style={{ background: '#ef4444' }} />
+                  <span class="text-[10px] text-base-content/60">H-Acceptor</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-between mt-3">
+          <button class="btn btn-ghost btn-sm" onClick={() => resetRunState()}>
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+            </svg>
+            New Map
+          </button>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" onClick={handleOpenFolder}>
+              Open Folder
+            </button>
+            <button class="btn btn-primary btn-sm" onClick={handleOpenResults} disabled={!mapResult.pdbPath}>
+              View Results
+              <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (map().step === 'map-results' && result()) {
+    return renderResults();
+  }
 
   return (
     <div class="h-full flex flex-col gap-4">
-
-      {/* Structure loader */}
       <div class="flex items-center gap-3 flex-wrap">
         <Show
           when={hasPdb()}
@@ -328,23 +414,22 @@ const MapMode: Component = () => {
             {pdbName()}
           </button>
 
-          {/* Ligand selector */}
-          <Show when={isDetecting()} fallback={
-            <Show when={localLigands().length > 0}>
+          <Show when={map().isDetecting} fallback={
+            <Show when={map().detectedLigands.length > 0}>
               <div class="flex items-center gap-2">
                 <span class="text-xs text-base-content/50 font-semibold">Ligand</span>
                 <Show
-                  when={localLigands().length === 1}
+                  when={map().detectedLigands.length === 1}
                   fallback={
                     <select
                       class="select select-bordered select-sm font-mono text-xs"
-                      value={localSelectedLigandId() ?? ''}
-                      onChange={(e) => setLocalSelectedLigandId(e.currentTarget.value)}
+                      value={map().selectedLigandId ?? ''}
+                      onChange={(e) => setMapSelectedLigandId(e.currentTarget.value)}
                     >
-                      <For each={localLigands()}>
-                        {(lig) => (
-                          <option value={lig.id}>
-                            {lig.resname} {lig.resnum} ({lig.num_atoms} atoms)
+                      <For each={map().detectedLigands}>
+                        {(ligand) => (
+                          <option value={ligand.id}>
+                            {ligand.resname} {ligand.resnum} ({ligand.num_atoms} atoms)
                           </option>
                         )}
                       </For>
@@ -364,7 +449,7 @@ const MapMode: Component = () => {
             </span>
           </Show>
 
-          <Show when={!isDetecting() && localLigands().length === 0 && hasPdb()}>
+          <Show when={!map().isDetecting && map().detectedLigands.length === 0 && hasPdb()}>
             <span class="text-xs text-warning">No ligands detected in this structure</span>
           </Show>
 
@@ -379,120 +464,59 @@ const MapMode: Component = () => {
         </Show>
       </div>
 
-      {/* Method cards */}
-      <div class="grid grid-cols-3 gap-3 flex-1 min-h-0">
-        <For each={METHODS}>
-          {(method) => {
-            const isSelected = () => map().method === method.id;
-            const isHovered = () => hoveredMethod() === method.id;
-            const disabled = () => !canCompute(method.id) || map().isComputing;
-
-            return (
-              <div
-                class={`card bg-base-200 border-2 transition-all cursor-pointer flex flex-col ${
-                  isSelected()
-                    ? 'border-primary shadow-lg'
-                    : isHovered() && !disabled()
-                      ? 'border-base-content/20'
-                      : 'border-transparent'
-                } ${disabled() ? 'opacity-50 cursor-not-allowed' : ''}`}
-                onMouseEnter={() => !disabled() && setHoveredMethod(method.id)}
-                onMouseLeave={() => setHoveredMethod(null)}
-                onClick={() => !disabled() && setMapMethod(method.id)}
-              >
-                <div class="card-body p-4 flex flex-col gap-3 flex-1">
-                  {/* Header */}
-                  <div>
-                    <h3 class="text-sm font-bold">{method.name}</h3>
-                    <p class="text-[10px] text-primary font-medium">
-                      {method.subtitle}
-                    </p>
-                  </div>
-
-                  {/* Description */}
-                  <p class="text-xs text-base-content/70 flex-1 leading-relaxed">
-                    {method.description}
-                  </p>
-
-                  {/* Requirements */}
-                  <div class="space-y-1.5">
-                    <div class="flex items-start gap-1.5">
-                      <Show
-                        when={
-                          !method.needsMd ||
-                          (method.id === 'solvation' && hasTrajectory())
-                        }
-                        fallback={
-                          <svg class="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                          </svg>
-                        }
-                      >
-                        <svg class="w-3.5 h-3.5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                        </svg>
-                      </Show>
-                      <span class="text-[11px] text-base-content/60">
-                        {method.requires}
-                      </span>
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                      <svg class="w-3.5 h-3.5 text-base-content/40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span class="text-[11px] text-base-content/60">
-                        {method.time}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Compute button */}
-                  <button
-                    class={`btn btn-sm w-full mt-auto ${
-                      isSelected() ? 'btn-primary' : 'btn-ghost'
-                    }`}
-                    disabled={disabled()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCompute(method.id);
-                    }}
-                  >
-                    <Show
-                      when={!(map().isComputing && isSelected())}
-                      fallback={
-                        <>
-                          <span class="loading loading-spinner loading-xs" />
-                          Computing...
-                        </>
-                      }
-                    >
-                      {method.needsMd && !hasTrajectory()
-                        ? 'Run Simulation + Map'
-                        : 'Compute Map'}
-                    </Show>
-                  </button>
-                </div>
-              </div>
-            );
-          }}
-        </For>
+      {/* Water Map description + compute button */}
+      <div class="card bg-base-200 shadow-lg">
+        <div class="card-body p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <h3 class="text-sm font-bold">Water Thermodynamics</h3>
+              <p class="text-[10px] text-primary font-medium">GIST (Grid Inhomogeneous Solvation Theory)</p>
+            </div>
+            <Show when={hasTrajectory()}>
+              <span class="badge badge-sm badge-success badge-outline gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Trajectory loaded
+              </span>
+            </Show>
+          </div>
+          <p class="text-xs text-base-content/70 leading-relaxed mb-3">
+            Analyzes water behavior from an MD trajectory to identify hydration sites that should be displaced or exploited. Computes solute-water energy, water-water energy, and translational/orientational entropy, decomposed into hydrophobic, H-bond donor, and H-bond acceptor channels.
+          </p>
+          <div class="flex items-center gap-4 text-[11px] text-base-content/60 mb-3">
+            <span>~2-10 min (analysis only)</span>
+            <Show when={!hasTrajectory()}>
+              <span>~30-60 min (including short MD)</span>
+            </Show>
+          </div>
+          <button
+            class="btn btn-primary btn-sm w-full"
+            disabled={!canCompute()}
+            onClick={handleCompute}
+          >
+            <Show
+              when={!map().isComputing}
+              fallback={
+                <>
+                  <span class="loading loading-spinner loading-xs" />
+                  Computing...
+                </>
+              }
+            >
+              {hasTrajectory() ? 'Compute Water Map' : 'Run Simulation + Water Map'}
+            </Show>
+          </button>
+        </div>
       </div>
 
-      {/* Progress bar */}
       <Show when={map().isComputing}>
         <div class="flex items-center gap-3">
-          <progress
-            class="progress progress-primary flex-1"
-            value={map().progressPct}
-            max="100"
-          />
-          <span class="text-xs text-base-content/60 min-w-[100px] text-right">
-            {map().progress}
-          </span>
+          <progress class="progress progress-primary flex-1" value={map().progressPct} max="100" />
+          <span class="text-xs text-base-content/60 min-w-[100px] text-right">{map().progress}</span>
         </div>
       </Show>
 
-      {/* Error */}
       <Show when={map().error}>
         <div class="alert alert-error py-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -502,50 +526,31 @@ const MapMode: Component = () => {
         </div>
       </Show>
 
-      {/* MD Confirmation Modal */}
       <Show when={map().showMdConfirm}>
         <div class="modal modal-open">
           <div class="modal-box max-w-sm">
             <h3 class="font-bold text-sm mb-3">Run MD Simulation?</h3>
             <p class="text-xs text-base-content/70 mb-3">
-              <Show
-                when={map().method === 'probe'}
-                fallback={
-                  <>
-                    Water thermodynamics analysis requires an MD trajectory.
-                    No trajectory is currently loaded, so a short <strong>2-5 ns</strong> explicit-water
-                    simulation will be run first.
-                  </>
-                }
-              >
-                Fragment mapping requires a dedicated simulation with probe molecules
-                soaked around the protein. This runs a <strong>~2 ns</strong> SILCS-style
-                competitive saturation MD.
-              </Show>
+              Water thermodynamics analysis requires an MD trajectory. No trajectory is currently loaded, so a short <strong>2-5 ns</strong> explicit-water simulation will be run first.
             </p>
 
             <div class="bg-base-200 rounded-lg p-3 mb-4">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-base-content/60">Estimated time</span>
-                <span class="text-sm font-mono font-bold">
-                  ~{map().estimatedTimeMin} min
-                </span>
+                <span class="text-sm font-mono font-bold">~{map().estimatedTimeMin} min</span>
               </div>
               <div class="flex items-center justify-between mt-1">
                 <span class="text-xs text-base-content/60">GPU</span>
-                <span class="text-xs font-mono">
-                  Metal / OpenCL (Apple Silicon)
-                </span>
+                <span class="text-xs font-mono">Metal / OpenCL (Apple Silicon)</span>
               </div>
             </div>
 
             <p class="text-xs text-base-content/50 mb-4">
-              The simulation will use the same force field and parameters as
-              Simulate mode. Results are saved to the project's surfaces/ directory.
+              The simulation will use the same force field and parameters as Simulate mode. Results are saved to the project&apos;s surfaces directory.
             </p>
 
             <div class="modal-action">
-              <button class="btn btn-sm" onClick={handleCancelMd}>
+              <button class="btn btn-sm" onClick={() => setMapShowMdConfirm(false)}>
                 Cancel
               </button>
               <button class="btn btn-sm btn-primary" onClick={handleConfirmMd}>
@@ -553,7 +558,7 @@ const MapMode: Component = () => {
               </button>
             </div>
           </div>
-          <div class="modal-backdrop" onClick={handleCancelMd} />
+          <div class="modal-backdrop" onClick={() => setMapShowMdConfirm(false)} />
         </div>
       </Show>
     </div>

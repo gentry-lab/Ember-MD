@@ -70,7 +70,7 @@ export const DEFAULT_STEREOISOMER_CONFIG: StereoisomerConfig = {
 };
 
 // Conformer generation configuration
-export type ConformerMethod = 'none' | 'etkdg' | 'mcmm';
+export type ConformerMethod = 'none' | 'etkdg' | 'mcmm' | 'crest';
 
 export interface ConformerConfig {
   method: ConformerMethod;
@@ -80,6 +80,7 @@ export interface ConformerConfig {
   mcmmSteps: number;        // Default: 100 (MCMM only)
   mcmmTemperature: number;  // Default: 298 K (MCMM only)
   sampleAmides: boolean;    // Default: true (MCMM only)
+  xtbRerank: boolean;       // Default: false — re-rank conformers by GFN2-xTB energy
 }
 
 export const DEFAULT_CONFORMER_CONFIG: ConformerConfig = {
@@ -90,6 +91,7 @@ export const DEFAULT_CONFORMER_CONFIG: ConformerConfig = {
   mcmmSteps: 1000,
   mcmmTemperature: 298,
   sampleAmides: true,
+  xtbRerank: false,
 };
 
 // Post-dock pocket refinement configuration
@@ -105,6 +107,17 @@ export const DEFAULT_REFINEMENT_CONFIG: RefinementConfig = {
   enabled: true,
   maxIterations: 5000,
   chargeMethod: 'am1bcc',
+};
+
+// xTB configuration for docking
+export interface XtbConfig {
+  strainFilter: boolean;        // Compute strain energy post-docking (default: true)
+  preOptimize: boolean;         // xTB geometry optimization before docking (default: false)
+}
+
+export const DEFAULT_XTB_CONFIG: XtbConfig = {
+  strainFilter: true,
+  preOptimize: false,
 };
 
 // CORDIAL rescoring configuration
@@ -195,6 +208,7 @@ export interface DockResult {
   cordialPHighAffinity?: number;
   cordialPVeryHighAffinity?: number;
   coreRmsd?: number;           // MCS core RMSD vs reference
+  xtbStrainKcal?: number;      // xTB strain energy in kcal/mol
 }
 
 // Detected ligand from PDB
