@@ -375,7 +375,7 @@ const DockStepLoad: Component = () => {
                         </div>
                         <textarea
                           class="textarea textarea-bordered text-xs font-mono flex-1 w-full resize-none leading-relaxed"
-                          placeholder={"CCO\nc1ccccc1\nCC(=O)Oc1ccccc1C(=O)O"}
+                          placeholder="Enter SMILES strings (one compound per line)"
                           value={smilesText()}
                           onInput={(e) => setSmilesText(e.currentTarget.value)}
                           rows={6}
