@@ -540,6 +540,7 @@ def prepare_receptor_with_propka(
     propka_report: Optional[Dict[str, Any]] = None,
     reduce_report: Optional[Dict[str, Any]] = None,
     extra_metadata: Optional[Dict[str, Any]] = None,
+    keep_terminal_missing: bool = False,
 ) -> Dict[str, Any]:
     """Unified receptor preparation: PDBFixer + PROPKA-guided protonation.
 
@@ -557,6 +558,19 @@ def prepare_receptor_with_propka(
 
         fixer = PDBFixer(filename=reduced_path)
         fixer.findMissingResidues()
+        # Remove terminal missing residues — disordered tails absent from
+        # crystal structures produce unreliable modelled geometry.  Only
+        # fill internal gaps (missing loops).
+        if not keep_terminal_missing:
+            chains = list(fixer.topology.chains())
+            terminal_keys = [
+                key for key in fixer.missingResidues
+                if key[1] == 0 or key[1] == len(list(chains[key[0]].residues()))
+            ]
+            for key in terminal_keys:
+                del fixer.missingResidues[key]
+            if terminal_keys:
+                print(f"  Skipping {len(terminal_keys)} terminal disordered region(s)", file=sys.stderr)
         fixer.findMissingAtoms()
         fixer.addMissingAtoms()
     else:

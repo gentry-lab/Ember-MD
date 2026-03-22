@@ -111,12 +111,12 @@ export const DEFAULT_REFINEMENT_CONFIG: RefinementConfig = {
 
 // xTB configuration for docking
 export interface XtbConfig {
-  strainFilter: boolean;        // Compute strain energy post-docking (default: true)
+  strainFilter: boolean;        // Compute strain energy post-docking (default: false)
   preOptimize: boolean;         // xTB geometry optimization before docking (default: false)
 }
 
 export const DEFAULT_XTB_CONFIG: XtbConfig = {
-  strainFilter: true,
+  strainFilter: false,
   preOptimize: false,
 };
 
