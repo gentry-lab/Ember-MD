@@ -404,7 +404,8 @@ def prepare_receptor(
         if retained_terminal:
             print(f'  Retaining {len(retained_terminal)} terminal missing-residue segment(s)', file=sys.stderr)
 
-    _ensure_positive_unit_cell(fixer.topology, fixer.positions)
+        _ensure_positive_unit_cell(fixer.topology, fixer.positions)
+
     print('PROGRESS:prepare_receptor:50', flush=True)
 
     # 7. Find and add missing atoms

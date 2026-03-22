@@ -121,18 +121,18 @@ const LayerPanel: Component<LayerPanelProps> = (props) => {
     return 'Job';
   };
 
-  const [viewTab, setViewTab] = createSignal<'recent' | 'import'>('recent');
+  const [viewTab, setViewTab] = createSignal<'recent' | 'import'>('import');
 
   return (
     <div class={`card bg-base-200 p-2 flex flex-col gap-2 ${props.fillHeight ? 'h-full' : ''}`}>
       <div class="rounded border border-base-300 bg-base-100/60 p-3 flex flex-col gap-3 min-w-0 flex-1 min-h-0">
         <div class="flex items-center justify-between gap-2">
           <div class="tabs tabs-boxed tabs-xs bg-base-300">
-            <button class={`tab tab-xs ${viewTab() === 'recent' ? 'tab-active' : ''}`} onClick={() => setViewTab('recent')}>
-              Recent Jobs
-            </button>
             <button class={`tab tab-xs ${viewTab() === 'import' ? 'tab-active' : ''}`} onClick={() => setViewTab('import')}>
               Import
+            </button>
+            <button class={`tab tab-xs ${viewTab() === 'recent' ? 'tab-active' : ''}`} onClick={() => setViewTab('recent')}>
+              Recent Jobs
             </button>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
