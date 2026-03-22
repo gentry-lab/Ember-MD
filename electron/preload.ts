@@ -41,6 +41,7 @@ const IpcChannels = {
   SELECT_FOLDER: 'select-folder',
   SCAN_SDF_DIRECTORY: 'scan-sdf-directory',
   PARSE_SMILES_CSV: 'parse-smiles-csv',
+  CONVERT_SMILES_LIST: 'convert-smiles-list',
   CONVERT_SINGLE_MOLECULE: 'convert-single-molecule',
   EXTRACT_XRAY_LIGAND: 'extract-xray-ligand',
   ENUMERATE_PROTONATION: 'enumerate-protonation',
