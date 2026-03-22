@@ -11,6 +11,7 @@ import type {
   GenerationOptions,
   GenerationResult,
   FileInfo,
+  DockLigandPreoptResult,
   OutputData,
   GenerationStats,
 } from './ipc';
@@ -37,6 +38,8 @@ import type {
   AnalysisResult,
   MdReportOptions,
   MdReportResult,
+  MdTorsionAnalysis,
+  LoadMdTorsionAnalysisOptions,
   ScoreMdClustersOptions,
   ScoreMdClustersResult,
   ScanClusterDirectoryResult,
@@ -182,6 +185,11 @@ export interface ElectronAPI {
     method?: string,
     mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
   ) => Promise<Result<{ conformerPaths: string[]; parentMapping: Record<string, string>; conformerEnergies: Record<string, number> }, AppError>>;
+  preOptimizeDockLigands: (
+    ligandSdfPaths: string[],
+    outputDir: string
+  ) => Promise<Result<DockLigandPreoptResult, AppError>>;
+  scoreDockingXtbEnergy: (dockOutputDir: string) => Promise<Result<{ count: number }, AppError>>;
 
   // Conformer generation (standalone)
   runConformGeneration: (
@@ -215,11 +223,6 @@ export interface ElectronAPI {
     cordialPHighAffinity?: number;
     cordialPVeryHighAffinity?: number;
   }, AppError>>;
-
-  // xTB strain scoring
-  scoreDockingStrain: (
-    dockOutputDir: string
-  ) => Promise<Result<{ count: number }, AppError>>;
 
   // CORDIAL rescoring
   checkCordialInstalled: () => Promise<boolean>;
@@ -280,6 +283,7 @@ export interface ElectronAPI {
   exportTrajectoryFrame: (options: ExportFrameOptions) => Promise<Result<{ pdbPath: string }, AppError>>;
   analyzeTrajectory: (options: AnalysisOptions) => Promise<Result<AnalysisResult, AppError>>;
   generateMdReport: (options: MdReportOptions) => Promise<Result<MdReportResult, AppError>>;
+  loadMdTorsionAnalysis: (options: LoadMdTorsionAnalysisOptions) => Promise<Result<MdTorsionAnalysis | null, AppError>>;
   scoreMdClusters: (options: ScoreMdClustersOptions) => Promise<Result<ScoreMdClustersResult, AppError>>;
   mapBindingSite: (options: BindingSiteMapOptions) => Promise<Result<BindingSiteMapResult, AppError>>;
   computePocketMap: (options: PocketMapOptions) => Promise<Result<BindingSiteMapResult, AppError>>;

@@ -194,6 +194,27 @@ const DockStepProgress: Component = () => {
         }
       }
 
+      if (dock.xtbConfig.preOptimize && ligandPaths.length > 0) {
+        if (dock.conformerConfig.method === 'crest') {
+          appendLog('--- Skipping xTB pre-optimization for CREST conformers ---\n');
+          appendLog('  CREST already produced xTB-level geometries\n\n');
+        } else {
+          appendLog('--- Pre-optimizing ligands with xTB... ---\n');
+          const preoptDir = path.join(dockPaths.prep, 'xtb_preopt');
+          const preoptResult = await api.preOptimizeDockLigands(ligandPaths, preoptDir);
+          if (preoptResult.ok) {
+            ligandPaths = preoptResult.value.optimizedLigandPaths;
+            appendLog(`  xTB pre-optimization complete: ${preoptResult.value.optimizedCount} ligands optimized\n`);
+            if (preoptResult.value.failedCount > 0) {
+              appendLog(`  ${preoptResult.value.failedCount} ligands kept their original geometry after xTB failure\n`);
+            }
+            appendLog(`  Saved optimized ligands: ${path.join(jobName, 'docking', dockFolder, 'prep', 'xtb_preopt')}\n\n`);
+          } else {
+            appendLog(`  xTB pre-optimization skipped: ${preoptResult.error.message}\n\n`);
+          }
+        }
+      }
+
       // Update total count after preprocessing may have expanded the ligand set
       setDockTotalLigands(ligandPaths.length);
 
@@ -241,6 +262,19 @@ const DockStepProgress: Component = () => {
         }
       }
 
+      // Run xTB energy scoring (relative per compound)
+      appendLog('\n--- Computing xTB energies... ---\n');
+      try {
+        const xtbResult = await api.scoreDockingXtbEnergy(outputDir);
+        if (xtbResult.ok) {
+          appendLog(`\nxTB energy scoring complete: ${xtbResult.value.count} poses scored\n`);
+        } else {
+          appendLog(`\nxTB energy scoring skipped: ${xtbResult.error.message}\n`);
+        }
+      } catch (err) {
+        appendLog(`\nxTB energy scoring error: ${(err as Error).message}\n`);
+      }
+
       // Run CORDIAL rescoring if enabled and available
       if (dock.cordialConfig.enabled && dock.cordialAvailable) {
         setCordialRunning(true);
@@ -261,21 +295,6 @@ const DockStepProgress: Component = () => {
           appendLog(`\nCORDIAL rescoring error: ${(err as Error).message}\n`);
         }
         setCordialRunning(false);
-      }
-
-      // Run xTB strain scoring if enabled
-      if (dock.xtbConfig?.strainFilter) {
-        appendLog('\n--- Computing xTB strain energies... ---\n');
-        try {
-          const strainResult = await api.scoreDockingStrain(outputDir);
-          if (strainResult.ok) {
-            appendLog(`\nxTB strain scoring complete: ${strainResult.value.count} poses scored\n`);
-          } else {
-            appendLog(`\nxTB strain scoring failed: ${strainResult.error.message}\n`);
-          }
-        } catch (err) {
-          appendLog(`\nxTB strain scoring error: ${(err as Error).message}\n`);
-        }
       }
 
       // Parse results

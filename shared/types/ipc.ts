@@ -93,6 +93,12 @@ export interface FileInfo {
   modified?: Date;
 }
 
+export interface DockLigandPreoptResult {
+  optimizedLigandPaths: string[];
+  optimizedCount: number;
+  failedCount: number;
+}
+
 // === Run parameters log ===
 
 export interface RunParameters {
@@ -173,6 +179,8 @@ export const IpcChannels = {
   ENUMERATE_PROTONATION: 'enumerate-protonation',
   ENUMERATE_STEREOISOMERS: 'enumerate-stereoisomers',
   GENERATE_CONFORMERS: 'generate-conformers',
+  PREOPTIMIZE_DOCK_LIGANDS: 'dock:preoptimize-ligands',
+  SCORE_DOCKING_XTB_ENERGY: 'dock:score-xtb-energy',
   // CORDIAL rescoring
   CHECK_CORDIAL_INSTALLED: 'check-cordial-installed',
   RUN_CORDIAL_SCORING: 'run-cordial-scoring',
@@ -208,7 +216,7 @@ export const IpcChannels = {
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
   SCORE_MD_CLUSTERS: 'md:score-clusters',
-  SCORE_DOCKING_STRAIN: 'dock:score-strain',
+  LOAD_MD_TORSION_ANALYSIS: 'md:load-torsion-analysis',
   SCORE_COMPLEX: 'score-complex',
   MAP_BINDING_SITE: 'map-binding-site',
   COMPUTE_SURFACE_PROPS: 'compute-surface-props',
@@ -275,17 +283,20 @@ export interface ClusteringResult {
   clusters: ClusterResultData[];
   frameAssignments: number[];  // Cluster ID for each frame
   outputDir: string;
+  requestedClusters?: number;
+  actualClusters?: number;
 }
 
-// Scored cluster result from xTB strain + Vina rescore + CORDIAL
+// Scored cluster result from holo MD fixed-pose rescoring
 export interface ScoredClusterResult {
   clusterId: number;
   frameCount: number;
   population: number;           // Percentage
   centroidFrame: number;
   centroidPdbPath: string;
+  receptorPdbPath?: string;
+  ligandSdfPath?: string;
   vinaRescore?: number;         // kcal/mol
-  xtbStrainKcal?: number;       // kcal/mol
   cordialExpectedPkd?: number;
   cordialPHighAffinity?: number;
   cordialPVeryHighAffinity?: number;
@@ -299,13 +310,13 @@ export interface ScoreMdClustersOptions {
   inputReceptorPdb?: string;
   numClusters: number;
   enableVina: boolean;
-  enableXtb: boolean;
   enableCordial: boolean;
 }
 
 export interface ScoreMdClustersResult {
   clusters: ScoredClusterResult[];
   outputDir: string;
+  clusteringResults: ClusteringResult;
 }
 
 export interface ExportFrameOptions {
@@ -365,6 +376,7 @@ export interface MdReportOptions {
   trajectoryPath: string;
   outputDir: string;
   ligandSelection?: string;
+  ligandSdf?: string;
   simInfo?: {
     jobName?: string;
     atoms?: string;
@@ -382,6 +394,89 @@ export interface MdReportResult {
   analysisDir: string;      // Directory containing analysis outputs
   sectionPdfs: string[];    // Paths to individual section PDFs
   clusteringResults?: ClusterResultData[];  // Clustering results if available
+}
+
+export interface MdLigandDepictionBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+export interface MdLigandDepictionAtom {
+  atomIndex: number;
+  symbol: string;
+  label: string;
+  x: number;
+  y: number;
+  formalCharge: number;
+  isAromatic: boolean;
+  showLabel: boolean;
+}
+
+export interface MdLigandDepictionBond {
+  bondId: string;
+  bondIndex: number;
+  beginAtomIndex: number;
+  endAtomIndex: number;
+  order: number;
+  isAromatic: boolean;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface MdLigandDepiction {
+  atoms: MdLigandDepictionAtom[];
+  bonds: MdLigandDepictionBond[];
+  bounds: MdLigandDepictionBounds;
+}
+
+export interface MdTorsionClusterValue {
+  clusterId: number;
+  centroidFrame: number;
+  population: number;
+  angle: number;
+}
+
+export interface MdTorsionEntry {
+  torsionId: string;
+  bondId: string;
+  bondIndex: number;
+  centralBondAtomIndices: number[];
+  quartetAtomIndices: number[];
+  atomNames: string[];
+  label: string;
+  circularMean: number;
+  circularStd: number;
+  min: number;
+  max: number;
+  median: number;
+  nFrames: number;
+  trajectoryAngles: number[];
+  clusterValues: MdTorsionClusterValue[];
+}
+
+export interface MdTorsionAnalysis {
+  type: 'torsions';
+  pdfPath: string | null;
+  csvPath: string | null;
+  ligandPresent: boolean;
+  ligandSdfPath?: string | null;
+  nFrames: number;
+  nSampledFrames: number;
+  stride: number;
+  sampledFrameIndices: number[];
+  nRotatableBonds: number;
+  depiction: MdLigandDepiction | null;
+  data: {
+    torsions: MdTorsionEntry[];
+  };
+}
+
+export interface LoadMdTorsionAnalysisOptions {
+  analysisDir: string;
 }
 
 // Cluster directory scanning types
@@ -460,6 +555,7 @@ export interface ProjectJob {
   hasTrajectory?: boolean;
   clusterCount?: number;
   clusterDir?: string;
+  clusteringResultsPath?: string;
 
   // Conformer-specific
   conformerPaths?: string[];

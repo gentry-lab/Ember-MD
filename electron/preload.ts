@@ -47,6 +47,8 @@ const IpcChannels = {
   ENUMERATE_PROTONATION: 'enumerate-protonation',
   ENUMERATE_STEREOISOMERS: 'enumerate-stereoisomers',
   GENERATE_CONFORMERS: 'generate-conformers',
+  PREOPTIMIZE_DOCK_LIGANDS: 'dock:preoptimize-ligands',
+  SCORE_DOCKING_XTB_ENERGY: 'dock:score-xtb-energy',
   // Conformer generation (standalone)
   CONFORM_OUTPUT: 'conform:output',
   RUN_CONFORM_GENERATION: 'conform:generate',
@@ -83,7 +85,7 @@ const IpcChannels = {
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
   SCORE_MD_CLUSTERS: 'md:score-clusters',
-  SCORE_DOCKING_STRAIN: 'dock:score-strain',
+  LOAD_MD_TORSION_ANALYSIS: 'md:load-torsion-analysis',
   SCORE_COMPLEX: 'score-complex',
   MAP_BINDING_SITE: 'map-binding-site',
   COMPUTE_POCKET_MAP: 'compute-pocket-map',
@@ -194,7 +196,12 @@ interface MdReportOptions {
   trajectoryPath: string;
   outputDir: string;
   ligandSelection?: string;
+  ligandSdf?: string;
   simInfo?: Record<string, string>;
+}
+
+interface LoadMdTorsionAnalysisOptions {
+  analysisDir: string;
 }
 
 interface ScoreMdClustersOptions {
@@ -205,7 +212,6 @@ interface ScoreMdClustersOptions {
   inputReceptorPdb?: string;
   numClusters: number;
   enableVina: boolean;
-  enableXtb: boolean;
   enableCordial: boolean;
 }
 
@@ -427,6 +433,18 @@ const electronAPI = {
     mcmmOptions
   ),
 
+  preOptimizeDockLigands: (
+    ligandSdfPaths: string[],
+    outputDir: string
+  ) => ipcRenderer.invoke(
+    IpcChannels.PREOPTIMIZE_DOCK_LIGANDS,
+    ligandSdfPaths,
+    outputDir
+  ),
+
+  scoreDockingXtbEnergy: (dockOutputDir: string) =>
+    ipcRenderer.invoke(IpcChannels.SCORE_DOCKING_XTB_ENERGY, dockOutputDir),
+
   // Conformer generation (standalone)
   runConformGeneration: (
     ligandSdfPath: string,
@@ -473,10 +491,6 @@ const electronAPI = {
   scoreComplex: (pdbPath: string, ligandSdfPath?: string) =>
     ipcRenderer.invoke(IpcChannels.SCORE_COMPLEX, pdbPath, ligandSdfPath),
 
-  // xTB strain scoring
-  scoreDockingStrain: (dockOutputDir: string) =>
-    ipcRenderer.invoke(IpcChannels.SCORE_DOCKING_STRAIN, dockOutputDir),
-
   // CORDIAL rescoring
   checkCordialInstalled: () => ipcRenderer.invoke(IpcChannels.CHECK_CORDIAL_INSTALLED),
 
@@ -519,14 +533,16 @@ const electronAPI = {
     ligandSdf: string,
     outputDir: string,
     config: MDConfig,
-    ligandOnly: boolean = false
+    ligandOnly: boolean = false,
+    apo: boolean = false
   ) => ipcRenderer.invoke(
     IpcChannels.RUN_MD_SIMULATION,
     receptorPdb,
     ligandSdf,
     outputDir,
     config,
-    ligandOnly
+    ligandOnly,
+    apo
   ),
 
   cancelMdBenchmark: () => ipcRenderer.invoke(IpcChannels.CANCEL_MD_BENCHMARK),
@@ -570,6 +586,9 @@ const electronAPI = {
 
   generateMdReport: (options: MdReportOptions) =>
     ipcRenderer.invoke(IpcChannels.GENERATE_MD_REPORT, options),
+
+  loadMdTorsionAnalysis: (options: LoadMdTorsionAnalysisOptions) =>
+    ipcRenderer.invoke(IpcChannels.LOAD_MD_TORSION_ANALYSIS, options),
 
   scoreMdClusters: (options: ScoreMdClustersOptions) =>
     ipcRenderer.invoke(IpcChannels.SCORE_MD_CLUSTERS, options),

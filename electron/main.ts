@@ -42,7 +42,15 @@ import {
   IpcChannels,
   GenerationStats,
 } from '../shared/types/ipc';
-import type { ClusteringResult, ProjectJob, ProjectJobPose, LigandPkaResult, QupkakeCapabilityResult, ScoredClusterResult } from '../shared/types/ipc';
+import type {
+  ClusteringResult,
+  ProjectJob,
+  ProjectJobPose,
+  LigandPkaResult,
+  QupkakeCapabilityResult,
+  ScoredClusterResult,
+  MdTorsionAnalysis,
+} from '../shared/types/ipc';
 import * as os from 'os';
 import * as zlib from 'zlib';
 
@@ -2167,20 +2175,19 @@ ipcMain.handle(
 
       loadAndMergeCordialScores(outputDir, results, 'ligandName');
 
-      // Load xTB strain scores if available
-      const xtbStrainPath = path.join(outputDir, 'results', 'xtb_strain.json');
-      if (fs.existsSync(xtbStrainPath)) {
+      // Load xTB relative energies if available
+      const xtbEnergyPath = path.join(outputDir, 'results', 'xtb_energy.json');
+      if (fs.existsSync(xtbEnergyPath)) {
         try {
-          const xtbData = JSON.parse(fs.readFileSync(xtbStrainPath, 'utf-8'));
-          // xtb_strain.json: { "ligandName_poseIndex": strain_kcal, ... }
+          const xtbData = JSON.parse(fs.readFileSync(xtbEnergyPath, 'utf-8'));
           for (const result of results) {
             const key = `${result.ligandName}_${result.poseIndex}`;
             if (key in xtbData) {
-              result.xtbStrainKcal = xtbData[key];
+              result.xtbEnergyKcal = xtbData[key];
             }
           }
         } catch (e) {
-          console.error('Failed to load xTB strain scores:', e);
+          console.error('Failed to load xTB energy scores:', e);
         }
       }
 
@@ -3515,6 +3522,10 @@ ipcMain.handle(
       const xtbPathDock = getQupkakeXtbPath();
       if (xtbPathDock) {
         args.push('--xtb_binary', xtbPathDock);
+        const shouldRerank = mcmmOptions?.xtbRerank ?? true;
+        if (shouldRerank && effectiveMethod !== 'crest') {
+          args.push('--xtb_rerank');
+        }
       }
 
       const methodLabel = effectiveMethod.toUpperCase();
@@ -3665,11 +3676,13 @@ ipcMain.handle(
         }
       }
 
-      // xTB reranking and CREST support
+      // xTB reranking (default on for ETKDG/MCMM) and CREST support
       const xtbPath = getQupkakeXtbPath();
       if (xtbPath) {
         args.push('--xtb_binary', xtbPath);
-        if (mcmmOptions?.xtbRerank) {
+        // Rerank by xTB unless explicitly disabled — CREST already uses xTB internally
+        const shouldRerank = mcmmOptions?.xtbRerank ?? true;
+        if (shouldRerank && effectiveMethod !== 'crest') {
           args.push('--xtb_rerank');
         }
       }
@@ -4848,6 +4861,8 @@ const readJsonIfExists = <T>(jsonPath: string): T | null => {
 const getCanonicalAnalysisRoot = (runPath: string) => path.join(runPath, 'analysis');
 const getCanonicalClusteringDir = (runPath: string) => path.join(getCanonicalAnalysisRoot(runPath), 'clustering');
 const getCanonicalScoredClustersDir = (runPath: string) => path.join(getCanonicalAnalysisRoot(runPath), 'scored_clusters');
+const normalizeAnalysisDir = (inputPath: string) =>
+  path.basename(inputPath) === 'analysis' ? inputPath : getCanonicalAnalysisRoot(inputPath);
 
 const getSimulationClusterArtifacts = (runPath: string): {
   clusterDirPath?: string;
@@ -5995,9 +6010,103 @@ ipcMain.handle(
   }
 );
 
-// Score docked poses with xTB strain energy
+// Pre-optimize docking ligands with xTB before Vina
 ipcMain.handle(
-  IpcChannels.SCORE_DOCKING_STRAIN,
+  IpcChannels.PREOPTIMIZE_DOCK_LIGANDS,
+  async (
+    event,
+    ligandSdfPaths: string[],
+    outputDir: string
+  ): Promise<Result<{
+    optimizedLigandPaths: string[];
+    optimizedCount: number;
+    failedCount: number;
+  }, AppError>> => {
+    if (ligandSdfPaths.length === 0) {
+      return Ok({ optimizedLigandPaths: [], optimizedCount: 0, failedCount: 0 });
+    }
+
+    const xtbPath = getQupkakeXtbPath();
+    if (!xtbPath) {
+      return Err({ type: 'DOCKING_FAILED', message: 'xTB binary not found' });
+    }
+
+    if (!condaPythonPath) {
+      return Err({ type: 'PYTHON_NOT_FOUND', message: 'Python not found' });
+    }
+
+    const scriptPath = path.join(fraggenRoot, 'score_xtb_strain.py');
+    if (!fs.existsSync(scriptPath)) {
+      return Err({ type: 'SCRIPT_NOT_FOUND', path: scriptPath, message: 'score_xtb_strain.py not found' });
+    }
+
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    event.sender.send(IpcChannels.DOCK_OUTPUT, {
+      type: 'stdout',
+      data: `=== xTB Ligand Pre-optimization ===\nLigands: ${ligandSdfPaths.length}\nOutput: ${outputDir}\n\n`,
+    });
+
+    const optimizedLigandPaths: string[] = [];
+    let optimizedCount = 0;
+    let failedCount = 0;
+
+    for (const [index, ligandPath] of ligandSdfPaths.entries()) {
+      const baseName = path.basename(ligandPath).replace(/(\.sdf\.gz|\.sdf)$/i, '');
+      const optimizedPath = path.join(
+        outputDir,
+        `${String(index + 1).padStart(4, '0')}_${baseName}_xtbopt.sdf`,
+      );
+
+      event.sender.send(IpcChannels.DOCK_OUTPUT, {
+        type: 'stdout',
+        data: `XTB_PREOPT: ${index + 1}/${ligandSdfPaths.length} ${path.basename(ligandPath)}\n`,
+      });
+
+      try {
+        const { stdout, stderr, code } = await spawnPythonScript([
+          scriptPath,
+          '--xtb_binary', xtbPath,
+          '--mode', 'optimize',
+          '--ligand', ligandPath,
+          '--output_sdf', optimizedPath,
+        ]);
+
+        if (code === 0 && fs.existsSync(optimizedPath)) {
+          optimizedLigandPaths.push(optimizedPath);
+          optimizedCount += 1;
+          continue;
+        }
+
+        failedCount += 1;
+        optimizedLigandPaths.push(ligandPath);
+        const detail = (stderr || stdout || `exit ${code}`).trim().slice(0, 240);
+        event.sender.send(IpcChannels.DOCK_OUTPUT, {
+          type: 'stderr',
+          data: `  Warning: xTB pre-optimization failed for ${path.basename(ligandPath)}; using original geometry (${detail})\n`,
+        });
+      } catch (error) {
+        failedCount += 1;
+        optimizedLigandPaths.push(ligandPath);
+        event.sender.send(IpcChannels.DOCK_OUTPUT, {
+          type: 'stderr',
+          data: `  Warning: xTB pre-optimization failed for ${path.basename(ligandPath)}; using original geometry (${(error as Error).message})\n`,
+        });
+      }
+    }
+
+    event.sender.send(IpcChannels.DOCK_OUTPUT, {
+      type: 'stdout',
+      data: `xTB pre-optimization finished: ${optimizedCount} optimized, ${failedCount} fallback\n`,
+    });
+
+    return Ok({ optimizedLigandPaths, optimizedCount, failedCount });
+  }
+);
+
+// Score docked poses with xTB single-point energy (relative per compound)
+ipcMain.handle(
+  IpcChannels.SCORE_DOCKING_XTB_ENERGY,
   async (
     event,
     dockOutputDir: string
@@ -6006,7 +6115,6 @@ ipcMain.handle(
     if (!xtbPath) {
       return Err({ type: 'DOCKING_FAILED', message: 'xTB binary not found' });
     }
-
     if (!condaPythonPath) {
       return Err({ type: 'PYTHON_NOT_FOUND', message: 'Python not found' });
     }
@@ -6022,63 +6130,53 @@ ipcMain.handle(
     }
 
     const resultsDir = path.join(dockOutputDir, 'results');
-    const outputJson = path.join(resultsDir, 'xtb_strain.json');
-
-    // Find reference ligand for free-ligand optimization
-    const refCandidates = [
-      path.join(dockOutputDir, 'inputs', 'reference_ligand.sdf'),
-      path.join(dockOutputDir, 'prep', 'reference_ligand.sdf'),
-    ];
-    const inputLigandsDir = path.join(dockOutputDir, 'inputs', 'ligands');
-    if (fs.existsSync(inputLigandsDir)) {
-      const sdfs = fs.readdirSync(inputLigandsDir).filter((f: string) => f.endsWith('.sdf'));
-      if (sdfs.length > 0) refCandidates.push(path.join(inputLigandsDir, sdfs[0]));
-    }
-    const referenceSdf = refCandidates.find(p => fs.existsSync(p));
-
-    // Single Python invocation — batch mode handles optimize + all single-points
-    const args = [
-      scriptPath,
-      '--xtb_binary', xtbPath,
-      '--mode', 'batch_strain',
-      '--ligand_dir', posesDir,
-      '--output_json', outputJson,
-    ];
-    if (referenceSdf) args.push('--reference_sdf', referenceSdf);
+    const outputJson = path.join(resultsDir, 'xtb_energy.json');
 
     event.sender.send(IpcChannels.DOCK_OUTPUT, {
-      type: 'stdout', data: `=== xTB Strain Scoring (batch) ===\n`,
+      type: 'stdout', data: `=== xTB Energy Scoring ===\n`,
     });
 
     return new Promise((resolve) => {
-      const proc = spawn(condaPythonPath!, args, { env: getSpawnEnv() });
-      childProcesses.add(proc);
+      const args = [
+        scriptPath,
+        '--xtb_binary', xtbPath,
+        '--mode', 'batch_energy',
+        '--ligand_dir', posesDir,
+        '--output_json', outputJson,
+      ];
 
-      proc.stdout?.on('data', (data: Buffer) => {
-        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: data.toString() });
+      const python = spawn(condaPythonPath!, args);
+      childProcesses.add(python);
+
+      let stdout = '';
+      python.stdout.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stdout += text;
+        event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
       });
-
-      proc.stderr?.on('data', (data: Buffer) => {
+      python.stderr.on('data', (data: Buffer) => {
         event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: data.toString() });
       });
 
-      proc.on('close', (code: number | null) => {
-        childProcesses.delete(proc);
-        if (code === 0 && fs.existsSync(outputJson)) {
+      python.on('close', (code: number | null) => {
+        childProcesses.delete(python);
+        if (code === 0) {
+          const match = stdout.match(/BATCH_ENERGY_JSON:(.+)/);
+          const jsonPath = match ? match[1].trim() : outputJson;
           try {
-            const results = JSON.parse(fs.readFileSync(outputJson, 'utf-8'));
-            resolve(Ok({ count: Object.keys(results).length }));
+            const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+            resolve(Ok({ count: Object.keys(data).length }));
           } catch {
             resolve(Ok({ count: 0 }));
           }
         } else {
-          resolve(Err({ type: 'DOCKING_FAILED', message: `xTB batch strain failed (exit ${code})` }));
+          resolve(Err({ type: 'DOCKING_FAILED', message: `xTB energy scoring failed (exit ${code})` }));
         }
       });
 
-      proc.on('error', (err: Error) => {
-        childProcesses.delete(proc);
-        resolve(Err({ type: 'DOCKING_FAILED', message: err.message }));
+      python.on('error', (error: Error) => {
+        childProcesses.delete(python);
+        resolve(Err({ type: 'DOCKING_FAILED', message: error.message }));
       });
     });
   }
@@ -7103,6 +7201,7 @@ ipcMain.handle(
       trajectoryPath: string;
       outputDir: string;
       ligandSelection?: string;
+      ligandSdf?: string;
       simInfo?: Record<string, string>;
     }
   ): Promise<Result<{
@@ -7153,6 +7252,10 @@ ipcMain.handle(
 
       if (options.ligandSelection) {
         args.push('--ligand_selection', options.ligandSelection);
+      }
+
+      if (options.ligandSdf) {
+        args.push('--ligand_sdf', options.ligandSdf);
       }
 
       if (options.simInfo) {
@@ -7224,6 +7327,76 @@ ipcMain.handle(
         }));
       });
     });
+  }
+);
+
+const normalizeMdTorsionAnalysis = (raw: any): MdTorsionAnalysis | null => {
+  if (!raw || raw.type !== 'torsions') return null;
+  const torsions = Array.isArray(raw?.data?.torsions)
+    ? raw.data.torsions.map((row: any) => ({
+        torsionId: String(row?.torsionId ?? ''),
+        bondId: String(row?.bondId ?? ''),
+        bondIndex: Number(row?.bondIndex ?? 0),
+        centralBondAtomIndices: Array.isArray(row?.centralBondAtomIndices) ? row.centralBondAtomIndices.map(Number) : [],
+        quartetAtomIndices: Array.isArray(row?.quartetAtomIndices) ? row.quartetAtomIndices.map(Number) : [],
+        atomNames: Array.isArray(row?.atomNames) ? row.atomNames.map(String) : [],
+        label: String(row?.label ?? ''),
+        circularMean: Number(row?.circularMean ?? 0),
+        circularStd: Number(row?.circularStd ?? 0),
+        min: Number(row?.min ?? 0),
+        max: Number(row?.max ?? 0),
+        median: Number(row?.median ?? 0),
+        nFrames: Number(row?.nFrames ?? 0),
+        trajectoryAngles: Array.isArray(row?.trajectoryAngles) ? row.trajectoryAngles.map(Number) : [],
+        clusterValues: Array.isArray(row?.clusterValues)
+          ? row.clusterValues.map((value: any) => ({
+              clusterId: Number(value?.clusterId ?? 0),
+              centroidFrame: Number(value?.centroidFrame ?? 0),
+              population: Number(value?.population ?? 0),
+              angle: Number(value?.angle ?? 0),
+            }))
+          : [],
+      }))
+    : [];
+
+  return {
+    type: 'torsions',
+    pdfPath: raw?.pdfPath ?? null,
+    csvPath: raw?.csvPath ?? null,
+    ligandPresent: Boolean(raw?.ligandPresent),
+    ligandSdfPath: raw?.ligandSdfPath ?? null,
+    nFrames: Number(raw?.nFrames ?? 0),
+    nSampledFrames: Number(raw?.nSampledFrames ?? 0),
+    stride: Number(raw?.stride ?? 1),
+    sampledFrameIndices: Array.isArray(raw?.sampledFrameIndices) ? raw.sampledFrameIndices.map(Number) : [],
+    nRotatableBonds: Number(raw?.nRotatableBonds ?? torsions.length),
+    depiction: raw?.depiction ?? null,
+    data: {
+      torsions,
+    },
+  };
+};
+
+ipcMain.handle(
+  IpcChannels.LOAD_MD_TORSION_ANALYSIS,
+  async (
+    _event,
+    options: { analysisDir: string }
+  ): Promise<Result<MdTorsionAnalysis | null, AppError>> => {
+    try {
+      const analysisDir = normalizeAnalysisDir(options.analysisDir);
+      const torsionPath = path.join(analysisDir, 'torsions', 'torsions_results.json');
+      if (!fs.existsSync(torsionPath)) {
+        return Ok(null);
+      }
+      const content = JSON.parse(fs.readFileSync(torsionPath, 'utf-8'));
+      return Ok(normalizeMdTorsionAnalysis(content));
+    } catch (err) {
+      return Err({
+        type: 'ANALYSIS_FAILED',
+        message: `Failed to load MD torsion analysis: ${(err as Error).message}`,
+      });
+    }
   }
 );
 

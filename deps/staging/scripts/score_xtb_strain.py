@@ -306,6 +306,51 @@ def batch_strain(
     return results
 
 
+def batch_energy(
+    xtb_binary: str,
+    ligand_paths: list,
+    solvent: str = 'water',
+) -> dict:
+    """Compute relative xTB single-point energies grouped by compound.
+
+    No optimization — just single-point each pose.  Energies are relative
+    to the lowest-energy pose of the same compound (by canonical SMILES).
+    Useful for pose ranking within docking results.
+
+    Returns dict mapping basename → relative_energy_kcal.
+    """
+    from rdkit import Chem
+
+    # Phase 1: single-point all poses, group by SMILES
+    by_smiles: dict = {}  # SMILES -> [(name, energy_hartree)]
+    name_map: dict = {}   # name -> SMILES
+
+    for i, lig_path in enumerate(ligand_paths):
+        name = os.path.basename(lig_path).replace('_docked.sdf.gz', '').replace('_docked.sdf', '').replace('.sdf.gz', '').replace('.sdf', '')
+        try:
+            mol = _load_sdf(lig_path)
+            if mol is None:
+                print(f"Warning: Could not load {name}, skipping", file=sys.stderr)
+                continue
+            smiles = Chem.MolToSmiles(Chem.RemoveHs(mol))
+            e = single_point(xtb_binary, lig_path, solvent)
+            by_smiles.setdefault(smiles, []).append((name, e))
+            name_map[name] = smiles
+            print(f"PROGRESS:batch_energy:{int(100 * (i + 1) / len(ligand_paths))}", flush=True)
+        except Exception as exc:
+            print(f"Warning: xTB failed for {name}: {exc}", file=sys.stderr)
+
+    # Phase 2: compute relative energies per compound
+    results = {}
+    for smiles, entries in by_smiles.items():
+        min_e = min(e for _, e in entries)
+        for name, e in entries:
+            rel_kcal = (e - min_e) * HARTREE_TO_KCAL
+            results[f"{name}_0"] = round(rel_kcal, 1)
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -318,7 +363,7 @@ def main():
     parser.add_argument('--xtb_binary', required=True, help='Path to xtb executable')
     parser.add_argument(
         '--mode',
-        choices=['single_point', 'optimize', 'strain', 'batch_strain'],
+        choices=['single_point', 'optimize', 'strain', 'batch_strain', 'batch_energy'],
         default='single_point',
         help='Calculation mode',
     )
@@ -369,6 +414,26 @@ def main():
             json.dump(results, f, indent=2)
         print(f"BATCH_STRAIN_JSON:{output_path}")
         print(f"Scored {len(results)} ligands", file=sys.stderr)
+
+    elif args.mode == 'batch_energy':
+        import json
+        if not args.ligand_dir or not os.path.isdir(args.ligand_dir):
+            print(f"Error: --ligand_dir required for batch_energy mode", file=sys.stderr)
+            sys.exit(1)
+        sdfs = sorted([
+            os.path.join(args.ligand_dir, f)
+            for f in os.listdir(args.ligand_dir)
+            if f.endswith('.sdf') or f.endswith('.sdf.gz')
+        ])
+        if not sdfs:
+            print("Error: No SDF files found in ligand_dir", file=sys.stderr)
+            sys.exit(1)
+        results = batch_energy(args.xtb_binary, sdfs, args.solvent)
+        output_path = args.output_json or os.path.join(args.ligand_dir, 'xtb_energy.json')
+        with open(output_path, 'w') as f:
+            json.dump(results, f, indent=2)
+        print(f"BATCH_ENERGY_JSON:{output_path}")
+        print(f"Scored {len(results)} poses", file=sys.stderr)
 
     elif args.mode == 'single_point':
         if not args.ligand or not os.path.isfile(args.ligand):
