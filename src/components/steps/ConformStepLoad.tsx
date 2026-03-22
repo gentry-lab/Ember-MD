@@ -1,4 +1,4 @@
-import { Component, Show, createSignal } from 'solid-js';
+import { Component, Show, createSignal, createMemo } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { sanitizeConformOutputName } from '../../utils/jobName';
 
@@ -14,8 +14,12 @@ const ConformStepLoad: Component = () => {
   const api = window.electronAPI;
 
   const [isLoading, setIsLoading] = createSignal(false);
-  const [smilesInput, setSmilesInput] = createSignal('');
-  const [inputTab, setInputTab] = createSignal<'sdf' | 'smiles'>('sdf');
+  const [smilesText, setSmilesText] = createSignal('');
+  const [inputTab, setInputTab] = createSignal<'sdf' | 'smiles'>('smiles');
+
+  const detectedSmiles = createMemo(() =>
+    smilesText().split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  );
 
   const handleSelectSdf = async () => {
     const sdfPath = await api.selectSdfFile();
@@ -26,22 +30,24 @@ const ConformStepLoad: Component = () => {
     setConformOutputName(sanitizeConformOutputName(name));
   };
 
-  const handleSmiles = async () => {
-    const smiles = smilesInput().trim();
-    if (!smiles) return;
+  const handleConvertSmiles = async () => {
+    const smiles = detectedSmiles();
+    if (smiles.length === 0) return;
     setIsLoading(true);
+    setError(null);
     try {
       const defaultDir = await api.getDefaultOutputDir();
       const baseDir = state().customOutputDir || defaultDir;
       const tmpDir = `${baseDir}/${state().jobName}/conformers/_tmp`;
       await api.createDirectory(tmpDir);
-      const result = await api.convertSingleMolecule(smiles, tmpDir, 'smiles');
-      if (result.ok) {
-        setConformLigandSdf(result.value.sdfPath);
-        setConformLigandName(result.value.name || 'smiles_mol');
-        setConformOutputName(sanitizeConformOutputName(result.value.name || 'smiles_mol'));
+      const result = await api.convertSmilesList(smiles, tmpDir);
+      if (result.ok && result.value.length > 0) {
+        const first = result.value[0];
+        setConformLigandSdf(first.sdfPath);
+        setConformLigandName(first.filename || 'smiles_mol');
+        setConformOutputName(sanitizeConformOutputName(first.filename || 'smiles_mol'));
       } else {
-        setError(result.error?.message || 'SMILES conversion failed');
+        setError(result.ok ? 'No molecules converted' : (result.error?.message || 'SMILES conversion failed'));
       }
     } catch (err) {
       setError((err as Error).message);
@@ -83,17 +89,26 @@ const ConformStepLoad: Component = () => {
             </Show>
 
             <Show when={inputTab() === 'smiles'}>
-              <div class="flex gap-2">
-                <input
-                  type="text"
-                  class="input input-bordered input-sm flex-1 font-mono text-xs"
-                  placeholder="Paste SMILES..."
-                  value={smilesInput()}
-                  onInput={(e) => setSmilesInput(e.currentTarget.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSmiles(); }}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] text-base-content/70">One SMILES per line</span>
+                  <span class={`text-[10px] font-mono ${detectedSmiles().length > 0 ? 'text-success' : 'text-base-content/50'}`}>
+                    {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''} detected
+                  </span>
+                </div>
+                <textarea
+                  class="textarea textarea-bordered text-xs font-mono w-full resize-none leading-relaxed"
+                  placeholder={"CCO\nc1ccccc1\nCC(=O)Oc1ccccc1C(=O)O"}
+                  value={smilesText()}
+                  onInput={(e) => setSmilesText(e.currentTarget.value)}
+                  rows={5}
                 />
-                <button class="btn btn-primary btn-sm" onClick={handleSmiles} disabled={!smilesInput().trim() || isLoading()}>
-                  {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Go'}
+                <button
+                  class="btn btn-primary btn-sm w-full"
+                  onClick={handleConvertSmiles}
+                  disabled={isLoading() || detectedSmiles().length === 0}
+                >
+                  {isLoading() ? <span class="loading loading-spinner loading-xs" /> : `Convert ${detectedSmiles().length} molecule${detectedSmiles().length !== 1 ? 's' : ''}`}
                 </button>
               </div>
             </Show>
