@@ -238,19 +238,29 @@ def create_complex_system(
         lig_positions.append(openmm.Vec3(pos.x * 0.1, pos.y * 0.1, pos.z * 0.1) * omm_unit.nanometers)
     modeller.add(lig_top, lig_positions)
 
-    # Only resolve CYS-family ambiguity (CYS/CYM/CYX all match with
-    # ignoreExternalBonds); let OpenMM auto-detect terminal variants
-    # (NTHR, CALA, etc.) for everything else.
-    ambiguous = {'CYS', 'CYX', 'CYM'}
-    residue_templates = {res: res.name for res in modeller.topology.residues() if res.name in ambiguous}
-    system = forcefield.createSystem(
-        modeller.topology,
-        nonbondedMethod=omm_app.NoCutoff,
-        constraints=None,
-        rigidWater=False,
-        ignoreExternalBonds=True,
-        residueTemplates=residue_templates,
-    )
+    try:
+        system = forcefield.createSystem(
+            modeller.topology,
+            nonbondedMethod=omm_app.NoCutoff,
+            constraints=None,
+            rigidWater=False,
+        )
+    except Exception:
+        # Chain breaks cause bond mismatches; fall back to ignoring external
+        # bonds and resolving CYS/CYX ambiguity by actual atom content.
+        cys_templates = {}
+        for res in modeller.topology.residues():
+            if res.name in ('CYS', 'CYX', 'CYM'):
+                atom_names = {a.name for a in res.atoms()}
+                cys_templates[res] = 'CYS' if 'HG' in atom_names else 'CYX'
+        system = forcefield.createSystem(
+            modeller.topology,
+            nonbondedMethod=omm_app.NoCutoff,
+            constraints=None,
+            rigidWater=False,
+            ignoreExternalBonds=True,
+            residueTemplates=cys_templates,
+        )
 
     radii_nm = {
         "H": 0.12, "C": 0.17, "N": 0.155, "O": 0.15, "F": 0.15,
