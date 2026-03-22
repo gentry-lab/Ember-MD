@@ -7633,6 +7633,67 @@ ipcMain.handle(
       });
     }
 
+    // --- Step 3.5: xTB relative energy scoring ---
+    const xtbPath = getQupkakeXtbPath();
+    if (xtbPath) {
+      event.sender.send(IpcChannels.MD_OUTPUT, {
+        type: 'stdout',
+        data: '=== xTB energy scoring cluster centroids ===\n',
+      });
+
+      const xtbScript = path.join(fraggenRoot, 'score_xtb_strain.py');
+      if (fs.existsSync(xtbScript)) {
+        // Collect ligand SDF paths from prepared clusters
+        const ligandSdfs = scoredClusters
+          .filter((c) => c.ligandSdfPath && fs.existsSync(c.ligandSdfPath!))
+          .map((c) => c.ligandSdfPath!);
+
+        if (ligandSdfs.length > 0) {
+          // Write temp ligand list for batch processing
+          const xtbLigandDir = path.join(scoredClustersDir, '_xtb_ligands');
+          fs.mkdirSync(xtbLigandDir, { recursive: true });
+          for (const sdf of ligandSdfs) {
+            const dest = path.join(xtbLigandDir, path.basename(sdf));
+            if (!fs.existsSync(dest)) fs.copyFileSync(sdf, dest);
+          }
+
+          const xtbOutputJson = path.join(scoredClustersDir, 'xtb_energy.json');
+          try {
+            const { stdout, code } = await spawnPythonScript([
+              xtbScript,
+              '--xtb_binary', xtbPath,
+              '--mode', 'batch_energy',
+              '--ligand_dir', xtbLigandDir,
+              '--output_json', xtbOutputJson,
+            ]);
+            if (code === 0 && fs.existsSync(xtbOutputJson)) {
+              const xtbData = JSON.parse(fs.readFileSync(xtbOutputJson, 'utf-8'));
+              for (const cluster of scoredClusters) {
+                if (!cluster.ligandSdfPath) continue;
+                const baseName = path.basename(cluster.ligandSdfPath).replace(/\.sdf(\.gz)?$/, '');
+                const key = `${baseName}_0`;
+                if (key in xtbData) {
+                  cluster.xtbStrainKcal = xtbData[key];
+                }
+              }
+              writeClusterScoreRows(scoredClustersDir, scoredClusters);
+              event.sender.send(IpcChannels.MD_OUTPUT, {
+                type: 'stdout',
+                data: `xTB energy scoring complete: ${Object.keys(xtbData).length} centroids\nPROGRESS:scoring_xtb:100\n`,
+              });
+            }
+          } catch (e) {
+            event.sender.send(IpcChannels.MD_OUTPUT, {
+              type: 'stderr',
+              data: `xTB scoring warning: ${(e as Error).message}\n`,
+            });
+          }
+          // Clean up temp dir
+          try { fs.rmSync(xtbLigandDir, { recursive: true }); } catch { /* */ }
+        }
+      }
+    }
+
     // --- Step 4: CORDIAL rescoring ---
     if (options.enableCordial) {
       event.sender.send(IpcChannels.MD_OUTPUT, {
