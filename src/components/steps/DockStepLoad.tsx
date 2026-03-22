@@ -340,160 +340,62 @@ const DockStepLoad: Component = () => {
                 </Show>
               </div>
 
-              <div class="tabs tabs-boxed bg-base-300 mb-3 w-full">
-                <button
-                  class={`tab tab-xs flex-1 ${ligandSource() === 'smiles_input' ? 'tab-active' : ''}`}
-                  onClick={() => handleSourceChange('smiles_input')}
-                >
-                  SMILES
-                </button>
-                <button
-                  class={`tab tab-xs flex-1 ${ligandSource() === 'structure_files' ? 'tab-active' : ''}`}
-                  onClick={() => handleSourceChange('structure_files')}
-                >
-                  Files
-                </button>
-                <button
-                  class={`tab tab-xs flex-1 ${ligandSource() === 'molecule_csv' ? 'tab-active' : ''}`}
-                  onClick={() => handleSourceChange('molecule_csv')}
-                >
-                  CSV
-                </button>
-              </div>
+              <Show
+                when={ligandMolecules().length > 0}
+                fallback={
+                  <div class="flex-1 flex flex-col w-full gap-3">
+                    <button
+                      class="btn btn-outline btn-sm w-full"
+                      onClick={handleSelectStructureFiles}
+                      disabled={isLoadingLigands()}
+                    >
+                      {isLoadingLigands() ? <span class="loading loading-spinner loading-xs" /> : 'Import (.sdf, .mol, .csv)'}
+                    </button>
 
-              <Show when={ligandSource() === 'smiles_input'}>
-                <div class="flex-1 flex flex-col">
-                  <Show
-                    when={ligandMolecules().length > 0}
-                    fallback={
-                      <div class="flex-1 flex flex-col w-full">
-                        <div class="flex items-center justify-between mb-1">
-                          <span class="text-[10px] text-base-content/70">One SMILES per line</span>
-                          <span class={`text-[10px] font-mono ${detectedSmiles().length > 0 ? 'text-success' : 'text-base-content/50'}`}>
-                            {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''} detected
+                    <div>
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] text-base-content/50">or enter SMILES</span>
+                        <Show when={detectedSmiles().length > 0}>
+                          <span class="text-[10px] font-mono text-success">
+                            {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''}
                           </span>
-                        </div>
-                        <textarea
-                          class="textarea textarea-bordered text-xs font-mono flex-1 w-full resize-none leading-relaxed"
-                          placeholder="Enter SMILES strings (one compound per line)"
-                          value={smilesText()}
-                          onInput={(e) => setSmilesText(e.currentTarget.value)}
-                          rows={6}
-                        />
-                        <button
-                          class="btn btn-primary btn-sm w-full mt-2"
-                          onClick={handleConvertSmiles}
-                          disabled={isLoadingLigands() || detectedSmiles().length === 0}
-                        >
-                          {isLoadingLigands() ? <span class="loading loading-spinner loading-xs" /> : `Convert ${detectedSmiles().length} molecule${detectedSmiles().length !== 1 ? 's' : ''}`}
-                        </button>
-                      </div>
-                    }
-                  >
-                    <div class="w-full space-y-2">
-                      <div class="flex items-center gap-2 px-3 py-1.5 bg-base-300 rounded-lg">
-                        <span class="text-xs flex-1">SMILES input</span>
-                        <span class="badge badge-success badge-xs">{ligandMolecules().length} ready</span>
-                      </div>
-                      <div class="bg-base-300/70 rounded-lg px-3 py-2 text-[10px] font-mono space-y-1 max-h-28 overflow-auto">
-                        <For each={ligandMolecules().slice(0, 6)}>
-                          {(mol) => <div class="truncate">{mol.filename}</div>}
-                        </For>
-                        <Show when={ligandMolecules().length > 6}>
-                          <div class="text-base-content/70">+ {ligandMolecules().length - 6} more</div>
                         </Show>
                       </div>
-                      <button class="btn btn-ghost btn-xs w-full" onClick={resetLigandInput}>
-                        Clear
-                      </button>
+                      <textarea
+                        class="textarea textarea-bordered text-xs font-mono w-full resize-none leading-relaxed"
+                        placeholder="Enter SMILES strings (one compound per line)"
+                        value={smilesText()}
+                        onInput={(e) => setSmilesText(e.currentTarget.value)}
+                        rows={5}
+                      />
                     </div>
-                  </Show>
-                </div>
-              </Show>
 
-              <Show when={ligandSource() === 'structure_files'}>
-                <div class="flex-1 flex flex-col items-center justify-center">
-                  <Show
-                    when={ligandMolecules().length > 0}
-                    fallback={
-                      <div class="text-center w-full">
-                        <button
-                          class="btn btn-outline btn-sm w-full mb-2"
-                          onClick={handleSelectStructureFiles}
-                          disabled={isLoadingLigands()}
-                        >
-                          {isLoadingLigands() ? <span class="loading loading-spinner loading-xs" /> : 'Select Structure'}
-                        </button>
-                        <p class="text-[10px] text-base-content/70">
-                          Accepted ligand formats: `.sdf`, `.sdf.gz`, `.mol`, `.mol2`. Pick one file or many files at once.
-                        </p>
-                      </div>
-                    }
-                  >
-                    <div class="w-full space-y-2">
-                      <div class="flex items-center gap-2 px-3 py-1.5 bg-base-300 rounded-lg">
-                        <svg class="w-4 h-4 text-base-content/70 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                        </svg>
-                        <span class="text-xs truncate flex-1">{importedStructureLabel()}</span>
-                        <span class="badge badge-success badge-xs">{ligandMolecules().length} ready</span>
-                      </div>
-                      <div class="bg-base-300/70 rounded-lg px-3 py-2 text-[10px] font-mono space-y-1 max-h-28 overflow-auto">
-                        <For each={structureFilePaths().slice(0, 6)}>
-                          {(filePath) => <div class="truncate">{path.basename(filePath)}</div>}
-                        </For>
-                        <Show when={structureFilePaths().length > 6}>
-                          <div class="text-base-content/70">+ {structureFilePaths().length - 6} more</div>
-                        </Show>
-                      </div>
-                      <button class="btn btn-ghost btn-xs w-full" onClick={resetLigandInput}>
-                        Clear
-                      </button>
-                    </div>
-                  </Show>
-                </div>
-              </Show>
-
-              <Show when={ligandSource() === 'molecule_csv'}>
-                <div class="flex-1 flex flex-col items-center justify-center">
-                  <Show
-                    when={ligandMolecules().length > 0}
-                    fallback={
-                      <div class="text-center w-full">
-                        <button
-                          class="btn btn-outline btn-sm w-full mb-2"
-                          onClick={handleSelectCsvFile}
-                          disabled={isLoadingLigands()}
-                        >
-                          {isLoadingLigands() ? <span class="loading loading-spinner loading-xs" /> : 'Select CSV'}
-                        </button>
-                        <p class="text-[10px] text-base-content/70">
-                          Accepted CSV columns: `smiles` or `structure_file` / `mol_file` / `path` / `file`, plus optional `name`.
-                        </p>
-                      </div>
-                    }
-                  >
-                    <div class="w-full space-y-2">
-                      <div class="flex items-center gap-2 px-3 py-1.5 bg-base-300 rounded-lg">
-                        <svg class="w-4 h-4 text-base-content/70 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                        </svg>
-                        <span class="text-xs truncate flex-1">{csvFilePath() ? path.basename(csvFilePath()!) : ''}</span>
-                        <span class="badge badge-success badge-xs">{ligandMolecules().length} ready</span>
-                      </div>
-                      <div class="bg-base-300/70 rounded-lg px-3 py-2 text-[10px] font-mono space-y-1 max-h-28 overflow-auto">
-                        <For each={ligandMolecules().slice(0, 6)}>
-                          {(mol) => <div class="truncate">{mol.filename}</div>}
-                        </For>
-                        <Show when={ligandMolecules().length > 6}>
-                          <div class="text-base-content/70">+ {ligandMolecules().length - 6} more</div>
-                        </Show>
-                      </div>
-                      <button class="btn btn-ghost btn-xs w-full" onClick={resetLigandInput}>
-                        Clear
-                      </button>
-                    </div>
-                  </Show>
+                    <button
+                      class="btn btn-primary btn-sm w-full"
+                      onClick={handleConvertSmiles}
+                      disabled={isLoadingLigands() || detectedSmiles().length === 0}
+                    >
+                      {isLoadingLigands() ? <span class="loading loading-spinner loading-xs" /> : 'Enter SMILES'}
+                    </button>
+                  </div>
+                }
+              >
+                <div class="w-full space-y-2">
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-base-300 rounded-lg">
+                    <span class="text-xs flex-1">{ligandMolecules().length} ligand{ligandMolecules().length !== 1 ? 's' : ''} loaded</span>
+                    <span class="badge badge-success badge-xs">ready</span>
+                  </div>
+                  <div class="bg-base-300/70 rounded-lg px-3 py-2 text-[10px] font-mono space-y-1 max-h-28 overflow-auto">
+                    <For each={ligandMolecules().slice(0, 6)}>
+                      {(mol) => <div class="truncate">{mol.filename}</div>}
+                    </For>
+                    <Show when={ligandMolecules().length > 6}>
+                      <div class="text-base-content/70">+ {ligandMolecules().length - 6} more</div>
+                    </Show>
+                  </div>
+                  <button class="btn btn-ghost btn-xs w-full" onClick={resetLigandInput}>
+                    Clear
+                  </button>
                 </div>
               </Show>
             </div>

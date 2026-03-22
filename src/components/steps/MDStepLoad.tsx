@@ -20,7 +20,11 @@ const MDStepLoad: Component = () => {
   const api = window.electronAPI;
 
   const [isLoading, setIsLoading] = createSignal(false);
-  const [smilesInput, setSmilesInput] = createSignal('');
+  const [smilesText, setSmilesText] = createSignal('');
+
+  const detectedSmiles = createMemo(() =>
+    smilesText().split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  );
 
   // Accessors for store-persisted state (survive mode switches)
   const pdbPath = () => state().md.pdbPath;
@@ -133,9 +137,9 @@ const MDStepLoad: Component = () => {
   };
 
   // Single molecule handlers (ligand-only mode)
-  const handleSmilesSubmit = async () => {
-    const smiles = smilesInput().trim();
-    if (!smiles) return;
+  const handleConvertSmiles = async () => {
+    const smiles = detectedSmiles();
+    if (smiles.length === 0) return;
 
     setIsLoading(true);
     setError(null);
@@ -144,19 +148,19 @@ const MDStepLoad: Component = () => {
     const baseOutputDir = state().customOutputDir || defaultDir;
     const paths = projectPaths(baseOutputDir, state().jobName);
 
-    const result = await api.convertSingleMolecule(smiles, paths.ligands.sdf, 'smiles');
+    const result = await api.convertSmilesList(smiles, paths.ligands.sdf);
     setIsLoading(false);
 
-    if (result.ok) {
-      const mol = result.value;
-      setMdSingleMoleculeInput(smiles);
-      setMdSingleMoleculeThumbnail(mol.thumbnail);
-      setMdLigandSdf(mol.sdfPath);
-      setMdLigandName(mol.name);
+    if (result.ok && result.value.length > 0) {
+      const first = result.value[0];
+      setMdSingleMoleculeInput(smiles[0]);
+      setMdSingleMoleculeThumbnail(null);
+      setMdLigandSdf(first.sdfPath);
+      setMdLigandName(first.filename);
       setMdReceptorPdb(null);
-      setThumbnailDataUrl(`data:image/png;base64,${mol.thumbnail}`);
+      setThumbnailDataUrl(null);
     } else {
-      setError(result.error?.message || 'Failed to convert molecule');
+      setError(result.ok ? 'No molecules converted' : (result.error?.message || 'SMILES conversion failed'));
     }
   };
 
@@ -193,7 +197,7 @@ const MDStepLoad: Component = () => {
     setMdLigandSdf(null);
     setMdLigandName(null);
     setThumbnailDataUrl(null);
-    setSmilesInput('');
+    setSmilesText('');
   };
 
   const [isProtonating, setIsProtonating] = createSignal(false);
@@ -297,47 +301,38 @@ const MDStepLoad: Component = () => {
           fallback={
             <div class="flex-1 flex items-center justify-center">
               <div class="card bg-base-200 shadow-lg w-80">
-                <div class="card-body p-5">
-                  <h3 class="text-sm font-semibold mb-3">Single Molecule Input</h3>
+                <div class="card-body p-4">
+                  <div class="space-y-3">
+                    <button class="btn btn-outline btn-sm w-full" onClick={handleSelectMolFile} disabled={isLoading()}>
+                      Import (.sdf, .mol, .mol2)
+                    </button>
 
-                  {/* SMILES input */}
-                  <div class="form-control mb-2">
-                    <label class="label py-0.5">
-                      <span class="label-text text-xs">Paste SMILES</span>
-                    </label>
-                    <div class="flex gap-1">
-                      <input
-                        type="text"
-                        class="input input-bordered input-sm flex-1 font-mono text-xs"
-                        placeholder="e.g. CC(=O)Oc1ccccc1C(=O)O"
-                        value={smilesInput()}
-                        onInput={(e) => setSmilesInput(e.currentTarget.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSmilesSubmit()}
+                    <div>
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] text-base-content/50">or enter SMILES</span>
+                        <Show when={detectedSmiles().length > 0}>
+                          <span class="text-[10px] font-mono text-success">
+                            {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''}
+                          </span>
+                        </Show>
+                      </div>
+                      <textarea
+                        class="textarea textarea-bordered text-xs font-mono w-full resize-none leading-relaxed"
+                        placeholder="Enter SMILES strings (one compound per line)"
+                        value={smilesText()}
+                        onInput={(e) => setSmilesText(e.currentTarget.value)}
+                        rows={4}
                       />
-                      <button
-                        class="btn btn-primary btn-sm"
-                        onClick={handleSmilesSubmit}
-                        disabled={!smilesInput().trim() || isLoading()}
-                      >
-                        {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Go'}
-                      </button>
                     </div>
+
+                    <button
+                      class="btn btn-primary btn-sm w-full"
+                      onClick={handleConvertSmiles}
+                      disabled={isLoading() || detectedSmiles().length === 0}
+                    >
+                      {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Enter SMILES'}
+                    </button>
                   </div>
-
-                  <div class="divider my-1 text-[10px]">or</div>
-
-                  {/* MOL/SDF file browser */}
-                  <button class="btn btn-outline btn-sm w-full" onClick={handleSelectMolFile} disabled={isLoading()}>
-                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                    Select MOL / SDF File
-                  </button>
-
-                  <p class="text-[10px] text-base-content/60 mt-2">
-                    The molecule will be solvated and simulated without a protein receptor.
-                    3D coordinates are generated via ETKDG + MMFF minimization.
-                  </p>
                 </div>
               </div>
             </div>

@@ -15,13 +15,12 @@ const ConformStepLoad: Component = () => {
 
   const [isLoading, setIsLoading] = createSignal(false);
   const [smilesText, setSmilesText] = createSignal('');
-  const [inputTab, setInputTab] = createSignal<'sdf' | 'smiles'>('smiles');
 
   const detectedSmiles = createMemo(() =>
     smilesText().split('\n').map(l => l.trim()).filter(l => l.length > 0)
   );
 
-  const handleSelectSdf = async () => {
+  const handleSelectFile = async () => {
     const sdfPath = await api.selectSdfFile();
     if (!sdfPath) return;
     const name = sdfPath.split('/').pop()?.replace(/(\.sdf(\.gz)?|\.mol2?|\.mol)$/i, '') || 'ligand';
@@ -55,68 +54,68 @@ const ConformStepLoad: Component = () => {
     setIsLoading(false);
   };
 
+  const handleClear = () => {
+    setConformLigandSdf(null);
+    setConformLigandName(null);
+    setConformOutputName('');
+    setSmilesText('');
+    setError(null);
+  };
+
   const canContinue = () => !!state().conform.ligandSdfPath;
 
   return (
     <div class="h-full flex flex-col">
       <div class="text-center mb-3">
         <h2 class="text-xl font-bold">Load Molecule for MCMM</h2>
-        <p class="text-sm text-base-content/90">Select one ligand structure or paste a SMILES string</p>
+        <p class="text-sm text-base-content/90">Import a ligand file or enter SMILES</p>
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto flex flex-col items-center gap-4">
-        {/* Input tabs */}
-        <div class="tabs tabs-boxed tabs-sm">
-          <button class={`tab ${inputTab() === 'sdf' ? 'tab-active' : ''}`} onClick={() => setInputTab('sdf')}>
-            Structure File
-          </button>
-          <button class={`tab ${inputTab() === 'smiles' ? 'tab-active' : ''}`} onClick={() => setInputTab('smiles')}>
-            SMILES
-          </button>
-        </div>
-
         <div class="card bg-base-200 shadow-lg w-full max-w-md">
           <div class="card-body p-4">
-            <Show when={inputTab() === 'sdf'}>
-              <div class="space-y-2">
-                <button class="btn btn-primary btn-sm w-full" onClick={handleSelectSdf} disabled={isLoading()}>
-                  Select Structure File
-                </button>
-                <p class="text-[10px] text-base-content/70">
-                  Accepted formats: `.sdf`, `.sdf.gz`, `.mol`, `.mol2`
-                </p>
-              </div>
-            </Show>
-
-            <Show when={inputTab() === 'smiles'}>
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10px] text-base-content/70">One SMILES per line</span>
-                  <span class={`text-[10px] font-mono ${detectedSmiles().length > 0 ? 'text-success' : 'text-base-content/50'}`}>
-                    {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''} detected
-                  </span>
+            <Show
+              when={!state().conform.ligandSdfPath}
+              fallback={
+                <div class="space-y-3">
+                  <div class="p-3 bg-base-300 rounded-lg">
+                    <p class="text-xs font-semibold">{state().conform.ligandName}</p>
+                    <p class="text-[10px] font-mono text-base-content/70 break-all truncate">{state().conform.ligandSdfPath}</p>
+                  </div>
+                  <button class="btn btn-ghost btn-xs w-full" onClick={handleClear}>Clear</button>
                 </div>
-                <textarea
-                  class="textarea textarea-bordered text-xs font-mono w-full resize-none leading-relaxed"
-                  placeholder="Enter SMILES strings (one compound per line)"
-                  value={smilesText()}
-                  onInput={(e) => setSmilesText(e.currentTarget.value)}
-                  rows={5}
-                />
+              }
+            >
+              <div class="space-y-3">
+                <button class="btn btn-outline btn-sm w-full" onClick={handleSelectFile} disabled={isLoading()}>
+                  Import (.sdf, .mol, .mol2)
+                </button>
+
+                <div>
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-[10px] text-base-content/50">or enter SMILES</span>
+                    <Show when={detectedSmiles().length > 0}>
+                      <span class="text-[10px] font-mono text-success">
+                        {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''}
+                      </span>
+                    </Show>
+                  </div>
+                  <textarea
+                    class="textarea textarea-bordered text-xs font-mono w-full resize-none leading-relaxed"
+                    placeholder="Enter SMILES strings (one compound per line)"
+                    value={smilesText()}
+                    onInput={(e) => setSmilesText(e.currentTarget.value)}
+                    rows={4}
+                  />
+                </div>
+
                 <button
                   class="btn btn-primary btn-sm w-full"
                   onClick={handleConvertSmiles}
                   disabled={isLoading() || detectedSmiles().length === 0}
                 >
-                  {isLoading() ? <span class="loading loading-spinner loading-xs" /> : `Convert ${detectedSmiles().length} molecule${detectedSmiles().length !== 1 ? 's' : ''}`}
+                  {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Enter SMILES'}
                 </button>
-              </div>
-            </Show>
-
-            <Show when={state().conform.ligandSdfPath}>
-              <div class="mt-3 p-2 bg-base-300 rounded-lg">
-                <p class="text-xs font-semibold">{state().conform.ligandName}</p>
-                <p class="text-[10px] font-mono text-base-content/70 break-all">{state().conform.ligandSdfPath}</p>
               </div>
             </Show>
           </div>
@@ -129,7 +128,6 @@ const ConformStepLoad: Component = () => {
         </Show>
       </div>
 
-      {/* Navigation */}
       <div class="flex justify-end mt-3 flex-shrink-0">
         <button class="btn btn-primary" onClick={() => setConformStep('conform-configure')} disabled={!canContinue()}>
           Continue
