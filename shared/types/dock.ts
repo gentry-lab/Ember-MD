@@ -77,7 +77,7 @@ export interface ConformerConfig {
   maxConformers: number;    // Default: 5 (ETKDG), 50 (MCMM)
   rmsdCutoff: number;       // Default: 1.0 Å
   energyWindow: number;     // Default: 5.0 kcal/mol
-  mcmmSteps: number;        // Default: 100 (MCMM only)
+  mcmmSteps: number;        // Default: 1000 (MCMM only)
   mcmmTemperature: number;  // Default: 298 K (MCMM only)
   sampleAmides: boolean;    // Default: true (MCMM only)
   xtbRerank: boolean;       // Default: true — re-rank ETKDG/MCMM conformers by GFN2-xTB energy

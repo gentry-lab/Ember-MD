@@ -166,19 +166,6 @@ const DockStepConfigure: Component = () => {
                   onInput={(e) => setDockConfig({ autoboxAdd: Number(e.currentTarget.value) || 4 })}
                 />
               </div>
-              <div class="form-control">
-                <label class="label py-0.5">
-                  <span class="label-text text-xs">Random seed</span>
-                </label>
-                <input
-                  type="number"
-                  class="input input-bordered input-sm w-full"
-                  value={state().dock.config.seed}
-                  min={0}
-                  onInput={(e) => setDockConfig({ seed: Number(e.currentTarget.value) || 0 })}
-                  placeholder="0 = random"
-                />
-              </div>
             </div>
             <label class="label cursor-pointer py-0.5 mt-1">
               <span class="label-text text-xs flex items-center gap-1.5">
@@ -294,8 +281,8 @@ const DockStepConfigure: Component = () => {
                   <div class="form-control flex-1">
                     <label class="label py-0"><span class="label-text text-[10px]">Search steps</span></label>
                     <input type="number" class="input input-bordered input-xs w-full"
-                      value={state().dock.conformerConfig.mcmmSteps} min={10} max={1000}
-                      onInput={(e) => setDockConformerConfig({ mcmmSteps: Number(e.currentTarget.value) || 100 })}
+                      value={state().dock.conformerConfig.mcmmSteps} min={10} max={5000}
+                      onInput={(e) => setDockConformerConfig({ mcmmSteps: Number(e.currentTarget.value) || 1000 })}
                     />
                   </div>
                   <div class="form-control flex-1">
@@ -330,6 +317,13 @@ const DockStepConfigure: Component = () => {
                   Using {state().dock.cachedConformerPaths.length} cached conformers
                 </div>
               </Show>
+
+              <div class="border-t border-base-300 my-2" />
+              <p class="text-[10px] text-base-content/50">
+                {state().dock.conformerConfig.method === 'crest'
+                  ? 'CREST conformers already at GFN2-xTB level.'
+                  : 'Ligands minimized with GFN2-xTB before docking.'}
+              </p>
             </div>
           </div>
         </div>

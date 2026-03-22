@@ -127,21 +127,12 @@ const ConformStepConfigure: Component = () => {
               </label>
             </Show>
 
-            <Show when={state().conform.config.method !== 'crest'}>
-              <div class="border-t border-base-300 my-2" />
-              <label class="label cursor-pointer py-0">
-                <span class="label-text text-[10px]">
-                  xTB reranking
-                  <span class="text-base-content/50"> (GFN2-xTB + ALPB water)</span>
-                </span>
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-xs checkbox-primary"
-                  checked={state().conform.config.xtbRerank}
-                  onChange={(e) => setConformConfig({ xtbRerank: e.currentTarget.checked })}
-                />
-              </label>
-            </Show>
+            <div class="border-t border-base-300 my-2" />
+            <p class="text-[10px] text-base-content/50">
+              {state().conform.config.method === 'crest'
+                ? 'Conformers ranked at GFN2-xTB level with ALPB solvation.'
+                : 'Conformers re-ranked by GFN2-xTB energy (ALPB water).'}
+            </p>
           </div>
         </div>
       </div>

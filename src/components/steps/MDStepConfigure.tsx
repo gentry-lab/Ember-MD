@@ -1,8 +1,9 @@
-import { Component, Show, createMemo, createSignal, For } from 'solid-js';
+import { Component, Show, createMemo, createSignal, For, onMount } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { useMdOutput } from '../../hooks/useElectronApi';
 import { MD_COMMON_PARAMS, MD_PRESET_PARAMS, MDForceFieldPreset } from '../../../shared/types/md';
 import { buildMdRunFolderName, sanitizeCompoundId, estimateChargeTime } from '../../utils/jobName';
+import DurationDial from '../shared/DurationDial';
 
 const MDStepConfigure: Component = () => {
   const {
@@ -65,6 +66,15 @@ const MDStepConfigure: Component = () => {
   });
 
   const isLigandOnly = () => state().md.inputMode === 'ligand_only';
+  const isApo = () => state().md.inputMode === 'apo';
+  const hasProtein = () => !isLigandOnly();
+
+  // Set smart default duration on first render if still at initial default
+  onMount(() => {
+    if (state().md.config.productionNs === 10) {
+      setMdConfig({ productionNs: isLigandOnly() ? 10 : 100 });
+    }
+  });
 
   const handleCancelBenchmark = async () => {
     await api.cancelMdBenchmark();
@@ -73,7 +83,7 @@ const MDStepConfigure: Component = () => {
   };
 
   const handleRunBenchmark = async () => {
-    if (!state().md.ligandSdf) return;
+    if (!isApo() && !state().md.ligandSdf) return;
     if (!isLigandOnly() && !state().md.receptorPdb) return;
 
     // Check if we already have a cached benchmark for the same inputs
@@ -194,10 +204,10 @@ const MDStepConfigure: Component = () => {
       {/* Title */}
       <div class="text-center mb-3">
         <h2 class="text-xl font-bold gradient-text">
-          {isLigandOnly() ? 'Configure Ligand MD' : 'Configure MD Simulation'}
+          {isLigandOnly() ? 'Configure Ligand MD' : isApo() ? 'Configure Apo Simulation' : 'Configure MD Simulation'}
         </h2>
         <p class="text-sm text-base-content/90">
-          {isLigandOnly() ? 'Small molecule in solvent' : 'Set simulation parameters and estimate runtime'}
+          {isLigandOnly() ? 'Small molecule in solvent' : isApo() ? 'Protein-only in solvent (no ligand)' : 'Set simulation parameters and estimate runtime'}
         </p>
       </div>
 
@@ -236,47 +246,39 @@ const MDStepConfigure: Component = () => {
             </div>
           </div>
 
-          {/* Production Duration + Benchmark */}
+          {/* Production Duration Dial + Benchmark */}
           <div class="card bg-base-200 shadow-lg flex-1">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-semibold mb-3">Production Duration</h3>
-              <div class="form-control mb-3">
-                <div class="flex gap-2 items-end">
-                  <div class="flex-1">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Duration (ns)</span>
-                    </label>
-                    <input
-                      type="number"
-                      class="input input-bordered input-sm w-full"
-                      value={state().md.config.productionNs}
-                      min={1}
-                      step={1}
-                      onInput={(e) => setMdConfig({ productionNs: Number(e.currentTarget.value) || 10 })}
-                    />
-                  </div>
-                  <Show
-                    when={!state().md.isBenchmarking}
-                    fallback={
-                      <button
-                        class="btn btn-error btn-sm"
-                        onClick={handleCancelBenchmark}
-                      >
-                        <span class="loading loading-spinner loading-xs" />
-                        Cancel
-                      </button>
-                    }
-                  >
+            <div class="card-body p-4 flex flex-col items-center">
+              <h3 class="text-sm font-semibold mb-1 self-start">Production Duration</h3>
+              <DurationDial
+                value={state().md.config.productionNs}
+                min={0.1}
+                max={10000}
+                onChange={(v) => setMdConfig({ productionNs: v })}
+                disabled={state().md.isBenchmarking}
+              />
+              <div class="flex flex-col items-center gap-2 w-full mt-1">
+                <Show
+                  when={!state().md.isBenchmarking}
+                  fallback={
                     <button
-                      class="btn btn-secondary btn-sm"
-                      onClick={handleRunBenchmark}
+                      class="btn btn-error btn-sm"
+                      onClick={handleCancelBenchmark}
                     >
-                      Estimate Runtime
+                      <span class="loading loading-spinner loading-xs" />
+                      Cancel
                     </button>
-                  </Show>
-                </div>
+                  }
+                >
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    onClick={handleRunBenchmark}
+                  >
+                    Estimate Runtime
+                  </button>
+                </Show>
                 <Show when={benchmarkStatus()}>
-                  <p class="text-[10px] text-base-content/60 mt-1">
+                  <p class="text-[10px] text-base-content/60">
                     {benchmarkStatus()}
                   </p>
                 </Show>
@@ -284,7 +286,7 @@ const MDStepConfigure: Component = () => {
 
               {/* Benchmark Results */}
               <Show when={state().md.benchmarkResult}>
-                <div class="bg-success/10 border border-success rounded-lg p-3">
+                <div class="bg-success/10 border border-success rounded-lg p-3 w-full mt-2">
                   <h4 class="font-semibold text-success text-xs mb-2">Benchmark Results</h4>
                   <div class="grid grid-cols-2 gap-2 text-xs">
                     <span class="text-base-content/85">Throughput:</span>
@@ -324,8 +326,8 @@ const MDStepConfigure: Component = () => {
               </p>
             </div>
 
-            {/* Ligand Restraint (IFD-MD) */}
-            <Show when={!isLigandOnly()}>
+            {/* Ligand Restraint (IFD-MD) — only for holo */}
+            <Show when={!isLigandOnly() && !isApo()}>
               <div class="mb-4">
                 <div class="flex items-center gap-2">
                   <input
@@ -403,20 +405,9 @@ const MDStepConfigure: Component = () => {
                   <span class="font-mono">mM NaCl</span>
                 </div>
               </div>
-              <div class="flex justify-between items-center py-1.5 border-b border-base-300">
+              <div class="flex justify-between py-1.5 border-b border-base-300">
                 <span class="text-base-content/90">Padding</span>
-                <div class="flex items-center gap-1">
-                  <input
-                    type="number"
-                    class="input input-bordered input-xs w-20 text-right font-mono"
-                    value={state().md.config.paddingNm}
-                    min={0.8}
-                    max={3.0}
-                    step={0.1}
-                    onInput={(e) => setMdConfig({ paddingNm: Number(e.currentTarget.value) || 1.2 })}
-                  />
-                  <span class="font-mono">nm</span>
-                </div>
+                <span class="font-mono">1.2 nm</span>
               </div>
               <div class="flex justify-between py-1.5 border-b border-base-300">
                 <span class="text-base-content/90">Timestep</span>
