@@ -1,6 +1,6 @@
 # Ember
 
-Desktop app for GPU-accelerated molecular dynamics on Apple Silicon. Primary user-facing tabs: **View** (NGL 3D viewer), **MCMM** (standalone conformer generation), **Dock** (AutoDock Vina), **Map** (GIST water map), and **Simulate** (OpenMM AMBER MD). The codebase also contains an **FEP** scoring panel, but its header tab is currently disabled.
+Desktop app for GPU-accelerated molecular dynamics on Apple Silicon. User-facing tabs: **View** (NGL 3D viewer), **MCMM** (standalone conformer generation), **Dock** (AutoDock Vina), and **Simulate** (OpenMM AMBER MD). FEP scoring and GIST water map code exist in the codebase but are removed from the UI (recoverable from git v0.2.18).
 
 **Repos**: `pseudo-control/Ember-MD` (this repo), `pseudo-control/Ember-Metal` (native Metal GPU backend, separate repo)
 **Stale docs**: `README.md` and `deps/README.md` still reference FragGen/GNINA/Linux — use this file instead.
@@ -25,28 +25,37 @@ npm run build           # Webpack → dist-webpack/
 npm run dist:mac        # Bundle .dmg via scripts/bundle-mac.sh (conda-pack → electron-builder dir build → create-dmg/plain DMG)
                         # Auto-generates assets/dmg-background.png if missing
                         # Requires: brew install create-dmg, Finder automation permission
+npm run test:e2e        # Build + run Playwright E2E tests (serial, 1 worker)
+npm run test:e2e:headed # Same but with visible Electron window
 ```
 
 ## Project Structure
 ```
-/electron/main.ts          — IPC handlers, subprocess management, logging, path resolution
+/electron/main.ts          — Thin orchestrator: window creation, app lifecycle, IPC module registration (~120 lines)
+/electron/paths.ts         — Path resolution, env detection, initializePaths()
+/electron/spawn.ts         — spawnPythonScript, childProcesses tracking, filterMdStderr, loadAndMergeCordialScores
+/electron/app-state.ts     — Shared mutable state (mainWindow, fraggenRoot, condaPythonPath, etc.)
+/electron/ipc/             — IPC handler modules (one per domain):
+                             dialogs, stats, generation, docking, ligand-sources, conformers,
+                             simulation, projects, viewer, maps, fep
 /electron/preload.ts       — Context bridge (inlined channel names)
-/src/App.tsx               — Root: ViewerMode always mounted (CSS-hidden); routes View, MCMM, Dock, Map, MD, and FEP panel
+/src/App.tsx               — Root: ViewerMode always mounted (CSS-hidden); routes View, MCMM, Dock, MD
 /src/stores/workflow.ts    — SolidJS signals (WorkflowState, MDState, DockState, ViewerState, MapState, ConformState)
 /src/utils/projectPaths.ts — Project directory layout (DockingPaths, SimulationPaths, conformers path)
 /src/utils/jobName.ts      — Job name generation + folder naming
-/src/components/layout/WizardLayout.tsx — Header: View | MCMM | Dock | Map | Simulate | FEP(disabled), project+job selector, step indicators
+/src/components/layout/WizardLayout.tsx — Header: View | MCMM | Dock | Simulate, project+job selector, step indicators
 /src/components/steps/     — DockStep{Load,Configure,Progress,Results}, MDStep{Load,Configure,Progress,Results}, ConformStep{Load,Configure,Progress,Results}
 /src/components/viewer/    — ViewerMode, TrajectoryControls, ClusteringModal, AnalysisPanel, FepScoringPanel, ScoringPanel, LayerPanel, BindingSiteMapPanel
 /src/components/map/       — MapMode (GIST water map — solvation method only)
 /shared/types/             — md.ts, dock.ts, ipc.ts, electron-api.ts, errors.ts, result.ts
 /scripts/score_cordial.py  — CORDIAL rescoring (outside deps/staging/)
 /deps/staging/scripts/     — Canonical Python scripts called by Electron
-                             run_md_simulation.py, run_vina_docking.py, run_abfe.py,
-                             detect_pdb_ligands.py, extract_xray_ligand.py, enumerate_protonation.py,
-                             enumerate_stereoisomers.py, generate_conformers.py, cluster_trajectory.py,
+                             prepare_receptor.py, run_md_simulation.py, run_vina_docking.py,
+                             run_abfe.py, detect_pdb_ligands.py, extract_xray_ligand.py,
+                             enumerate_protonation.py, enumerate_stereoisomers.py,
+                             generate_conformers.py, cluster_trajectory.py,
                              score_cluster_centroids.py, score_xtb_strain.py, predict_ligand_pka.py,
-                             analyze_gist.py, analyze_*.py, utils.py, etc.
+                             receptor_protonation.py, analyze_gist.py, analyze_*.py, utils.py, etc.
 /vendor/xtb-env/           — GFN2-xTB 6.7.1 (conda env with ALPB solvation, arm64)
 /vendor/QupKake/           — QupKake pKa prediction (forked, repo-local)
 ```
@@ -77,7 +86,7 @@ Each project lives under `~/Ember/{projectName}/`. Defined in `src/utils/project
 **Path API**: `projectPaths(baseDir, name).docking(run)` returns `{ root, inputs, inputsLigands, prep, results, resultsPoses }`. `.simulations(run)` returns `{ root, inputs, results, analysis, analysisClustering }`. `.conformers(run)` returns the standalone conformer output directory.
 
 ## Header UI
-Three-zone layout: mode tabs on the left, project name + job selector in the center, step indicators on the right. The visible tabs are `View`, `MCMM`, `Dock`, `Map`, `Simulate`, and a disabled `FEP` tab labeled "coming soon". The job selector currently groups jobs under docking and simulation.
+Three-zone layout: mode tabs on the left, project name + job selector in the center, step indicators on the right. Tabs: `View`, `MCMM`, `Dock`, `Simulate`.
 
 ## Simulate Mode
 **Equilibration**: AMBER-style restrained minimization → graduated minimization → NVT heating 5→100 K → NPT heating 100→300 K → restrained NPT → gradual restraint release → unrestrained NPT → production with HMR. Shared type metadata currently treats equilibration as roughly 270 ps.
@@ -95,48 +104,51 @@ Pipeline: receptor prep (Meeko Polymer) → ligand PDBQT prep (Meeko) → autobo
 
 **Receptor prep**: removes the docking ligand and common crystallization artifacts, keeps nearby crystallographic waters, metal ions, and relevant cofactors near the binding site. Metals are re-injected into PDBQT after Meeko processing with explicit AD4 atom types and charges.
 
-**xTB strain filter**: Optional post-docking step (`xtbConfig.strainFilter`). Computes GFN2-xTB strain energy per pose via batch mode (`score_xtb_strain.py --mode batch_strain`). Results in `results/xtb_strain.json`. Displayed as "Strain" column in DockStepResults (yellow >5 kcal/mol, red >8).
+**xTB strain filter**: Optional post-docking step (`xtbConfig.strainFilter`). Computes GFN2-xTB strain energy per pose via batch mode (`score_xtb_strain.py --mode batch_strain`). Uses per-molecule SMILES-keyed reference energies (each unique molecule gets its own optimized free minimum). Results in `results/xtb_strain.json`. Displayed as "Strain" column in DockStepResults (yellow >5 kcal/mol, red >8).
 
 **xTB pre-optimization**: Optional pre-docking step (`xtbConfig.preOptimize`). Optimizes ligand geometry with GFN2-xTB before Meeko PDBQT conversion.
 
+## Receptor Preparation (Unified)
+Single core function: `receptor_protonation.py::prepare_receptor_with_propka()`. Accepts optional `fixer=` kwarg for pre-modified PDBFixer.
+
+**Pipeline:** Reduce → PROPKA → PDBFixer (`findMissingResidues` → `findMissingAtoms` → `addMissingAtoms`, models missing loops) → variant plan (disulfides, PROPKA, HIS tautomers) → `addHydrogens` → write PDB + metadata.
+
+**How it's called:**
+- **Docking**: `detect_pdb_ligands.py` calls `prepare_receptor_with_propka()` directly (self-contained)
+- **MD**: `prepare_receptor.py::prepare_receptor()` adds CIF conversion, then delegates to `prepare_receptor_with_propka(fixer=...)`
+- **MD caller**: `run_md_simulation.py::_prepare_receptor_topology()` checks for existing `receptor_prepared.pdb`; if absent, calls `prepare_receptor()`
+
+**Pocket refinement** (`prepare_docking_complex.py`): `createSystem` uses try/fallback — normal first, then `ignoreExternalBonds=True` + CYS/CYX resolution by atom content (HG present → CYS, absent → CYX).
+
 ## MCMM Mode
-Standalone conformer generation is exposed in the UI as **MCMM**. Internally the workflow state is still named `conform`, but user-facing docs and tabs should call this MCMM mode. Three conformer generation methods:
+Standalone conformer generation exposed as **MCMM** tab. Internally the workflow state is `conform`. Three methods:
 
-- **ETKDG**: Fast RDKit distance geometry
+- **ETKDG**: Fast RDKit distance geometry (seconds)
 - **MCMM**: Monte Carlo Multiple Minimum with Sage 2.3.0 + OBC2 implicit solvent (default: 50 max conformers, 1.0 A RMSD cutoff, 5.0 kcal/mol energy window, 1000 steps, 298 K, amide cis/trans sampling)
-- **CREST**: GFN2-xTB metadynamics via external `crest` binary (conda). Most thorough — uses biased sampling to escape local minima, ranks at semiempirical QM level with ALPB solvation
+- **CREST**: GFN2-xTB metadynamics via `crest` 2.12 binary (conda-forge). Uses `--gfn2 --alpb water --chrg <formal_charge>`. Most thorough — biased sampling escapes local minima. ~6 min for a 21-atom molecule. CREST 3.x does NOT work (tblite crash on arm64); use 2.12.
 
-Optional **xTB reranking** toggle re-ranks ETKDG/MCMM conformers by GFN2-xTB single-point energy (parallelized via ThreadPoolExecutor). CREST conformers are already xTB-ranked so this is skipped for CREST.
+Optional **xTB reranking** re-ranks ETKDG/MCMM conformers by GFN2-xTB single-point energy. Skipped for CREST (already xTB-ranked). Validated: methylcyclohexane equatorial/axial split = 1.68 kcal/mol (xTB rerank) vs 1.53 (CREST) vs ~1.8 (textbook).
 
-## Map Mode
-Water thermodynamics analysis using **GIST** (Grid Inhomogeneous Solvation Theory) via cpptraj from AmberTools. Computes solute-water energy, water-water energy, and translational/orientational entropy on a 3D grid around the binding site. Decomposes into three pharmacophore channels:
-- **Hydrophobic** (green) — regions where displacing water gains free energy
-- **H-bond donor** (blue) — ligand donor binding opportunities
-- **H-bond acceptor** (red) — ligand acceptor binding opportunities
+**Energies**: All methods output relative kcal/mol (normalized to global minimum). Displayed in results table with method label. Energies flow: Python SDF property → JSON `conformer_energies` → store → UI.
 
-Output: 3 OpenDX files + hotspot JSON with clustered expansion vectors. Requires an MD trajectory (auto-launches a short 2-5 ns simulation if none loaded). Results saved to `surfaces/pocket_map_solvation/`.
-
-## FEP Panel
-`FepScoringPanel` and `run_abfe.py` are present in the codebase, and `state().mode === 'score'` renders the panel. In the current header UI the `FEP` tab is disabled, so this is implemented but not exposed as a normal selectable tab.
+## Removed Features (recoverable from git v0.2.18)
+- **Map Mode** (GIST water map): `MapMode.tsx`, `analyze_gist.py`, `BindingSiteMapPanel.tsx`. GIST water thermodynamics via cpptraj.
+- **FEP Panel**: `FepScoringPanel.tsx`, `run_abfe.py`. ABFE free energy scoring.
+- **Viewer SCORE button**: `ScoringPanel.tsx`. Single-complex Vina + xTB scoring in the viewer.
 
 ## View Mode
-NGL viewer with queue navigation for docking poses or cluster centroids. Trajectory playback updates coordinates in place after the first frame instead of reparsing PDBs. Supports clustering, RMSD/RMSF/H-bond/contact analysis, binding-site maps, surface coloring, and multi-structure layer alignment.
-
-**Scoring panel**: "SCORE" floating button appears when both protein and ligand are loaded. Runs Vina rescore + xTB strain energy in parallel via `SCORE_COMPLEX` IPC handler. Displays results in `ScoringPanel.tsx` overlay.
+NGL viewer with queue navigation for docking poses or cluster centroids. Trajectory playback updates coordinates in place after the first frame instead of reparsing PDBs. Supports clustering, RMSD/RMSF/H-bond/contact analysis, surface coloring, and multi-structure layer alignment. Import/Recent Jobs segmented control when no structure loaded.
 
 ## xTB (GFN2-xTB)
 GFN2-xTB 6.7.1 is vendored at `vendor/xtb-env/bin/xtb` (conda env, arm64). Detected at runtime by `getQupkakeXtbPath()` in main.ts. Used for:
-- **MD cluster scoring**: xTB strain energy = E(pose) - E(free minimum) per cluster centroid
-- **Docking strain filter**: batch strain scoring of all docked poses in a single Python invocation
 - **Conformer reranking**: re-rank ETKDG/MCMM conformers by xTB single-point energy
 - **CREST**: xTB serves as the energy function for CREST metadynamics conformer search
-- **Ligand pre-optimization**: optional geometry optimization before docking
-- **Viewer scoring**: single-complex strain energy from the SCORE button
+- **MD cluster scoring**: xTB strain energy per cluster centroid
 - **QupKake pKa**: GFN2-xTB features for neural-network pKa prediction
 
-`score_xtb_strain.py` is the standalone CLI utility. Modes: `single_point`, `optimize`, `strain`, `batch_strain`. Uses ALPB water solvation. Output parsed by main.ts via `XTB_SP_ENERGY:`, `XTB_OPT_ENERGY:`, `XTB_STRAIN:`, `BATCH_STRAIN_JSON:` stdout lines.
+xTB docking strain filter and viewer SCORE button removed from UI (strain methodology unsound — uses local minimum, not CREST global minimum). `score_xtb_strain.py` still exists for future CREST-based strain.
 
-**Note**: xTB 6.4.1 (still at `vendor/xtb-6.4.1/`) has a bug where geometry optimization + ALPB solvation fails with SCF convergence errors. Always prefer the 6.7.1 binary.
+**Note**: xTB 6.4.1 (still at `vendor/xtb-6.4.1/`) has ALPB solvation bugs. Always use 6.7.1. CREST must be 2.12 (3.x crashes on arm64).
 
 ## Logging
 `~/Ember/logs/ember-<timestamp>.log` captures main-process and renderer console output. Tags commonly include `[Viewer]`, `[Dock]`, `[MD]`, `[FEP]`, `[Score]`, `[Nav]`, and `[Store]`.
@@ -174,12 +186,49 @@ For the canonical bundled MD runner in `deps/staging/scripts/run_md_simulation.p
 ## Metal Backend
 Native Metal backend work lives in the separate `pseudo-control/Ember-Metal` repo. Use that repo's instruction file for low-level backend architecture, profiling, and MSL porting notes rather than duplicating them here.
 
+## E2E Testing (Playwright)
+Playwright with native Electron support. Tests launch the real app, interact with the UI, and verify results.
+
+**Config**: `playwright.config.ts` — 60s per test, 5 min global, serial (1 worker), html+list reporters.
+**Fixtures**: `tests/e2e/fixtures.ts` — shared `app` (ElectronApplication) and `window` (Page) fixtures. App launched with `NODE_ENV=test`.
+**Test data**: `ember-test-protein/` — 8TCE.cif (protein) + kiv/kiv.sdf (ligand) for full pipeline tests.
+**Molecule fixtures**: `tests/fixtures/` — minimal PDB/SDF for unit-style E2E tests.
+
+```bash
+npx playwright test                          # Run all
+npx playwright test tests/e2e/app-boot.spec.ts  # Run one spec
+npx playwright test --headed                 # Watch the app
+```
+
+**Key patterns:**
+- Tabs are disabled until a project is created (`canSwitchMode()` checks `projectReady`)
+- File dialogs must be mocked via `window.evaluate` since Playwright can't interact with native OS dialogs
+- IPC calls available via `window.electronAPI.*` in evaluate blocks
+- DaisyUI selectors: `.tab.tab-sm` (mode tabs), `.btn.btn-primary` (CTAs), `.select.select-bordered` (dropdowns)
+- The project selector overlay (`div.absolute.inset-0.z-30`) blocks interaction until a project is selected/created
+
+**Test structure:**
+```
+tests/
+  e2e/
+    fixtures.ts          — Electron launch helper
+    app-boot.spec.ts     — Launch, tabs, no console errors
+    navigation.spec.ts   — Tab switching, project gating
+    viewer.spec.ts       — Import/Recent, viewer default state
+    mcmm.spec.ts         — MCMM tab presence, disabled state
+    docking.spec.ts      — Dock tab presence, disabled state
+    simulate.spec.ts     — Simulate tab presence, disabled state
+  fixtures/
+    alanine_dipeptide.pdb
+    benzene.sdf
+```
+
 ## Known Limitations
 - macOS only in practice for the current app workflow
 - App is unsigned, so launch from `/Applications` or Spotlight rather than Launchpad
 - `run_md_simulation.py` exists both at repo root and in `deps/staging/scripts/`; the staging copy is canonical for the app
-- The header `FEP` tab is disabled even though the scoring panel exists in code
 - CREST requires separate `crest` binary installation (`conda install -c conda-forge crest`)
+- `prepare_docking_complex.py` uses a try/fallback for `createSystem` (ignoreExternalBonds + CYS/CYX atom-based resolution) for structures with unusual bond patterns
 
 ## License
 MIT. GPL-licensed scientific tools are invoked as separate processes. Meeko and Molscrub are Apache-2.0.
