@@ -64,6 +64,35 @@ test.describe('Receptor preparation verification', () => {
     }, importResult.importedPath!);
     expect(exists).toBe(true);
   });
+
+  test('detectPdbLigands returns ligands and preparation metadata', async ({ window }) => {
+    test.setTimeout(120_000);
+
+    const RECEPTOR_CIF = path.resolve(__dirname, '../../ember-test-protein/8tce.cif');
+
+    // Call detectPdbLigands — returns Result<{ ligands, structureInfo }>
+    const result = await window.evaluate(async (cifPath: string) => {
+      const api = (window as any).electronAPI;
+      const r = await api.detectPdbLigands(cifPath);
+      if (!r.ok) return { ok: false, error: r.error?.message };
+      return {
+        ok: true,
+        ligandCount: r.value.ligands.length,
+        firstLigandId: r.value.ligands[0]?.id,
+        structureInfo: r.value.structureInfo,
+      };
+    }, RECEPTOR_CIF);
+
+    expect(result.ok).toBe(true);
+    // 8TCE should have at least one detected ligand (KIV)
+    expect(result.ligandCount).toBeGreaterThan(0);
+    expect(result.firstLigandId).toBeTruthy();
+
+    // Structure info should have atom count
+    if (result.structureInfo) {
+      expect(result.structureInfo.totalAtoms).toBeGreaterThan(0);
+    }
+  });
 });
 
 test.describe('Computational output verification', () => {
