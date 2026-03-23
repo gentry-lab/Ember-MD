@@ -219,6 +219,36 @@ test.describe('MD simulation pipeline', () => {
     });
     expect(phase).toBe('complete');
 
+    // --- Output file verification ---
+    const outputFiles = await window.evaluate(async () => {
+      const s = (window as any).__emberStore.state();
+      const result = s.md.result;
+      if (!result) return null;
+      const api = (window as any).electronAPI;
+      const trajDir = result.trajectoryPath.replace(/\/[^/]+$/, '');
+      const runRoot = trajDir.endsWith('/results')
+        ? trajDir.replace(/\/results$/, '')
+        : trajDir;
+
+      return {
+        systemPdb: await api.fileExists(result.systemPdbPath),
+        trajectory: await api.fileExists(result.trajectoryPath),
+        energyCsv: await api.fileExists(`${runRoot}/energy.csv`),
+        seedTxt: await api.fileExists(`${runRoot}/seed.txt`),
+        finalPdb: await api.fileExists(`${runRoot}/final.pdb`),
+        clusteringDir: await api.fileExists(`${runRoot}/analysis/clustering`),
+        reportPdf: await api.fileExists(`${runRoot}/analysis/full_report.pdf`),
+      };
+    });
+    expect(outputFiles).not.toBeNull();
+    expect(outputFiles!.systemPdb).toBe(true);
+    expect(outputFiles!.trajectory).toBe(true);
+    expect(outputFiles!.energyCsv).toBe(true);
+    expect(outputFiles!.seedTxt).toBe(true);
+    expect(outputFiles!.finalPdb).toBe(true);
+    expect(outputFiles!.clusteringDir).toBe(true);
+    expect(outputFiles!.reportPdf).toBe(true);
+
     // Navigate to results page
     await viewResultsBtn.click();
     await window.waitForTimeout(1_000);
