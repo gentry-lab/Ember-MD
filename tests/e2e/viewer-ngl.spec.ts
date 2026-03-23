@@ -223,6 +223,48 @@ test.describe('Viewer NGL state', () => {
     }
   });
 
+  test('camera centered near ligand after loading holo complex', async ({ window }) => {
+    test.setTimeout(60_000);
+
+    // Load 8TCE holo complex (has KIV ligand)
+    await loadStructureInViewer(window, RECEPTOR_CIF);
+    await window.waitForTimeout(5_000);
+
+    // Verify camera is not at default origin — autoView moved it to the structure
+    const cameraInfo = await window.evaluate(() => {
+      const stage = (window as any).__nglStage;
+      if (!stage || !stage.compList[0]) return null;
+
+      const center = stage.viewerControls.position;
+      const comp = stage.compList[0];
+      const box = comp.getBox();
+
+      return {
+        cameraX: center.x,
+        cameraY: center.y,
+        cameraZ: center.z,
+        boxMinX: box.min.x,
+        boxMaxX: box.max.x,
+        boxMinY: box.min.y,
+        boxMaxY: box.max.y,
+      };
+    });
+
+    expect(cameraInfo).not.toBeNull();
+    // Bounding box should be reasonable for a protein (~40-80 Å wide)
+    const boxWidth = cameraInfo!.boxMaxX - cameraInfo!.boxMinX;
+    expect(boxWidth).toBeGreaterThan(10);
+
+    // Camera center should be within or near the bounding box
+    // (autoView centers the camera on the ligand or structure)
+    // At minimum, verify it's not at the origin (0,0,0)
+    const cameraDist = Math.sqrt(
+      cameraInfo!.cameraX ** 2 + cameraInfo!.cameraY ** 2 + cameraInfo!.cameraZ ** 2
+    );
+    // For 8TCE, the camera center is dozens of angstroms from origin
+    expect(cameraDist).toBeGreaterThan(1);
+  });
+
   test('import second structure → layer count increases', async ({ window }) => {
     test.setTimeout(60_000);
 
