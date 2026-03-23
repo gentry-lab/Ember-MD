@@ -4,6 +4,7 @@
  */
 import { test, expect, createTestProject } from './fixtures';
 import type { Page } from '@playwright/test';
+import * as path from 'path';
 
 /** Helper: load via SMILES, configure ETKDG, run, wait for completion */
 async function runEtkdg(window: Page, smiles: string): Promise<void> {
@@ -30,6 +31,40 @@ async function runEtkdg(window: Page, smiles: string): Promise<void> {
   await viewResults.click();
   await window.waitForTimeout(500);
 }
+
+test.describe('Receptor preparation verification', () => {
+  test('raw input CIF preserved in structures/ after import', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    const RECEPTOR_CIF = path.resolve(__dirname, '../../ember-test-protein/8tce.cif');
+    await createTestProject(window, '__e2e_output_receptor__');
+
+    // Import structure via IPC
+    const importResult = await window.evaluate(async (cifPath: string) => {
+      const api = (window as any).electronAPI;
+      const projResult = await api.ensureProject('__e2e_output_receptor__');
+      const projDir = projResult.ok ? projResult.value : '';
+      const result = await api.importStructure(cifPath, projDir);
+      return {
+        ok: result.ok,
+        importedPath: result.ok ? result.value : null,
+        projDir,
+      };
+    }, RECEPTOR_CIF);
+
+    expect(importResult.ok).toBe(true);
+    expect(importResult.importedPath).toBeTruthy();
+
+    // Imported file should be in structures/ subdir
+    expect(importResult.importedPath).toContain('/structures/');
+
+    // File should actually exist on disk
+    const exists = await window.evaluate(async (p: string) => {
+      return await (window as any).electronAPI.fileExists(p);
+    }, importResult.importedPath!);
+    expect(exists).toBe(true);
+  });
+});
 
 test.describe('Computational output verification', () => {
   test.describe('MCMM/Conformer outputs', () => {
