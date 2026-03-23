@@ -50,7 +50,7 @@ interface WizardLayoutProps {
 
 const WizardLayout: Component<WizardLayoutProps> = (props) => {
   const {
-    state, setMode, setJobName, setProjectReady,
+    state, setMode, setJobName, setProjectReady, setProjectDir,
     clearViewerSession,
   } = workflowStore;
   const [showHelp, setShowHelp] = createSignal(false);
@@ -88,7 +88,8 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
     console.log(`[Nav] Select project: ${project.name} (${project.runs.length} runs)`);
     clearViewerSession();
     setJobName(project.name);
-    await api.ensureProject(project.name);
+    const result = await api.ensureProject(project.name);
+    if (result.ok) setProjectDir(result.value);
     setProjectReady(true);
   };
 
@@ -98,7 +99,8 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
     console.log(`[Nav] New project: ${name}`);
     clearViewerSession();
     setJobName(name);
-    await api.ensureProject(name);
+    const result = await api.ensureProject(name);
+    if (result.ok) setProjectDir(result.value);
     setProjectReady(true);
   };
 

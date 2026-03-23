@@ -1,109 +1,105 @@
 /**
  * Docking full pipeline test.
- * Uses 8TCE.cif receptor + KIV ligand from ember-test-protein/
+ * Uses PDB ID fetch for receptor + SMILES for ligand (no file dialogs).
  */
 import { test, expect, createTestProject } from './fixtures';
-import * as path from 'path';
+import type { Page } from '@playwright/test';
 
-const RECEPTOR_CIF = path.resolve(__dirname, '../../ember-test-protein/8tce.cif');
-const KIV_SDF = path.resolve(__dirname, '../../ember-test-protein/kiv/kiv.sdf');
+/** Fetch receptor via PDB ID and wait for ligand detection */
+async function fetchReceptor(window: Page): Promise<void> {
+  const pdbInput = window.locator('input[placeholder*="8TCE"]');
+  await pdbInput.fill('8TCE');
+  await window.locator('.btn.btn-primary.btn-sm', { hasText: 'Fetch' }).click();
+
+  // Wait for receptor to load — status text changes from "Fetching..."
+  // and "No project selected" error should NOT appear
+  await window.waitForTimeout(2_000);
+  const errorAlert = window.locator('.alert.alert-error');
+  const hasError = await errorAlert.isVisible();
+  if (hasError) {
+    const errorText = await errorAlert.textContent();
+    throw new Error(`Unexpected error after PDB fetch: ${errorText}`);
+  }
+
+  // Wait for ligand detection to complete (receptor name or ligand dropdown appears)
+  await expect(
+    window.locator('text=/Detected ligands|Reference ligand|8TCE|receptor/i').first()
+  ).toBeVisible({ timeout: 30_000 });
+}
 
 test.describe('Docking pipeline', () => {
   test.beforeEach(async ({ window }) => {
     await createTestProject(window, '__e2e_dock__');
-
     await window.locator('.tab.tab-sm', { hasText: 'Dock' }).click();
     await window.waitForTimeout(500);
   });
 
-  test('load receptor and detect ligands', async ({ window }) => {
+  test('load receptor via PDB ID and detect ligands', async ({ window }) => {
     test.setTimeout(60_000);
 
-    // Mock the PDB file dialog
-    await window.evaluate((cifPath) => {
-      (window as any).electronAPI.selectPdbFile = async () => cifPath;
-    }, RECEPTOR_CIF);
+    await fetchReceptor(window);
 
-    // Click "Select Structure"
-    const selectBtn = window.locator('.btn.btn-primary.btn-sm', { hasText: /Select Structure/i });
-    await selectBtn.click();
-
-    // Wait for ligand detection
-    await window.waitForTimeout(10_000);
-
-    // Reference ligand dropdown should appear and have options
-    const ligandSelect = window.locator('select.select-bordered.select-xs');
-    const selectCount = await ligandSelect.count();
-    expect(selectCount).toBeGreaterThan(0);
+    // Reference ligand dropdown should appear with detected ligands
+    const ligandDropdown = window.locator('select').filter({
+      has: window.locator('option', { hasText: /Select|ligand/i }),
+    });
+    await expect(ligandDropdown.first()).toBeVisible({ timeout: 10_000 });
+    const optionCount = await ligandDropdown.first().locator('option').count();
+    expect(optionCount).toBeGreaterThan(1); // placeholder + at least one ligand
   });
 
-  test('load docking ligand via SDF', async ({ window }) => {
+  test('load docking ligand via SMILES', async ({ window }) => {
     test.setTimeout(30_000);
 
-    // Mock molecule file dialog to return KIV SDF
-    await window.evaluate((sdfPath) => {
-      (window as any).electronAPI.selectMoleculeFilesMulti = async () => [sdfPath];
-    }, KIV_SDF);
+    // Enter SMILES for a docking ligand (aspirin)
+    const textarea = window.locator('textarea');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('CC(=O)Oc1ccccc1C(=O)O');
 
-    // Click ligand import button
-    const importBtn = window.locator('.btn.btn-outline', { hasText: /Import/ });
-    if (await importBtn.first().isVisible()) {
-      await importBtn.first().click();
-      await window.waitForTimeout(3000);
-    }
+    const enterBtn = window.locator('.btn.btn-primary.btn-sm', { hasText: /Enter SMILES/i });
+    await expect(enterBtn).toBeVisible();
+    await enterBtn.click();
 
-    // Should show loaded ligand count
-    const content = await window.textContent('body');
-    // Either "1 ligand" or the filename should appear
-    expect(content?.includes('ligand') || content?.includes('kiv')).toBeTruthy();
+    // Should show ligand was loaded (molecule count or loaded indicator)
+    await expect(
+      window.locator('text=/1 molecule|mol_1|loaded/i').first()
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test('configure page shows docking parameters', async ({ window }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
 
-    // Load receptor + ligand (minimal setup to reach configure)
-    await window.evaluate((cifPath) => {
-      (window as any).electronAPI.selectPdbFile = async () => cifPath;
-    }, RECEPTOR_CIF);
+    // Fetch receptor
+    await fetchReceptor(window);
 
-    const selectBtn = window.locator('.btn.btn-primary.btn-sm', { hasText: /Select Structure/i });
-    if (await selectBtn.isVisible()) {
-      await selectBtn.click();
-      await window.waitForTimeout(10_000);
+    // Select first detected ligand
+    const ligandDropdown = window.locator('select').filter({
+      has: window.locator('option', { hasText: /Select|ligand/i }),
+    });
+    await expect(ligandDropdown.first()).toBeVisible({ timeout: 10_000 });
+    const options = await ligandDropdown.first().locator('option').allTextContents();
+    if (options.length > 1) {
+      await ligandDropdown.first().selectOption({ index: 1 });
+      await window.waitForTimeout(3_000);
     }
 
-    // Select first detected ligand if dropdown is present
-    const ligandSelect = window.locator('select.select-bordered.select-xs');
-    if (await ligandSelect.first().isVisible()) {
-      const options = await ligandSelect.first().locator('option').allTextContents();
-      if (options.length > 1) {
-        await ligandSelect.first().selectOption({ index: 1 });
-        await window.waitForTimeout(5000);
-      }
-    }
+    // Add docking ligand via SMILES
+    const textarea = window.locator('textarea');
+    await textarea.fill('CC(=O)Oc1ccccc1C(=O)O');
+    await window.locator('.btn.btn-primary.btn-sm', { hasText: /Enter SMILES/i }).click();
+    await window.waitForTimeout(5_000);
 
-    // Add docking ligand
-    await window.evaluate((sdfPath) => {
-      (window as any).electronAPI.selectMoleculeFilesMulti = async () => [sdfPath];
-    }, KIV_SDF);
-    const importBtn = window.locator('.btn.btn-outline', { hasText: /Import/ });
-    if (await importBtn.first().isVisible()) {
-      await importBtn.first().click();
-      await window.waitForTimeout(3000);
-    }
-
-    // Click Continue if available
+    // Click Continue
     const continueBtn = window.locator('.btn.btn-primary', { hasText: /Continue/i });
-    if (await continueBtn.isVisible() && await continueBtn.isEnabled()) {
-      await continueBtn.click();
-      await window.waitForTimeout(1000);
-    }
+    await expect(continueBtn).toBeEnabled({ timeout: 10_000 });
+    await continueBtn.click();
+    await window.waitForTimeout(1_000);
 
-    // Should see docking parameter inputs
-    const exhaustInput = window.locator('input.input-bordered');
-    const selectInputs = window.locator('select.select-bordered');
-    const inputCount = await exhaustInput.count();
-    const selectCount = await selectInputs.count();
-    expect(inputCount + selectCount).toBeGreaterThan(0);
+    // Should see Configure Docking heading and parameter inputs
+    await expect(window.locator('text=Configure Docking')).toBeVisible({ timeout: 5_000 });
+
+    // Exhaustiveness and poses inputs
+    await expect(window.locator('text=/exhaustiveness/i')).toBeVisible();
+    await expect(window.locator('text=/poses/i').first()).toBeVisible();
   });
 });

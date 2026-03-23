@@ -38,7 +38,12 @@ export type ConformStep = 'conform-load' | 'conform-configure' | 'conform-progre
 export type MapStep = 'map-load' | 'map-configure' | 'map-progress' | 'map-results';
 
 // Map mode types — mirrors PocketMapMethod in shared/types/ipc.ts
-import type { ClusteringResult as IpcClusteringResult, PocketMapMethod, ScoredClusterResult } from '../../shared/types/ipc';
+import type {
+  ClusteringResult as IpcClusteringResult,
+  PocketMapMethod,
+  ScoredClusterResult,
+  MdTorsionAnalysis,
+} from '../../shared/types/ipc';
 export type MapMethod = PocketMapMethod;
 
 // Viewer state types
@@ -279,11 +284,13 @@ export interface MDState {
   isBenchmarking: boolean;
   clusteringResults: ClusteringResults | null;
   clusterScores: ScoredClusterResult[];
+  torsionAnalysis: MdTorsionAnalysis | null;
 }
 
 export interface WorkflowState {
   mode: WorkflowMode;
   projectReady: boolean;
+  projectDir: string | null;
   dockStep: DockStep;
   mdStep: MDStep;
   conformStep: ConformStep;
@@ -349,6 +356,7 @@ const defaultMDState: MDState = {
   isBenchmarking: false,
   clusteringResults: null,
   clusterScores: [],
+  torsionAnalysis: null,
 };
 
 const defaultMapState: MapState = {
@@ -435,6 +443,7 @@ function createWorkflowStore() {
   const [state, setState] = createSignal<WorkflowState>({
     mode: 'viewer',
     projectReady: false,
+    projectDir: null,
     dockStep: 'dock-load',
     mdStep: 'md-load',
     conformStep: 'conform-load',
@@ -459,6 +468,7 @@ function createWorkflowStore() {
     setState((s) => ({ ...s, mode }));
   };
   const setProjectReady = (projectReady: boolean) => setState((s) => ({ ...s, projectReady }));
+  const setProjectDir = (projectDir: string | null) => setState((s) => ({ ...s, projectDir }));
   const setDockStep = (dockStep: DockStep) => {
     console.log(`[Store] setDockStep: ${state().dockStep} → ${dockStep}`);
     setState((s) => ({ ...s, dockStep }));
@@ -646,6 +656,9 @@ function createWorkflowStore() {
 
   const setMdClusterScores = (clusterScores: ScoredClusterResult[]) =>
     setState((s) => ({ ...s, md: { ...s.md, clusterScores } }));
+
+  const setMdTorsionAnalysis = (torsionAnalysis: MdTorsionAnalysis | null) =>
+    setState((s) => ({ ...s, md: { ...s.md, torsionAnalysis } }));
 
   const setMdClusteringResultsFromIpc = (clusteringResults: IpcClusteringResult | null) =>
     setMdClusteringResults(clusteringResults ? {
@@ -1032,6 +1045,7 @@ function createWorkflowStore() {
     setState((s) => ({
       mode: s.mode,
       projectReady: s.projectReady,
+      projectDir: s.projectDir,
       dockStep: 'dock-load' as DockStep,
       mdStep: 'md-home',
       conformStep: 'conform-load' as ConformStep,
@@ -1054,6 +1068,7 @@ function createWorkflowStore() {
     state,
     setMode,
     setProjectReady,
+    setProjectDir,
     setDockStep,
     setMdStep,
     setConformStep,
@@ -1113,6 +1128,7 @@ function createWorkflowStore() {
     setMdClusteringResults,
     setMdClusteringResultsFromIpc,
     setMdClusterScores,
+    setMdTorsionAnalysis,
     // Viewer state
     setViewerPdbPath,
     setViewerPdbQueue,

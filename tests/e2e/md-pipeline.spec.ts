@@ -1,101 +1,83 @@
 /**
  * MD simulation pipeline test.
- * Uses 8TCE.cif receptor + KIV ligand for protein+ligand mode.
+ * Uses PDB ID fetch for receptor + SMILES for ligand (no file dialogs).
  */
 import { test, expect, createTestProject } from './fixtures';
-import * as path from 'path';
+import type { Page } from '@playwright/test';
 
-const RECEPTOR_CIF = path.resolve(__dirname, '../../ember-test-protein/8tce.cif');
+/** Fetch 8TCE via PDB ID, verifying no errors and structure loads */
+async function fetchReceptor(window: Page): Promise<void> {
+  const pdbInput = window.locator('input[placeholder*="8TCE"]');
+  await pdbInput.fill('8TCE');
+  await window.locator('.btn.btn-primary.btn-sm', { hasText: 'Fetch' }).click();
+
+  // Verify no error after fetch
+  await window.waitForTimeout(2_000);
+  const errorAlert = window.locator('.alert.alert-error');
+  if (await errorAlert.isVisible()) {
+    const errorText = await errorAlert.textContent();
+    throw new Error(`Unexpected error after PDB fetch: ${errorText}`);
+  }
+
+  // Wait for structure to load — "8TCE.cif" appears in main content area
+  await expect(
+    window.locator('main').locator('text=8TCE.cif')
+  ).toBeVisible({ timeout: 30_000 });
+}
 
 test.describe('MD simulation pipeline', () => {
   test.beforeEach(async ({ window }) => {
     await createTestProject(window, '__e2e_md__');
-
     await window.locator('.tab.tab-sm', { hasText: 'Simulate' }).click();
     await window.waitForTimeout(500);
   });
 
-  test('load PDB and detect protein+ligand mode', async ({ window }) => {
+  test('load PDB via PDB ID fetch', async ({ window }) => {
     test.setTimeout(60_000);
 
-    // Mock PDB file dialog
-    await window.evaluate((cifPath) => {
-      (window as any).electronAPI.selectPdbFile = async () => cifPath;
-    }, RECEPTOR_CIF);
+    await fetchReceptor(window);
 
-    // Click import
-    const importBtn = window.locator('.btn.btn-outline', { hasText: /Import/ });
-    await importBtn.click();
-    await window.waitForTimeout(10_000);
-
-    // Should detect ligands in the structure
-    const bodyText = await window.textContent('body');
-    // Look for ligand detection indicators
-    const hasLigandUI = bodyText?.includes('Ligand') ||
-                        bodyText?.includes('ligand') ||
-                        bodyText?.includes('Protein');
-    expect(hasLigandUI).toBeTruthy();
+    // Should show Protein + Ligand mode badge and Continue should be enabled
+    await expect(window.locator('main .badge', { hasText: 'Protein + Ligand' })).toBeVisible();
+    await expect(window.locator('.btn.btn-primary', { hasText: /Continue/i })).toBeEnabled();
   });
 
   test('SMILES input sets ligand-only mode', async ({ window }) => {
     test.setTimeout(30_000);
 
     const textarea = window.locator('textarea');
-    if (await textarea.isVisible()) {
-      await textarea.fill('c1ccccc1');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('c1ccccc1');
 
-      const enterBtn = window.locator('.btn.btn-primary.btn-sm', { hasText: /Enter SMILES/i });
-      if (await enterBtn.isVisible()) {
-        await enterBtn.click();
-        await window.waitForTimeout(3000);
+    const enterBtn = window.locator('.btn.btn-primary.btn-sm', { hasText: /Enter SMILES/i });
+    await expect(enterBtn).toBeVisible();
+    await enterBtn.click();
 
-        // Should show ligand-only mode badge
-        const bodyText = await window.textContent('body');
-        const isLigandOnly = bodyText?.includes('Ligand Only') || bodyText?.includes('ligand');
-        expect(isLigandOnly).toBeTruthy();
-      }
-    }
+    // Should show "Ligand Only" mode indicator
+    await expect(
+      window.locator('text=/Ligand Only/i').first()
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test('configure page shows force field preset', async ({ window }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
 
-    // Load structure first
-    await window.evaluate((cifPath) => {
-      (window as any).electronAPI.selectPdbFile = async () => cifPath;
-    }, RECEPTOR_CIF);
-
-    const importBtn = window.locator('.btn.btn-outline', { hasText: /Import/ });
-    await importBtn.click();
-    await window.waitForTimeout(10_000);
-
-    // Select first detected ligand
-    const ligandSelect = window.locator('select.select-bordered.select-xs');
-    if (await ligandSelect.first().isVisible()) {
-      const options = await ligandSelect.first().locator('option').allTextContents();
-      if (options.length > 1) {
-        await ligandSelect.first().selectOption({ index: 1 });
-        await window.waitForTimeout(5000);
-      }
-    }
-
-    // Continue to configure
+    // Fetch receptor — auto-detects ligand, Continue becomes enabled
+    await fetchReceptor(window);
     const continueBtn = window.locator('.btn.btn-primary', { hasText: /Continue/i });
-    if (await continueBtn.isVisible() && await continueBtn.isEnabled()) {
-      await continueBtn.click();
-      await window.waitForTimeout(1000);
+    await expect(continueBtn).toBeEnabled({ timeout: 5_000 });
+    await continueBtn.click();
+    await window.waitForTimeout(1_000);
 
-      // Should show force field dropdown
-      const ffSelect = window.locator('select.select-sm');
-      if (await ffSelect.isVisible()) {
-        const options = await ffSelect.locator('option').allTextContents();
-        const hasFF19SB = options.some(o => o.toLowerCase().includes('ff19sb'));
-        expect(hasFF19SB).toBe(true);
-      }
+    // Should see Configure heading
+    await expect(window.locator('main').locator('text=/Configure/i').first()).toBeVisible({ timeout: 5_000 });
 
-      // Should show temperature input
-      const bodyText = await window.textContent('body');
-      expect(bodyText?.includes('Temperature') || bodyText?.includes('300')).toBeTruthy();
-    }
+    // Force field preset dropdown with ff19sb option
+    const ffSelect = window.locator('select').filter({
+      has: window.locator('option', { hasText: /ff19sb/i }),
+    });
+    await expect(ffSelect).toBeVisible();
+    const ffOptions = await ffSelect.locator('option').allTextContents();
+    expect(ffOptions.some(o => o.toLowerCase().includes('ff19sb'))).toBe(true);
   });
 });
