@@ -218,6 +218,50 @@ test.describe('MD simulation pipeline', () => {
       return (window as any).__emberStore.state().currentPhase;
     });
     expect(phase).toBe('complete');
+
+    // Navigate to results page
+    await viewResultsBtn.click();
+    await window.waitForTimeout(1_000);
+
+    // Verify results page: "Simulation Complete" heading
+    await expect(window.locator('h2', { hasText: /Simulation Complete/i })).toBeVisible({ timeout: 5_000 });
+
+    // Clustering table should be present with Pop% column
+    // (use .first() — torsion table may also be present)
+    const table = window.locator('table.table').filter({
+      has: window.locator('th', { hasText: 'Pop%' }),
+    });
+    await expect(table).toBeVisible({ timeout: 10_000 });
+    await expect(table.locator('th', { hasText: 'Cluster' })).toBeVisible();
+
+    // Table should have at least 1 data row with a population percentage
+    const rows = table.locator('tbody tr');
+    const rowCount = await rows.count();
+    expect(rowCount).toBeGreaterThan(0);
+
+    // First row should show a population percentage (N.N%)
+    const firstRowPop = await rows.first().locator('td').nth(1).textContent();
+    expect(firstRowPop).toMatch(/\d+\.\d+%/);
+
+    // Populations should sum to ~100%
+    const populations: number[] = [];
+    for (let i = 0; i < rowCount; i++) {
+      const text = await rows.nth(i).locator('td').nth(1).textContent();
+      const val = parseFloat(text || '0');
+      populations.push(val);
+    }
+    const totalPop = populations.reduce((a, b) => a + b, 0);
+    expect(totalPop).toBeGreaterThan(95);
+    expect(totalPop).toBeLessThanOrEqual(101);
+
+    // Ligand-only mode: no Vina column expected
+    await expect(table.locator('th', { hasText: 'Vina' })).not.toBeVisible();
+
+    // "View All Clusters" button should exist
+    await expect(window.locator('.btn', { hasText: /View All Clusters/i })).toBeVisible();
+
+    // "Play Trajectory" button should exist
+    await expect(window.locator('.btn', { hasText: /Play Trajectory/i })).toBeVisible();
   });
 
   test('configure: Estimate Runtime button is visible and clickable', async ({ window }) => {
