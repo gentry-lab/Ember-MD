@@ -96,7 +96,7 @@ const ConformStepLoad: Component = () => {
                     <span class="text-[10px] text-base-content/50">or enter SMILES</span>
                     <Show when={detectedSmiles().length > 0}>
                       <span class="text-[10px] font-mono text-success">
-                        {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''}
+                        {detectedSmiles().length} input{detectedSmiles().length !== 1 ? 's' : ''}
                       </span>
                     </Show>
                   </div>

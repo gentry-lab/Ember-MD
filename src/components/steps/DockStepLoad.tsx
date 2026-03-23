@@ -24,6 +24,7 @@ const DockStepLoad: Component = () => {
   const [isLoading, setIsLoading] = createSignal(false);
   const [isLoadingLigands, setIsLoadingLigands] = createSignal(false);
   const [statusText, setStatusText] = createSignal<string | null>(null);
+  const [pdbIdText, setPdbIdText] = createSignal('');
   const [receptorThumbnail, setReceptorThumbnail] = createSignal<string | null>(null);
   const [structureFilePaths, setStructureFilePaths] = createSignal<string[]>([]);
   const [csvFilePath, setCsvFilePath] = createSignal<string | null>(null);
@@ -48,6 +49,43 @@ const DockStepLoad: Component = () => {
     return paths.docking(dockFolder);
   };
 
+  // Fetch structure from RCSB PDB by ID
+  const handleFetchPdb = async () => {
+    const id = pdbIdText().trim();
+    if (!id) return;
+    const projectDir = state().projectDir;
+    if (!projectDir) { setError('No project selected'); return; }
+    setIsLoading(true);
+    setStatusText(`Fetching ${id.toUpperCase()} from RCSB...`);
+    setError(null);
+    try {
+      const result = await api.fetchPdb(id, projectDir);
+      if (result.ok) {
+        setPdbIdText('');
+        // Load the fetched CIF as receptor
+        setDockReceptorPdbPath(result.value);
+        setDockDetectedLigands([]);
+        setDockReferenceLigandId(null);
+        setDockReferenceLigandPath(null);
+        setDockReceptorPrepared(null);
+        setStatusText('Detecting ligands...');
+        const detectResult = await api.detectPdbLigands(result.value);
+        if (detectResult?.ok && detectResult.value?.ligands) {
+          setDockDetectedLigands(detectResult.value.ligands);
+          setStatusText(null);
+        } else {
+          setStatusText('No ligands detected');
+        }
+      } else {
+        setError(result.error?.message || 'Failed to fetch PDB');
+      }
+    } catch (err: any) {
+      setError(`PDB fetch error: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleLoadReceptor = async () => {
     const filePath = await api.selectPdbFile();
     if (!filePath) return;
@@ -66,11 +104,12 @@ const DockStepLoad: Component = () => {
     setIsLoading(false);
 
     if (result.ok) {
-      setDockDetectedLigands(result.value);
+      const { ligands } = result.value;
+      setDockDetectedLigands(ligands);
       setStatusText(null);
-      if (result.value.length === 1) {
-        handleSelectReferenceLigand(result.value[0].id, filePath);
-      } else if (result.value.length === 0) {
+      if (ligands.length === 1) {
+        handleSelectReferenceLigand(ligands[0].id, filePath);
+      } else if (ligands.length === 0) {
         setStatusText('No ligands detected. A bound ligand is required to define the docking box.');
       }
     } else {
@@ -288,6 +327,24 @@ const DockStepLoad: Component = () => {
                       <button class="btn btn-primary btn-sm w-full" onClick={handleLoadReceptor} disabled={isLoading()}>
                         {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Select Structure'}
                       </button>
+
+                      <div class="mt-2">
+                        <span class="text-[10px] text-base-content/50">or enter PDB ID</span>
+                        <div class="flex gap-1 mt-1">
+                          <input
+                            type="text"
+                            class="input input-bordered input-sm flex-1 font-mono uppercase"
+                            placeholder="e.g. 8TCE"
+                            value={pdbIdText()}
+                            onInput={(e) => setPdbIdText(e.currentTarget.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleFetchPdb()}
+                            maxLength={4}
+                          />
+                          <button class="btn btn-primary btn-sm" onClick={handleFetchPdb} disabled={isLoading() || pdbIdText().trim().length !== 4}>
+                            {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Fetch'}
+                          </button>
+                        </div>
+                      </div>
                     </Show>
 
                     <p class="text-[10px] text-base-content/70 mt-3">
@@ -357,7 +414,7 @@ const DockStepLoad: Component = () => {
                         <span class="text-[10px] text-base-content/50">or enter SMILES</span>
                         <Show when={detectedSmiles().length > 0}>
                           <span class="text-[10px] font-mono text-success">
-                            {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''}
+                            {detectedSmiles().length} input{detectedSmiles().length !== 1 ? 's' : ''}
                           </span>
                         </Show>
                       </div>

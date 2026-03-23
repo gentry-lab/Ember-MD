@@ -21,6 +21,7 @@ const MDStepLoad: Component = () => {
 
   const [isLoading, setIsLoading] = createSignal(false);
   const [smilesText, setSmilesText] = createSignal('');
+  const [pdbIdText, setPdbIdText] = createSignal('');
   const [statusText, setStatusText] = createSignal<string | null>(null);
   const [detectedLigands, setDetectedLigands] = createSignal<Array<{ id: string; resname: string; chain: string; resnum: string; num_atoms: number }>>([]);
   const [selectedLigand, setSelectedLigand] = createSignal<string | null>(null);
@@ -34,7 +35,32 @@ const MDStepLoad: Component = () => {
   const pdbPath = () => state().md.pdbPath;
   const thumbnailDataUrl = () => state().md.thumbnailDataUrl;
   const setThumbnailDataUrl = (v: string | null) => setMdThumbnailDataUrl(v);
-  const isLoaded = () => state().md.ligandSdf !== null;
+  const isLoaded = () => state().md.ligandSdf !== null || state().md.inputMode === 'apo';
+
+  // Fetch structure from RCSB PDB by ID
+  const handleFetchPdb = async () => {
+    const id = pdbIdText().trim();
+    if (!id) return;
+    const projectDir = state().projectDir;
+    if (!projectDir) { setError('No project selected'); return; }
+    setIsLoading(true);
+    setStatusText(`Fetching ${id.toUpperCase()} from RCSB...`);
+    setError(null);
+    try {
+      const result = await api.fetchPdb(id, projectDir);
+      if (result.ok) {
+        setPdbIdText('');
+        await handleLoadComplex(result.value);
+      } else {
+        setError(result.error?.message || 'Failed to fetch PDB');
+      }
+    } catch (err: any) {
+      setError(`PDB fetch error: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+      setStatusText(null);
+    }
+  };
 
   // Unified import: auto-detect PDB/CIF (complex) vs SDF/MOL (ligand-only)
   const handleImport = async () => {
@@ -52,7 +78,7 @@ const MDStepLoad: Component = () => {
   const handleLoadComplex = async (filePath: string) => {
     setIsLoading(true);
     setMdPdbPath(filePath);
-    setMdInputMode('protein_ligand');
+    setMdInputMode('holo');
     setDetectedLigands([]);
     setSelectedLigand(null);
     setNeedsSmiles(false);
@@ -63,12 +89,20 @@ const MDStepLoad: Component = () => {
     setIsLoading(false);
 
     if (result.ok) {
-      setDetectedLigands(result.value);
+      const { ligands, structureInfo } = result.value;
+      setDetectedLigands(ligands);
       setStatusText(null);
-      if (result.value.length === 1) {
-        handleSelectLigand(result.value[0].id, filePath);
-      } else if (result.value.length === 0) {
-        setStatusText('No ligands detected in this structure.');
+      if (structureInfo?.isPrepared) {
+        setStatusText('Structure appears pre-prepared (has hydrogens)');
+      }
+      if (ligands.length >= 1) {
+        handleSelectLigand(ligands[0].id, filePath);
+      } else if (ligands.length === 0) {
+        // Apo protein — allow continuing without a ligand
+        setMdInputMode('apo');
+        setMdReceptorPdb(filePath);
+        setMdLigandSdf(null);
+        setMdLigandName(null);
       }
     } else {
       setError(result.error?.message || 'Failed to detect ligands');
@@ -201,7 +235,7 @@ const MDStepLoad: Component = () => {
     setError(null);
   };
 
-  const canContinue = createMemo(() => state().md.ligandSdf !== null);
+  const canContinue = createMemo(() => state().md.ligandSdf !== null || state().md.inputMode === 'apo');
 
   return (
     <div class="h-full flex flex-col">
@@ -242,9 +276,16 @@ const MDStepLoad: Component = () => {
                     </Show>
                     <div class="flex justify-between py-1">
                       <span class="text-base-content/70">Mode</span>
-                      <span class="badge badge-sm">{state().md.receptorPdb ? 'Protein + Ligand' : 'Ligand Only'}</span>
+                      <span class="badge badge-sm">
+                        {state().md.inputMode === 'apo' ? 'Apo Protein' : state().md.receptorPdb ? 'Protein + Ligand' : 'Ligand Only'}
+                      </span>
                     </div>
                   </div>
+                  <Show when={state().md.inputMode === 'apo'}>
+                    <div class="bg-warning/10 border border-warning rounded-lg p-2 text-xs text-warning">
+                      No ligand detected — confirm this is an apo (protein-only) simulation before continuing.
+                    </div>
+                  </Show>
                   <button class="btn btn-ghost btn-xs w-full" onClick={handleClear}>Clear</button>
                 </div>
               }
@@ -294,11 +335,29 @@ const MDStepLoad: Component = () => {
                   </button>
 
                   <div>
+                    <span class="text-[10px] text-base-content/50">or enter PDB ID</span>
+                    <div class="flex gap-1 mt-1">
+                      <input
+                        type="text"
+                        class="input input-bordered input-sm flex-1 font-mono uppercase"
+                        placeholder="e.g. 8TCE"
+                        value={pdbIdText()}
+                        onInput={(e) => setPdbIdText(e.currentTarget.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleFetchPdb()}
+                        maxLength={4}
+                      />
+                      <button class="btn btn-primary btn-sm" onClick={handleFetchPdb} disabled={isLoading() || pdbIdText().trim().length !== 4}>
+                        {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Fetch'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
                     <div class="flex items-center justify-between mb-1">
                       <span class="text-[10px] text-base-content/50">or enter SMILES</span>
                       <Show when={detectedSmiles().length > 0}>
                         <span class="text-[10px] font-mono text-success">
-                          {detectedSmiles().length} molecule{detectedSmiles().length !== 1 ? 's' : ''}
+                          {detectedSmiles().length} input{detectedSmiles().length !== 1 ? 's' : ''}
                         </span>
                       </Show>
                     </div>
@@ -336,7 +395,7 @@ const MDStepLoad: Component = () => {
           <svg class="w-4 h-4 text-info flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span>PDB/CIF files are simulated as protein-ligand complexes. SDF/MOL/SMILES are simulated as ligand-only in solvent.</span>
+          <span>PDB/CIF: holo (protein + ligand) or apo (protein-only). SDF/MOL/SMILES: ligand-only in solvent.</span>
         </div>
         <button class="btn btn-primary" disabled={!canContinue()} onClick={() => setMdStep('md-configure')}>
           Continue
