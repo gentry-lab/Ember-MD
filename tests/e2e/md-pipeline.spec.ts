@@ -295,9 +295,34 @@ test.describe('MD simulation pipeline', () => {
     // Cluster view should NOT have trajectory loaded
     expect(viewerState.trajectoryPath).toBeFalsy();
 
-    // Navigate back to MD results via Simulate tab
+    // --- Report PDF verification ---
+    // Navigate back to MD results to check report
     await window.locator('.tab.tab-sm', { hasText: 'Simulate' }).click();
     await window.waitForTimeout(500);
+
+    // "Open Report" button should be visible
+    await expect(window.locator('.btn', { hasText: /Open Report/i })).toBeVisible();
+
+    // Verify full_report.pdf actually exists on disk
+    const reportExists = await window.evaluate(async () => {
+      const s = (window as any).__emberStore.state();
+      const result = s.md.result;
+      if (!result) return false;
+      const trajDir = result.trajectoryPath.replace(/\/[^/]+$/, '');
+      const runRoot = trajDir.endsWith('/results')
+        ? trajDir.replace(/\/results$/, '')
+        : trajDir;
+      const reportPath = `${runRoot}/analysis/full_report.pdf`;
+      return await (window as any).electronAPI.fileExists(reportPath);
+    });
+    expect(reportExists).toBe(true);
+
+    // --- Torsion analysis panel ---
+    // MDTorsionPanel should render on results page (ligand with rotatable bonds)
+    const torsionTable = window.locator('table.table').filter({
+      has: window.locator('th', { hasText: 'Torsion' }),
+    });
+    await expect(torsionTable).toBeVisible({ timeout: 3_000 });
 
     // Click "Play Trajectory" → mode switches to viewer with trajectory
     const playTrajBtn = window.locator('.btn', { hasText: /Play Trajectory/i });
