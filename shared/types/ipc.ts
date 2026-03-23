@@ -300,6 +300,7 @@ export interface ScoredClusterResult {
   cordialExpectedPkd?: number;
   cordialPHighAffinity?: number;
   cordialPVeryHighAffinity?: number;
+  xtbStrainKcal?: number;         // kcal/mol, GFN2-xTB relative energy
 }
 
 export interface ScoreMdClustersOptions {

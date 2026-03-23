@@ -25,11 +25,19 @@ npm run build           # Webpack → dist-webpack/
 npm run dist:mac        # Bundle .dmg via scripts/bundle-mac.sh (conda-pack → electron-builder dir build → create-dmg/plain DMG)
                         # Auto-generates assets/dmg-background.png if missing
                         # Requires: brew install create-dmg, Finder automation permission
+npm run test:e2e        # Build + run Playwright E2E tests (serial, 1 worker)
+npm run test:e2e:headed # Same but with visible Electron window
 ```
 
 ## Project Structure
 ```
-/electron/main.ts          — IPC handlers, subprocess management, logging, path resolution
+/electron/main.ts          — Thin orchestrator: window creation, app lifecycle, IPC module registration (~120 lines)
+/electron/paths.ts         — Path resolution, env detection, initializePaths()
+/electron/spawn.ts         — spawnPythonScript, childProcesses tracking, filterMdStderr, loadAndMergeCordialScores
+/electron/app-state.ts     — Shared mutable state (mainWindow, fraggenRoot, condaPythonPath, etc.)
+/electron/ipc/             — IPC handler modules (one per domain):
+                             dialogs, stats, generation, docking, ligand-sources, conformers,
+                             simulation, projects, viewer, maps, fep
 /electron/preload.ts       — Context bridge (inlined channel names)
 /src/App.tsx               — Root: ViewerMode always mounted (CSS-hidden); routes View, MCMM, Dock, MD
 /src/stores/workflow.ts    — SolidJS signals (WorkflowState, MDState, DockState, ViewerState, MapState, ConformState)
@@ -177,6 +185,43 @@ For the canonical bundled MD runner in `deps/staging/scripts/run_md_simulation.p
 
 ## Metal Backend
 Native Metal backend work lives in the separate `pseudo-control/Ember-Metal` repo. Use that repo's instruction file for low-level backend architecture, profiling, and MSL porting notes rather than duplicating them here.
+
+## E2E Testing (Playwright)
+Playwright with native Electron support. Tests launch the real app, interact with the UI, and verify results.
+
+**Config**: `playwright.config.ts` — 60s per test, 5 min global, serial (1 worker), html+list reporters.
+**Fixtures**: `tests/e2e/fixtures.ts` — shared `app` (ElectronApplication) and `window` (Page) fixtures. App launched with `NODE_ENV=test`.
+**Test data**: `ember-test-protein/` — 8TCE.cif (protein) + kiv/kiv.sdf (ligand) for full pipeline tests.
+**Molecule fixtures**: `tests/fixtures/` — minimal PDB/SDF for unit-style E2E tests.
+
+```bash
+npx playwright test                          # Run all
+npx playwright test tests/e2e/app-boot.spec.ts  # Run one spec
+npx playwright test --headed                 # Watch the app
+```
+
+**Key patterns:**
+- Tabs are disabled until a project is created (`canSwitchMode()` checks `projectReady`)
+- File dialogs must be mocked via `window.evaluate` since Playwright can't interact with native OS dialogs
+- IPC calls available via `window.electronAPI.*` in evaluate blocks
+- DaisyUI selectors: `.tab.tab-sm` (mode tabs), `.btn.btn-primary` (CTAs), `.select.select-bordered` (dropdowns)
+- The project selector overlay (`div.absolute.inset-0.z-30`) blocks interaction until a project is selected/created
+
+**Test structure:**
+```
+tests/
+  e2e/
+    fixtures.ts          — Electron launch helper
+    app-boot.spec.ts     — Launch, tabs, no console errors
+    navigation.spec.ts   — Tab switching, project gating
+    viewer.spec.ts       — Import/Recent, viewer default state
+    mcmm.spec.ts         — MCMM tab presence, disabled state
+    docking.spec.ts      — Dock tab presence, disabled state
+    simulate.spec.ts     — Simulate tab presence, disabled state
+  fixtures/
+    alanine_dipeptide.pdb
+    benzene.sdf
+```
 
 ## Known Limitations
 - macOS only in practice for the current app workflow

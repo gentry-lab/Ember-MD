@@ -1,6 +1,6 @@
 {
   "name": "ember-md",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "description": "Ember - Molecular Dynamics on Apple Silicon",
   "main": "electron-dist/electron/main.js",
   "type": "commonjs",
@@ -16,7 +16,9 @@
     "dist:mac": "bash scripts/bundle-mac.sh",
     "lint": "eslint src/ shared/ --max-warnings 0",
     "lint:fix": "eslint src/ shared/ --fix",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "npm run build:electron && npm run build && npx playwright test",
+    "test:e2e:headed": "npm run build:electron && npm run build && npx playwright test --headed"
   },
   "dependencies": {
     "ngl": "^2.4.0",
@@ -28,6 +30,7 @@
     "@babel/preset-env": "^7.23.0",
     "@babel/preset-typescript": "^7.23.0",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.58.2",
     "@types/node": "^20.10.0",
     "autoprefixer": "^10.4.16",
     "babel-loader": "^9.1.0",
