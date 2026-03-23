@@ -34,14 +34,14 @@ await window.evaluate((pdbPath) => {
 
 ### 2. MCMM Pipeline (tests/e2e/mcmm-pipeline.spec.ts)
 Test via SMILES input (no file dialogs):
-- [ ] Load ligand via SMILES input → "Enter SMILES" converts it, Continue enables
-- [ ] Configure: method dropdown has ETKDG/MCMM/CREST options
-- [ ] Configure: MCMM-specific controls appear when method=mcmm (steps, temp, amide toggle)
-- [ ] Configure: CREST-specific info appears when method=crest
-- [ ] Run ETKDG (fastest): progress shows, completes, results appear
-- [ ] Results: table shows conformers with energy column (kcal/mol)
-- [ ] Results: energies are numeric, min energy row shows 0.0
-- [ ] Results: "View 3D" button transitions to viewer with conformer queue
+- [x] Load ligand via SMILES input → "Enter SMILES" converts it, Continue enables
+- [x] Configure: method dropdown has ETKDG/MCMM/CREST options
+- [x] Configure: MCMM-specific controls appear when method=mcmm (steps, temp, amide toggle)
+- [x] Configure: CREST-specific info appears when method=crest
+- [x] Run ETKDG (fastest): progress shows, completes, results appear
+- [x] Results: table shows conformers with energy column (kcal/mol)
+- [x] Results: energies are numeric, min energy row shows 0.0
+- [x] Results: "View 3D" button transitions to viewer with conformer queue
 - [ ] Run MCMM: completes, results appear with energies
 - [ ] Viewer after MCMM: conformer queue navigation works (prev/next)
 - [ ] Viewer after MCMM: individual conformer selection and inspection
@@ -49,14 +49,14 @@ Test via SMILES input (no file dialogs):
 ### 3. Docking Pipeline (tests/e2e/docking-pipeline.spec.ts)
 Test with 8TCE via PDB ID fetch + SMILES for ligand:
 - [x] Load receptor via PDB ID fetch → ligand detection runs → detected ligands dropdown populates
-- [ ] Select reference ligand from dropdown
-- [ ] Load docking ligand via SMILES
-- [ ] Configure: exhaustiveness input works (set to 1 for speed)
-- [ ] Configure: poses input works (set to 1 for speed)
-- [ ] Configure: protonation toggle enables/disables pH inputs
-- [ ] Configure: stereoisomer toggle works
-- [ ] Configure: conformer method dropdown works
-- [ ] Configure: pocket refinement toggle works
+- [x] Select reference ligand from dropdown
+- [x] Load docking ligand via SMILES
+- [x] Configure: exhaustiveness input works (set to 1 for speed)
+- [x] Configure: poses input works (set to 1 for speed)
+- [x] Configure: protonation toggle enables/disables pH inputs
+- [x] Configure: stereoisomer toggle works
+- [x] Configure: conformer method dropdown works
+- [x] Configure: pocket refinement toggle works
 - [ ] Run docking (exhaustiveness=1, poses=1): progress, completion
 - [ ] Results: table shows Vina affinity column
 - [ ] Results: xTB strain column appears (if xTB available)
@@ -88,23 +88,28 @@ Test with 8TCE receptor via PDB ID fetch + SMILES for ligand:
 Expose `window.__nglStage` in test mode. Assert on NGL internal state, not screenshots.
 
 **Import sources & structure loading:**
-- [ ] Import PDB (holo complex) → `stage.compList.length === 1`, repr includes cartoon
-- [ ] Import ligand-only SDF via SMILES → compList has ligand, repr is ball+stick
-- [ ] Import protein-only PDB (no ligand) → compList loaded, no ligand repr
+- [x] Import PDB (holo complex) → `stage.compList.length === 1`, repr includes cartoon
+- [x] Import ligand-only SDF via SMILES → compList has ligand, repr is ball+stick
+- [x] Import protein-only PDB (no ligand) → compList loaded, no ligand repr
 - [ ] MCMM conformer output → queue loads, `compList` reflects current conformer
 - [ ] Docking output → receptor retained, ligand component swaps on queue nav
 - [ ] MD cluster centroid → centroid PDB loaded in compList
 
-**Representations & rendering:**
-- [ ] Protein representation dropdown → changes `reprList[0].name` (cartoon→ribbon→spacefill)
-- [ ] Ligand representation dropdown → changes ligand repr (ball+stick→stick→spacefill)
-- [ ] Surface toggle → adds/removes surface repr from `reprList`
+**Representations & rendering (tests/e2e/viewer-controls.spec.ts):**
+- [x] Protein representation dropdown → changes repr type (cartoon→ribbon→spacefill)
+- [x] Ligand representation dropdown → changes ligand repr (ball+stick→stick→spacefill)
+- [x] Surface toggle → adds/removes surface repr from `reprList`
 - [ ] Surface electrostatic → surface repr has colorScheme with computed values (not all zeros)
-- [ ] Pocket residues → sidechain repr added with correct residue selection near ligand
+- [x] Pocket residues → toggle changes store state
+- [x] Clipping plane slider → stage.parameters.clipDist changes
+- [x] Hide waters/ions toggle → store state changes
+- [x] Interactions toggle → store state changes
+- [x] Polar H toggle → store state changes
+- [x] Reset button → clipping/fog parameters restored
 
 **Camera & interaction:**
 - [ ] Camera centered on ligand after loading a complex (viewerControls.position near ligand centroid)
-- [ ] Rotation: simulate drag → `viewerControls.rotation` changes
+- [x] Rotation: simulate drag → `viewerControls.rotation` changes
 - [ ] Auto-view on new structure load (camera encompasses bounds)
 
 **Queue navigation:**
@@ -115,7 +120,7 @@ Expose `window.__nglStage` in test mode. Assert on NGL internal state, not scree
 **Layer management:**
 - [ ] Import second structure → layer count increases
 - [ ] Layer visibility toggle → component visibility changes in NGL
-- [ ] Close/clear → stage.compList becomes empty
+- [x] Close/clear → stage.compList becomes empty
 - [ ] Align All → structures superposed (component positions changed)
 
 **Trajectory playback:**
@@ -163,7 +168,7 @@ Every job type must produce real output files. Verify files exist and contain va
 - [ ] MD Results → Play Trajectory → trajectory controls visible, frames advance
 - [ ] MD Results → cluster row → View 3D → centroid structure in viewer
 - [ ] MD cluster scoring: xTB strain + Vina rescore columns populated in results table
-- [ ] Switch modes during idle → no crashes, no stale state
+- [x] Switch modes during idle → no crashes, no stale state
 - [ ] Create project → switch all tabs → back to View → state preserved
 - [ ] PDB ID fetch works from both Dock and Simulate tabs (no file dialog needed)
 
