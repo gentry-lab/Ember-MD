@@ -181,4 +181,105 @@ test.describe('MCMM pipeline', () => {
     const viewTab = window.locator('.tab.tab-sm', { hasText: 'View' });
     await expect(viewTab).toHaveClass(/tab-active/, { timeout: 5_000 });
   });
+
+  test('conformer queue navigation: prev/next buttons and index', async ({ window }) => {
+    test.setTimeout(120_000);
+
+    // Use 2-phenylethanol — phenyl ring + flexible chain → diverse conformers
+    await window.locator('textarea').fill('OCCc1ccccc1');
+    await window.locator('.btn.btn-primary.btn-sm', { hasText: /Enter SMILES/i }).click();
+    await expect(window.locator('.btn.btn-primary', { hasText: /Continue/i })).toBeEnabled({ timeout: 15_000 });
+    await window.locator('.btn.btn-primary', { hasText: /Continue/i }).click();
+    await window.waitForTimeout(500);
+
+    // Select ETKDG and lower RMSD cutoff to ensure multiple conformers survive
+    await methodDropdown(window).selectOption('etkdg');
+    await window.waitForTimeout(200);
+
+    // Set RMSD cutoff to 0.3 Å (second number input in Parameters section)
+    const rmsdInput = window.locator('input[type="number"]').nth(1);
+    await rmsdInput.fill('0.3');
+    await window.waitForTimeout(200);
+
+    await window.locator('.btn.btn-primary', { hasText: /Start/i }).click();
+
+    const viewResultsBtn = window.locator('.btn.btn-primary', { hasText: /View Results/i });
+    await expect(viewResultsBtn).toBeVisible({ timeout: 60_000 });
+    await viewResultsBtn.click();
+    await window.waitForTimeout(500);
+
+    // Click View 3D
+    await window.locator('.btn.btn-primary', { hasText: /View 3D/i }).click();
+    await window.waitForTimeout(1500);
+
+    // Verify queue was populated in store
+    const queueInfo = await window.evaluate(() => {
+      const store = (window as any).__emberStore;
+      const s = store.state();
+      return {
+        length: s.viewer.pdbQueue.length,
+        index: s.viewer.pdbQueueIndex,
+        type: s.viewer.pdbQueue[0]?.type,
+        paths: s.conform.conformerPaths,
+        queueLabels: s.viewer.pdbQueue.map((q: any) => q.label),
+      };
+    });
+    expect(queueInfo.length).toBeGreaterThan(1);
+    expect(queueInfo.index).toBe(0);
+    expect(queueInfo.type).toBe('conformer');
+
+    // Queue nav controls should be visible (prev/next buttons)
+    const prevBtn = window.locator('button[title="Previous"]');
+    const nextBtn = window.locator('button[title="Next"]');
+    await expect(prevBtn).toBeVisible({ timeout: 3_000 });
+    await expect(nextBtn).toBeVisible();
+
+    // Previous should be disabled at index 0
+    await expect(prevBtn).toBeDisabled();
+    // Next should be enabled (multiple conformers)
+    await expect(nextBtn).toBeEnabled();
+
+    // Counter text shows "1/N"
+    const counterText = await window.locator('button[title="Previous"]').locator('..').locator('..').textContent();
+    expect(counterText).toContain(`1/${queueInfo.length}`);
+
+    // Click Next → index advances to 1
+    await nextBtn.click();
+    await window.waitForTimeout(500);
+
+    const afterNext = await window.evaluate(() => {
+      const store = (window as any).__emberStore;
+      return store.state().viewer.pdbQueueIndex;
+    });
+    expect(afterNext).toBe(1);
+
+    // Counter now shows "2/N"
+    const counterAfter = await window.locator('button[title="Previous"]').locator('..').locator('..').textContent();
+    expect(counterAfter).toContain(`2/${queueInfo.length}`);
+
+    // Previous should now be enabled
+    await expect(prevBtn).toBeEnabled();
+
+    // Click Previous → back to 0
+    await prevBtn.click();
+    await window.waitForTimeout(500);
+
+    const afterPrev = await window.evaluate(() => {
+      const store = (window as any).__emberStore;
+      return store.state().viewer.pdbQueueIndex;
+    });
+    expect(afterPrev).toBe(0);
+
+    // Previous disabled again at 0
+    await expect(prevBtn).toBeDisabled();
+
+    // NGL stage should have a component loaded (conformer)
+    const nglState = await window.evaluate(() => {
+      const stage = (window as any).__nglStage;
+      return {
+        compCount: stage?.compList?.length ?? 0,
+      };
+    });
+    expect(nglState.compCount).toBeGreaterThan(0);
+  });
 });
