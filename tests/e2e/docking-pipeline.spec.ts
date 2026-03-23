@@ -260,4 +260,61 @@ test.describe('Docking pipeline', () => {
     });
     expect(compCount).toBeGreaterThan(0);
   });
+
+  test('results: Simulate navigates to MD configure with docked pose', async ({ window }) => {
+    test.setTimeout(180_000);
+    await navigateToConfigure(window);
+
+    // Minimal params for speed
+    await window.evaluate(() => {
+      const store = (window as any).__emberStore;
+      if (store) store.setDockConfig({ exhaustiveness: 1, poses: 1 });
+    });
+    await window.waitForTimeout(300);
+
+    const refinementCheckbox = window.locator('label', { hasText: /Pocket refinement/i }).locator('input[type="checkbox"]');
+    if (await refinementCheckbox.isChecked()) await refinementCheckbox.uncheck();
+
+    const cordialCheckbox = window.locator('label', { hasText: /CORDIAL/i }).locator('input[type="checkbox"]');
+    if (await cordialCheckbox.isVisible() && await cordialCheckbox.isChecked()) await cordialCheckbox.uncheck();
+
+    const conformerSelect = window.locator('select').filter({ has: window.locator('option', { hasText: 'Simple' }) });
+    await conformerSelect.selectOption({ label: 'Simple' });
+
+    await window.locator('.btn.btn-primary', { hasText: /Start Docking/i }).click();
+
+    const viewResultsBtn = window.locator('.btn.btn-primary', { hasText: /View Results/i });
+    await expect(viewResultsBtn).toBeVisible({ timeout: 120_000 });
+    await viewResultsBtn.click();
+    await window.waitForTimeout(1_000);
+
+    // First pose is auto-selected (index 0) — Simulate button should be visible
+    const simulateBtn = window.locator('.btn.btn-outline', { hasText: /^Simulate$/ });
+    await expect(simulateBtn).toBeVisible({ timeout: 5_000 });
+
+    // Click Simulate
+    await simulateBtn.click();
+    await window.waitForTimeout(1_000);
+
+    // Should switch to Simulate tab
+    const simulateTab = window.locator('.tab.tab-sm', { hasText: 'Simulate' });
+    await expect(simulateTab).toHaveClass(/tab-active/, { timeout: 5_000 });
+
+    // Store state: mode='md', step='md-configure'
+    const mdState = await window.evaluate(() => {
+      const store = (window as any).__emberStore;
+      const s = store.state();
+      return {
+        mode: s.mode,
+        mdStep: s.mdStep,
+        receptorPdb: s.md.receptorPdb,
+        ligandSdf: s.md.ligandSdf,
+      };
+    });
+    expect(mdState.mode).toBe('md');
+    expect(mdState.mdStep).toBe('md-configure');
+    expect(mdState.receptorPdb).toBeTruthy();
+    expect(mdState.ligandSdf).toBeTruthy();
+    expect(mdState.ligandSdf).toContain('.sdf');
+  });
 });
