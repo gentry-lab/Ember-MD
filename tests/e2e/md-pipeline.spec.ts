@@ -262,6 +262,58 @@ test.describe('MD simulation pipeline', () => {
 
     // "Play Trajectory" button should exist
     await expect(window.locator('.btn', { hasText: /Play Trajectory/i })).toBeVisible();
+
+    // --- Cluster row selection ---
+    // Click first row → selected cluster detail panel should appear
+    // Use dispatchEvent since parent card-body can intercept pointer events
+    await rows.first().dispatchEvent('click');
+    await window.waitForTimeout(500);
+
+    // Selected cluster detail panel appears with "View 3D" button
+    const view3dBtn = window.locator('.btn.btn-primary.btn-xs', { hasText: /View 3D/i });
+    await expect(view3dBtn).toBeVisible({ timeout: 3_000 });
+
+    // Verify selected cluster info text
+    await expect(window.locator('text=/% of trajectory/')).toBeVisible();
+    await expect(window.locator('text=/Cluster \\d+/').first()).toBeVisible();
+
+    // Click "View 3D" → mode switches to viewer with pdbQueue
+    await view3dBtn.dispatchEvent('click');
+    await window.waitForTimeout(1_000);
+    const viewerState = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        mode: s.mode,
+        pdbPath: s.viewer.pdbPath,
+        pdbQueueLen: s.viewer.pdbQueue.length,
+        trajectoryPath: s.viewer.trajectoryPath,
+      };
+    });
+    expect(viewerState.mode).toBe('viewer');
+    expect(viewerState.pdbPath).toBeTruthy();
+    expect(viewerState.pdbQueueLen).toBeGreaterThan(0);
+    // Cluster view should NOT have trajectory loaded
+    expect(viewerState.trajectoryPath).toBeFalsy();
+
+    // Navigate back to MD results via Simulate tab
+    await window.locator('.tab.tab-sm', { hasText: 'Simulate' }).click();
+    await window.waitForTimeout(500);
+
+    // Click "Play Trajectory" → mode switches to viewer with trajectory
+    const playTrajBtn = window.locator('.btn', { hasText: /Play Trajectory/i });
+    await playTrajBtn.click({ force: true });
+    await window.waitForTimeout(1_000);
+    const trajState = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        mode: s.mode,
+        pdbPath: s.viewer.pdbPath,
+        trajectoryPath: s.viewer.trajectoryPath,
+      };
+    });
+    expect(trajState.mode).toBe('viewer');
+    expect(trajState.pdbPath).toBeTruthy();
+    expect(trajState.trajectoryPath).toBeTruthy();
   });
 
   test('configure: Estimate Runtime button is visible and clickable', async ({ window }) => {
