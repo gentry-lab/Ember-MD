@@ -79,9 +79,6 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
     }
   };
 
-  const anyAlignAvailable = () =>
-    props.canAlignProtein || props.canAlignLigand || props.canAlignSubstructure;
-
   return (
     <div class="card bg-base-200 h-full overflow-hidden" data-testid="project-table">
       <div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
@@ -216,8 +213,7 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
         </For>
       </div>
 
-      {/* Alignment toolbar */}
-      <Show when={anyAlignAvailable() || props.hasAlignment}>
+      {/* Alignment toolbar — always visible, buttons enabled per selection */}
         <div class="px-3 py-1.5 border-t border-base-300">
           <div class="flex items-center gap-1">
             <span class="text-[10px] text-base-content/55 mr-1">Align</span>
@@ -269,7 +265,6 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
             </Show>
           </div>
         </div>
-      </Show>
 
       <div class="px-3 py-2 border-t border-base-300 flex items-center gap-1.5">
         <button
