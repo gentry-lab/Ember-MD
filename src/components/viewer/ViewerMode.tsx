@@ -3043,8 +3043,19 @@ const ViewerMode: Component = () => {
   const selectedLigandRows = () => selectedRows().filter((r) => LIGAND_ROW_KINDS.has(r.rowKind));
 
   const canAlignProtein = () => selectedProteinRows().length >= 2;
-  const canAlignLigand = () => selectedLigandRows().length >= 2;
-  const canAlignSubstructure = () => selectedLigandRows().length >= 2;
+
+  // L enabled when: 2+ ligands, OR 1+ ligand + 1 protein-complex with a detected bound ligand
+  const hasProteinWithBoundLigand = () => {
+    const proteins = selectedProteinRows();
+    return proteins.length > 0 && (
+      !!state().viewer.selectedLigandId ||
+      !!state().viewer.ligandPath
+    );
+  };
+  const canAlignLigand = () =>
+    selectedLigandRows().length >= 2 ||
+    (selectedLigandRows().length >= 1 && hasProteinWithBoundLigand());
+  const canAlignSubstructure = () => canAlignLigand();
 
   const handleToggleRowSelection = async (rowId: string) => {
     const pt = state().viewer.projectTable;

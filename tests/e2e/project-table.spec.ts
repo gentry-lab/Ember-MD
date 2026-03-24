@@ -643,4 +643,123 @@ test.describe('Project table', () => {
     });
     expect(tableState).toBeNull();
   });
+
+  test('alignment toolbar is always visible with buttons disabled until selection conditions met', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    // Set up a docking job with apo + ligand rows
+    const poses = [
+      { ligandName: 'Pose A', vinaAffinity: -7.5, outputSdf: BENZENE_SDF },
+    ] as any[];
+    const queue = buildDockingViewerQueue(ALANINE_PDB, poses.map((p) => ({
+      name: p.ligandName, path: p.outputSdf, affinity: p.vinaAffinity,
+    })));
+    const projectTable = buildDockingProjectTable({
+      familyId: 'dock:align-test',
+      title: 'Align visibility test',
+      receptorPdb: ALANINE_PDB,
+      poses: poses as any,
+      poseQueue: queue,
+      selectedQueueIndex: 0,
+    });
+
+    await window.evaluate((args: any) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        ligandPath: args.ligandPath,
+        pdbQueue: args.queue,
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, { pdbPath: ALANINE_PDB, ligandPath: BENZENE_SDF, queue, projectTable });
+
+    // Alignment toolbar always visible
+    await expect(window.locator('[data-testid="project-table-align-protein"]')).toBeVisible({ timeout: 10_000 });
+    await expect(window.locator('[data-testid="project-table-align-ligand"]')).toBeVisible();
+    await expect(window.locator('[data-testid="project-table-align-substructure"]')).toBeVisible();
+
+    // All disabled with single selection
+    await expect(window.locator('[data-testid="project-table-align-protein"]')).toBeDisabled();
+    await expect(window.locator('[data-testid="project-table-align-ligand"]')).toBeDisabled();
+    await expect(window.locator('[data-testid="project-table-align-substructure"]')).toBeDisabled();
+  });
+
+  test('multiple imports accumulate in one Imports family', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    await window.evaluate((args: any) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({ pdbPath: args.pdbPath });
+
+      // First import
+      store.addViewerProjectFamily(
+        { id: 'imports', title: 'Imports', jobType: 'import', collapsed: false, rowIds: ['imports:first'], columns: [] },
+        [{ id: 'imports:first', familyId: 'imports', label: 'first.pdb', rowKind: 'apo', jobType: 'import',
+           item: { pdbPath: args.pdbPath, label: 'first.pdb' }, loadKind: 'structure', metrics: {} }],
+      );
+
+      // Second import — should merge into existing Imports family
+      store.addViewerProjectFamily(
+        { id: 'imports', title: 'Imports', jobType: 'import', collapsed: false, rowIds: ['imports:second'], columns: [] },
+        [{ id: 'imports:second', familyId: 'imports', label: 'second.sdf', rowKind: 'ligand', jobType: 'import',
+           item: { pdbPath: args.ligandPath, label: 'second.sdf', type: 'ligand' }, loadKind: 'standalone-ligand', metrics: {} }],
+      );
+    }, { pdbPath: ALANINE_PDB, ligandPath: BENZENE_SDF });
+
+    // Should be one family with 2 rows
+    const tableState = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        familyCount: s.viewer.projectTable?.families.length ?? 0,
+        rowCount: s.viewer.projectTable?.rows.length ?? 0,
+        familyTitle: s.viewer.projectTable?.families[0]?.title,
+        rowIds: s.viewer.projectTable?.families[0]?.rowIds,
+      };
+    });
+    expect(tableState.familyCount).toBe(1);
+    expect(tableState.rowCount).toBe(2);
+    expect(tableState.familyTitle).toBe('Imports');
+    expect(tableState.rowIds).toContain('imports:first');
+    expect(tableState.rowIds).toContain('imports:second');
+
+    // Both rows visible in the table
+    await expect(window.locator('[data-testid="project-row-imports:first"]')).toBeVisible({ timeout: 5_000 });
+    await expect(window.locator('[data-testid="project-row-imports:second"]')).toBeVisible();
+  });
+
+  test('transfer dropdown routes ligand to MCMM with single selection', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    await window.evaluate((args: any) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({ pdbPath: args.ligandPath });
+      store.addViewerProjectFamily(
+        { id: 'imports', title: 'Imports', jobType: 'import', collapsed: false, rowIds: ['imports:lig'], columns: [] },
+        [{ id: 'imports:lig', familyId: 'imports', label: 'benzene.sdf', rowKind: 'ligand', jobType: 'import',
+           item: { pdbPath: args.ligandPath, label: 'benzene.sdf', type: 'ligand' }, loadKind: 'standalone-ligand', metrics: {} }],
+      );
+    }, { ligandPath: BENZENE_SDF });
+
+    await expect(window.locator('[data-testid="project-table"]')).toBeVisible({ timeout: 10_000 });
+
+    // Transfer should be enabled with single selection
+    const transferBtn = window.locator('[data-testid="project-table-transfer"]');
+    await expect(transferBtn).toBeVisible();
+
+    // Click Transfer dropdown and select MCMM
+    await transferBtn.click();
+    await window.waitForTimeout(300);
+    const mcmmOption = window.locator('[data-testid="project-table-transfer-mcmm"]');
+    await expect(mcmmOption).toBeVisible({ timeout: 3_000 });
+    await mcmmOption.click();
+    await window.waitForTimeout(500);
+
+    // Should switch to MCMM mode
+    const mode = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return s.mode;
+    });
+    expect(mode).toBe('conform');
+  });
 });

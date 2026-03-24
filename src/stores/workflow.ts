@@ -973,16 +973,33 @@ function createWorkflowStore() {
           },
         };
       }
-      // Deduplicate: replace family if same id already exists
-      const filteredFamilies = existing.families.filter((f) => f.id !== family.id);
-      const filteredRows = existing.rows.filter((r) => r.familyId !== family.id);
+      const existingFamily = existing.families.find((f) => f.id === family.id);
+      if (existingFamily) {
+        // Merge new rows into existing family (deduplicate by row id)
+        const existingRowIds = new Set(existing.rows.filter((r) => r.familyId === family.id).map((r) => r.id));
+        const newRows = rows.filter((r) => !existingRowIds.has(r.id));
+        const mergedRowIds = [...existingFamily.rowIds, ...newRows.map((r) => r.id)];
+        return {
+          ...s,
+          viewer: {
+            ...s.viewer,
+            projectTable: {
+              families: existing.families.map((f) => f.id === family.id ? { ...f, rowIds: mergedRowIds } : f),
+              rows: [...existing.rows, ...newRows],
+              activeRowId: existing.activeRowId,
+              selectedRowIds: existing.selectedRowIds || [],
+            },
+          },
+        };
+      }
+      // New family
       return {
         ...s,
         viewer: {
           ...s.viewer,
           projectTable: {
-            families: [...filteredFamilies, family],
-            rows: [...filteredRows, ...rows],
+            families: [...existing.families, family],
+            rows: [...existing.rows, ...rows],
             activeRowId: existing.activeRowId,
             selectedRowIds: existing.selectedRowIds || [],
           },

@@ -295,18 +295,22 @@ export function buildMdProjectTable(options: {
   };
 }
 
+const IMPORT_FAMILY_ID = 'imports';
+
 export function buildImportFamily(options: {
   filePaths: string[];
   fileTypes: Array<'protein' | 'ligand'>;
 }): { family: ViewerProjectFamily; rows: ViewerProjectRow[] } {
   const { filePaths, fileTypes } = options;
-  const familyId = `import:${Date.now()}`;
+  const familyId = IMPORT_FAMILY_ID;
 
   const rows: ViewerProjectRow[] = filePaths.map((filePath, index) => {
     const fileName = filePath.split('/').pop() ?? filePath;
+    // Use a hash of the path for stable, deduplicate-safe row IDs
+    const pathHash = filePath.replace(/[^a-zA-Z0-9]/g, '_').slice(-60);
     const isLigand = fileTypes[index] === 'ligand';
     return {
-      id: `${familyId}:${index}`,
+      id: `${familyId}:${pathHash}`,
       familyId,
       label: fileName,
       rowKind: isLigand ? 'ligand' as const : 'apo' as const,
@@ -323,7 +327,7 @@ export function buildImportFamily(options: {
 
   const family: ViewerProjectFamily = {
     id: familyId,
-    title: rows.length === 1 ? rows[0].label : `Import (${rows.length} files)`,
+    title: 'Imports',
     jobType: 'import',
     collapsed: false,
     rowIds: rows.map((r) => r.id),
