@@ -157,6 +157,40 @@ test.describe('Viewer UI controls', () => {
     expect(vs3.proteinSurface).toBe(false);
   });
 
+  test('electrostatic surface computation returns nonzero values', async ({ window }) => {
+    const surfaceCheckbox = window.locator('label', { hasText: 'Surface' }).first().locator('input[type="checkbox"]');
+    await surfaceCheckbox.check();
+    await window.waitForTimeout(1_000);
+
+    const surfaceSchemeSelect = window.locator('select').filter({
+      has: window.locator('option', { hasText: 'Electrostatic' }),
+    }).first();
+    await surfaceSchemeSelect.selectOption('electrostatic');
+
+    await window.waitForFunction(() => {
+      const stage = (window as any).__nglStage;
+      return Array.from(stage?.compList || []).some((comp: any) =>
+        Array.from(comp.reprList || []).some((repr: any) => repr.repr?.type === 'surface')
+      );
+    }, null, { timeout: 15_000 });
+
+    const surfaceProps = await window.evaluate(async () => {
+      const api = (window as any).electronAPI;
+      const pdbPath = (window as any).__emberStore.state().viewer.pdbPath;
+      const outDir = `${(window as any).__emberStore.state().projectDir || '/tmp'}/surface-props-test`;
+      const result = await api.computeSurfaceProps(pdbPath, outDir);
+      if (!result.ok) return null;
+      return {
+        atomCount: result.value.atomCount,
+        electrostaticNonZero: result.value.electrostatic.some((value: number) => Math.abs(value) > 1e-6),
+      };
+    });
+
+    expect(surfaceProps).not.toBeNull();
+    expect(surfaceProps!.atomCount).toBeGreaterThan(0);
+    expect(surfaceProps!.electrostaticNonZero).toBe(true);
+  });
+
   test('clipping plane slider changes NGL clipDist parameter', async ({ window }) => {
     const paramsBefore = await getStageParams(window);
 

@@ -1,4 +1,5 @@
 import { Component, Show, createSignal } from 'solid-js';
+import path from 'path';
 import { workflowStore } from '../../stores/workflow';
 import type { AnalysisResult, RmsdAnalysisResult, RmsfAnalysisResult, HbondAnalysisResult } from '../../../shared/types/ipc';
 
@@ -17,6 +18,7 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
   const [rmsdResult, setRmsdResult] = createSignal<AnalysisResult | null>(null);
   const [rmsfResult, setRmsfResult] = createSignal<AnalysisResult | null>(null);
   const [hbondsResult, setHbondsResult] = createSignal<AnalysisResult | null>(null);
+  const [contactsResult, setContactsResult] = createSignal<AnalysisResult | null>(null);
   const [reportPath, setReportPath] = createSignal<string | null>(null);
 
   const pdbPath = () => state().viewer.pdbPath;
@@ -26,11 +28,12 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
   const getOutputDir = () => {
     const trajPath = trajectoryPath();
     if (!trajPath) return null;
-    const trajDir = trajPath.split('/').slice(0, -1).join('/');
-    return `${trajDir}/analysis`;
+    const trajDir = path.dirname(trajPath);
+    const runRoot = path.basename(trajDir) === 'results' ? path.dirname(trajDir) : trajDir;
+    return path.join(runRoot, 'analysis');
   };
 
-  const runAnalysis = async (type: 'rmsd' | 'rmsf' | 'hbonds') => {
+  const runAnalysis = async (type: 'rmsd' | 'rmsf' | 'hbonds' | 'contacts') => {
     if (!pdbPath() || !trajectoryPath()) return;
 
     setError(null);
@@ -53,7 +56,7 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
         topologyPath: pdbPath()!,
         trajectoryPath: trajectoryPath()!,
         analysisType: type,
-        outputDir: `${outputDir}/${type}`,
+        outputDir: path.join(outputDir, type),
       });
 
       if (result.ok) {
@@ -61,6 +64,7 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
         if (type === 'rmsd') setRmsdResult(result.value);
         if (type === 'rmsf') setRmsfResult(result.value);
         if (type === 'hbonds') setHbondsResult(result.value);
+        if (type === 'contacts') setContactsResult(result.value);
       } else {
         setError(result.error.message);
       }
@@ -170,6 +174,17 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
               </Show>
             </button>
 
+            <button
+              class="btn btn-xs btn-outline"
+              onClick={() => runAnalysis('contacts')}
+              disabled={isAnalyzing()}
+              title="Analyze protein-ligand contacts"
+            >
+              <Show when={analysisType() === 'contacts'} fallback="Contacts">
+                <span class="loading loading-spinner loading-xs" />
+              </Show>
+            </button>
+
             <div class="flex-1" />
 
             <button
@@ -192,7 +207,7 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
           </Show>
 
           {/* Results summary */}
-          <Show when={rmsdResult() || rmsfResult() || hbondsResult() || reportPath()}>
+          <Show when={rmsdResult() || rmsfResult() || hbondsResult() || contactsResult() || reportPath()}>
             <div class="text-xs flex flex-wrap gap-2 items-center">
               <Show when={rmsdResult()}>
                 <div class="badge badge-sm badge-success gap-1">
@@ -207,6 +222,11 @@ const AnalysisPanel: Component<AnalysisPanelProps> = (props) => {
               <Show when={hbondsResult()}>
                 <div class="badge badge-sm badge-success gap-1">
                   H-bonds: {(hbondsResult()?.data as HbondAnalysisResult | undefined)?.totalUnique || '?'}
+                </div>
+              </Show>
+              <Show when={contactsResult()}>
+                <div class="badge badge-sm badge-success gap-1">
+                  Contacts: {((contactsResult()?.data as { residues?: unknown[] } | undefined)?.residues?.length) ?? '?'}
                 </div>
               </Show>
               <Show when={reportPath()}>

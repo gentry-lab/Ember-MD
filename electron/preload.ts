@@ -84,6 +84,7 @@ const IpcChannels = {
   EXPORT_TRAJECTORY_FRAME: 'export-trajectory-frame',
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
+  RUN_XRAY_ANALYSIS: 'xray:run-analysis',
   SCORE_MD_CLUSTERS: 'md:score-clusters',
   LOAD_MD_TORSION_ANALYSIS: 'md:load-torsion-analysis',
   SCORE_COMPLEX: 'score-complex',
@@ -113,6 +114,7 @@ const IpcChannels = {
   GENERATION_OUTPUT: 'generation-output',
   DOCK_OUTPUT: 'dock:output',
   MD_OUTPUT: 'md:output',
+  XRAY_OUTPUT: 'xray:output',
 } as const;
 
 interface OutputData {
@@ -559,6 +561,12 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IpcChannels.MD_OUTPUT, listener);
   },
 
+  onXrayOutput: (callback: (data: OutputData) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: OutputData) => callback(data);
+    ipcRenderer.on(IpcChannels.XRAY_OUTPUT, listener);
+    return () => ipcRenderer.removeListener(IpcChannels.XRAY_OUTPUT, listener);
+  },
+
   // Trajectory viewer operations
   selectDcdFile: () => ipcRenderer.invoke(IpcChannels.SELECT_DCD_FILE),
 
@@ -588,6 +596,9 @@ const electronAPI = {
 
   generateMdReport: (options: MdReportOptions) =>
     ipcRenderer.invoke(IpcChannels.GENERATE_MD_REPORT, options),
+
+  runXrayAnalysis: (inputDir: string, outputDir: string) =>
+    ipcRenderer.invoke(IpcChannels.RUN_XRAY_ANALYSIS, inputDir, outputDir),
 
   loadMdTorsionAnalysis: (options: LoadMdTorsionAnalysisOptions) =>
     ipcRenderer.invoke(IpcChannels.LOAD_MD_TORSION_ANALYSIS, options),

@@ -28,6 +28,8 @@ import sys
 from pathlib import Path
 from typing import Any, List, Tuple
 
+from utils import load_sdf
+
 try:
     from rdkit import Chem
     from rdkit.Chem import AllChem
@@ -45,49 +47,9 @@ except ImportError:
 def load_mol_from_sdf(sdf_path: str) -> Any:
     """Load first molecule from an SDF or gzipped SDF file."""
     try:
-        if sdf_path.endswith('.gz'):
-            with gzip.open(sdf_path, 'rb') as f:
-                suppl = Chem.ForwardSDMolSupplier(f)
-                return next(suppl, None)
-        else:
-            suppl = Chem.SDMolSupplier(sdf_path)
-            return suppl[0] if len(suppl) > 0 else None
+        return load_sdf(sdf_path)
     except Exception as e:
         print(f"Warning: Failed to read {sdf_path}: {e}", file=sys.stderr)
-        return None
-
-
-def generate_3d_conformer(smiles: str) -> Any:
-    """Fallback 3D generation when Molscrub is not available."""
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is None:
-            return None
-
-        mol = Chem.AddHs(mol)
-        params = AllChem.ETKDGv3()
-        params.randomSeed = 42
-        params.maxIterations = 100
-
-        result = AllChem.EmbedMolecule(mol, params)
-        if result != 0:
-            params.useRandomCoords = True
-            result = AllChem.EmbedMolecule(mol, params)
-
-        if result != 0:
-            return None
-
-        try:
-            AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
-        except Exception:
-            try:
-                AllChem.UFFOptimizeMolecule(mol, maxIters=500)
-            except Exception:
-                pass
-
-        return mol
-    except Exception as e:
-        print(f"Warning: 3D generation failed for {smiles}: {e}", file=sys.stderr)
         return None
 
 
@@ -100,21 +62,16 @@ def process_ligand(sdf_path: str, output_dir: str, scrub: Any) -> List[Tuple[str
 
     mol = load_mol_from_sdf(sdf_path)
     if mol is None:
-        print(f"Warning: Could not read {sdf_path}", file=sys.stderr)
-        return [(sdf_path, parent_name)]
+        raise RuntimeError(f"Could not read ligand input: {sdf_path}")
 
-    # Enumerate variants (protonation + tautomers + ring conformations)
-    if scrub is not None:
-        try:
-            variants = list(scrub(mol))
-        except Exception as e:
-            print(f"Warning: Molscrub failed for {parent_name}: {e}", file=sys.stderr)
-            variants = []
-    else:
-        # Fallback: just generate 3D for the original molecule
-        smiles = Chem.MolToSmiles(mol)
-        fallback = generate_3d_conformer(smiles)
-        variants = [fallback] if fallback is not None else []
+    # Molscrub's protonation logic is more reliable on the heavy-atom graph than
+    # on fully explicit-H 3D inputs produced by our import pipeline.
+    mol = Chem.RemoveHs(mol)
+
+    try:
+        variants = list(scrub(mol))
+    except Exception as e:
+        raise RuntimeError(f"Molscrub failed for {parent_name}: {e}") from e
 
     results = []
 
@@ -142,7 +99,7 @@ def process_ligand(sdf_path: str, output_dir: str, scrub: Any) -> List[Tuple[str
         print(f"Generated: {output_name} from {parent_name}")
 
     if not results:
-        return [(sdf_path, parent_name)]
+        raise RuntimeError(f"Molscrub produced no protonation states for {parent_name}")
 
     return results
 
@@ -156,8 +113,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if not HAS_MOLSCRUB:
-        print("Warning: Molscrub not installed. Using original molecules.", file=sys.stderr)
+        print("ERROR: Molscrub is not installed in the active Python environment.", file=sys.stderr)
         print("Install with: pip install molscrub", file=sys.stderr)
+        sys.exit(1)
 
     with open(args.ligand_list, 'r') as f:
         ligand_paths = json.load(f)
@@ -180,7 +138,11 @@ def main() -> None:
     for i, sdf_path in enumerate(ligand_paths):
         print(f"Processing {i+1}/{len(ligand_paths)}: {os.path.basename(sdf_path)}")
 
-        results = process_ligand(sdf_path, args.output_dir, scrub)
+        try:
+            results = process_ligand(sdf_path, args.output_dir, scrub)
+        except Exception as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
 
         for output_path, parent_name in results:
             all_protonated_paths.append(output_path)

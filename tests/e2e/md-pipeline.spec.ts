@@ -8,7 +8,7 @@ import type { Page } from '@playwright/test';
 /** Navigate to MD configure page via PDB ID fetch → Continue */
 async function navigateToConfigure(window: Page): Promise<void> {
   await fetchReceptor(window);
-  const continueBtn = window.locator('.btn.btn-primary', { hasText: /Continue/i });
+  const continueBtn = window.locator('.btn.btn-primary:visible', { hasText: /Continue/i });
   await expect(continueBtn).toBeEnabled({ timeout: 5_000 });
   await continueBtn.click();
   await window.waitForTimeout(1_000);
@@ -17,9 +17,9 @@ async function navigateToConfigure(window: Page): Promise<void> {
 
 /** Fetch 8TCE via PDB ID, verifying no errors and structure loads */
 async function fetchReceptor(window: Page): Promise<void> {
-  const pdbInput = window.locator('input[placeholder*="8TCE"]');
+  const pdbInput = window.locator('input[placeholder*="8TCE"]:visible');
   await pdbInput.fill('8TCE');
-  await window.locator('.btn.btn-primary.btn-sm', { hasText: 'Fetch' }).click();
+  await window.locator('.btn.btn-primary.btn-sm:visible', { hasText: 'Fetch' }).click();
 
   // Verify no error after fetch
   await window.waitForTimeout(2_000);
@@ -33,6 +33,21 @@ async function fetchReceptor(window: Page): Promise<void> {
   await expect(
     window.locator('main').locator('text=8TCE.cif')
   ).toBeVisible({ timeout: 30_000 });
+}
+
+async function getViewerTrajectoryRenderState(window: Page) {
+  return window.evaluate(() => {
+    const s = (window as any).__emberStore.state();
+    const telemetry = (window as any).__viewerTestState ?? {};
+    return {
+      currentFrame: s.viewer.currentFrame,
+      isPlaying: s.viewer.isPlaying,
+      playbackSpeed: s.viewer.playbackSpeed,
+      centerTarget: s.viewer.centerTarget,
+      renderedFrameIndex: telemetry.renderedFrameIndex ?? null,
+      coordinateSignature: telemetry.coordinateSignature ?? null,
+    };
+  });
 }
 
 test.describe('MD simulation pipeline', () => {
@@ -49,17 +64,17 @@ test.describe('MD simulation pipeline', () => {
 
     // Should show Protein + Ligand mode badge and Continue should be enabled
     await expect(window.locator('main .badge', { hasText: 'Protein + Ligand' })).toBeVisible();
-    await expect(window.locator('.btn.btn-primary', { hasText: /Continue/i })).toBeEnabled();
+    await expect(window.locator('.btn.btn-primary:visible', { hasText: /Continue/i })).toBeEnabled();
   });
 
   test('SMILES input sets ligand-only mode', async ({ window }) => {
     test.setTimeout(30_000);
 
-    const textarea = window.locator('textarea');
+    const textarea = window.locator('textarea:visible');
     await expect(textarea).toBeVisible();
     await textarea.fill('c1ccccc1');
 
-    const enterBtn = window.locator('.btn.btn-primary.btn-sm', { hasText: /Enter SMILES/i });
+    const enterBtn = window.locator('.btn.btn-primary.btn-sm:visible', { hasText: /Enter SMILES/i });
     await expect(enterBtn).toBeVisible();
     await enterBtn.click();
 
@@ -74,7 +89,7 @@ test.describe('MD simulation pipeline', () => {
 
     // Fetch receptor — auto-detects ligand, Continue becomes enabled
     await fetchReceptor(window);
-    const continueBtn = window.locator('.btn.btn-primary', { hasText: /Continue/i });
+    const continueBtn = window.locator('.btn.btn-primary:visible', { hasText: /Continue/i });
     await expect(continueBtn).toBeEnabled({ timeout: 5_000 });
     await continueBtn.click();
     await window.waitForTimeout(1_000);
@@ -83,7 +98,7 @@ test.describe('MD simulation pipeline', () => {
     await expect(window.locator('main').locator('text=/Configure/i').first()).toBeVisible({ timeout: 5_000 });
 
     // Force field preset dropdown with ff19sb option
-    const ffSelect = window.locator('select').filter({
+    const ffSelect = window.locator('select:visible').filter({
       has: window.locator('option', { hasText: /ff19sb/i }),
     });
     await expect(ffSelect).toBeVisible();
@@ -128,7 +143,7 @@ test.describe('MD simulation pipeline', () => {
     await window.waitForTimeout(300);
 
     // Edit input should appear
-    const editInput = window.locator('input[type="number"][min="0.1"][max="10000"]');
+    const editInput = window.locator('input[type="number"][min="0.1"][max="10000"]:visible');
     await expect(editInput).toBeVisible({ timeout: 2_000 });
     await editInput.fill('1');
     await editInput.press('Enter');
@@ -145,7 +160,7 @@ test.describe('MD simulation pipeline', () => {
     await navigateToConfigure(window);
 
     // Temperature input has min=200, max=500, step=10 — unique on this page
-    const tempInput = window.locator('input[type="number"][min="200"][max="500"]');
+    const tempInput = window.locator('input[type="number"][min="200"][max="500"]:visible');
     await expect(tempInput).toBeVisible({ timeout: 5_000 });
 
     // Verify current value is 300 (default)
@@ -180,13 +195,13 @@ test.describe('MD simulation pipeline', () => {
     test.setTimeout(300_000);
 
     // Ligand-only via SMILES — ibuprofen
-    const textarea = window.locator('textarea');
+    const textarea = window.locator('textarea:visible');
     await expect(textarea).toBeVisible();
     await textarea.fill('CC(C)Cc1ccc(cc1)C(C)C(=O)O');
-    await window.locator('.btn.btn-primary.btn-sm', { hasText: /Enter SMILES/i }).click();
+    await window.locator('.btn.btn-primary.btn-sm:visible', { hasText: /Enter SMILES/i }).click();
     await expect(window.locator('text=/Ligand Only/i').first()).toBeVisible({ timeout: 15_000 });
 
-    await window.locator('.btn.btn-primary', { hasText: /Continue/i }).click();
+    await window.locator('.btn.btn-primary:visible', { hasText: /Continue/i }).click();
     await window.waitForTimeout(1_000);
     await expect(window.locator('main').locator('text=/Configure/i').first()).toBeVisible({ timeout: 5_000 });
 
@@ -377,28 +392,161 @@ test.describe('MD simulation pipeline', () => {
     expect(trajState.mode).toBe('viewer');
     expect(trajState.pdbPath).toBeTruthy();
     expect(trajState.trajectoryPath).toBeTruthy();
+
+    // --- Trajectory controls verification ---
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      return !!s.viewer.trajectoryInfo && s.viewer.trajectoryInfo.frameCount > 0;
+    }, null, { timeout: 20_000 });
+
+    await expect(window.locator('[data-testid="trajectory-controls"]')).toBeVisible({ timeout: 10_000 });
+    await window.waitForFunction(() => {
+      const telemetry = (window as any).__viewerTestState;
+      return telemetry?.renderedFrameIndex === 0 && Array.isArray(telemetry?.coordinateSignature);
+    }, null, { timeout: 45_000 });
+
+    const initialTrajInfo = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        trajectoryPath: s.viewer.trajectoryPath,
+        frameCount: s.viewer.trajectoryInfo?.frameCount ?? 0,
+      };
+    });
+    expect(initialTrajInfo.trajectoryPath).toBeTruthy();
+    expect(initialTrajInfo.frameCount).toBeGreaterThan(0);
+
+    const initialRenderState = await getViewerTrajectoryRenderState(window);
+    expect(initialRenderState.renderedFrameIndex).toBe(0);
+    expect(initialRenderState.coordinateSignature).not.toBeNull();
+
+    const playBtn = window.locator('[data-testid="trajectory-play"]');
+    await playBtn.click();
+
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      const telemetry = (window as any).__viewerTestState;
+      return s.viewer.isPlaying === true && telemetry?.renderedFrameIndex === s.viewer.currentFrame;
+    }, null, { timeout: 20_000 });
+
+    if (initialTrajInfo.frameCount > 1) {
+      await window.waitForFunction(() => {
+        const s = (window as any).__emberStore.state();
+        const telemetry = (window as any).__viewerTestState;
+        return s.viewer.currentFrame > 0 && telemetry?.renderedFrameIndex === s.viewer.currentFrame;
+      }, null, { timeout: 20_000 });
+    }
+
+    const playedState = await getViewerTrajectoryRenderState(window);
+    expect(playedState.isPlaying).toBe(true);
+    if (initialTrajInfo.frameCount > 1) {
+      expect(playedState.currentFrame).toBeGreaterThan(0);
+      expect(playedState.renderedFrameIndex).toBe(playedState.currentFrame);
+      expect(playedState.coordinateSignature).not.toEqual(initialRenderState.coordinateSignature);
+    }
+
+    await playBtn.click();
+    await window.waitForFunction(() => !(window as any).__emberStore.state().viewer.isPlaying, null, { timeout: 10_000 });
+
+    const pausedState = await getViewerTrajectoryRenderState(window);
+    const pausedFrame = pausedState.currentFrame;
+
+    if (initialTrajInfo.frameCount > 1) {
+      await window.locator('[data-testid="trajectory-next"]').click();
+      await window.waitForFunction((frame: number) => {
+        const s = (window as any).__emberStore.state();
+        const telemetry = (window as any).__viewerTestState;
+        return s.viewer.currentFrame > frame && telemetry?.renderedFrameIndex === s.viewer.currentFrame;
+      }, pausedFrame, { timeout: 10_000 });
+      const steppedForward = await getViewerTrajectoryRenderState(window);
+      const steppedForwardFrame = steppedForward.currentFrame;
+      expect(steppedForwardFrame).toBeGreaterThan(pausedFrame);
+      expect(steppedForward.coordinateSignature).not.toEqual(pausedState.coordinateSignature);
+
+      await window.locator('[data-testid="trajectory-prev"]').click();
+      await window.waitForFunction((frame: number) => {
+        const s = (window as any).__emberStore.state();
+        const telemetry = (window as any).__viewerTestState;
+        return s.viewer.currentFrame < frame && telemetry?.renderedFrameIndex === s.viewer.currentFrame;
+      }, steppedForwardFrame, { timeout: 10_000 });
+      const steppedBackward = await getViewerTrajectoryRenderState(window);
+      const steppedBackwardFrame = steppedBackward.currentFrame;
+      expect(steppedBackwardFrame).toBeLessThan(steppedForwardFrame);
+      expect(steppedBackward.coordinateSignature).not.toEqual(steppedForward.coordinateSignature);
+    }
+
+    await window.locator('[data-testid="trajectory-speed"]').selectOption('2');
+    await window.waitForTimeout(300);
+    const speedState = await getViewerTrajectoryRenderState(window);
+    expect(speedState.playbackSpeed).toBe(2);
+
+    await window.locator('[data-testid="trajectory-center-protein"]').click();
+    await window.waitForTimeout(300);
+    const centerTargetState = await getViewerTrajectoryRenderState(window);
+    expect(centerTargetState.centerTarget).toBe('protein');
+
+    await expect(window.locator('div[data-testid^="project-family-"]')).toBeVisible();
+    await expect(window.locator('[data-testid^="project-row-"]', { hasText: /Initial complex/i })).toBeVisible();
+    await expect(window.locator('.btn.btn-outline', { hasText: 'RMSD' })).toBeVisible();
+    await expect(window.locator('.btn.btn-outline', { hasText: 'RMSF' })).toBeVisible();
+    await expect(window.locator('.btn.btn-outline', { hasText: 'H-bonds' })).toBeVisible();
+    await expect(window.locator('.btn.btn-outline', { hasText: 'Contacts' })).toBeVisible();
+
+    await window.locator('[data-testid^="project-row-"]', { hasText: /Cluster 1/i }).click();
+    await window.waitForTimeout(1_000);
+    const projectTableNavState = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        pdbPath: s.viewer.pdbPath,
+        trajectoryPath: s.viewer.trajectoryPath,
+      };
+    });
+    expect(projectTableNavState.pdbPath).toMatch(/cluster_0_centroid/i);
+    expect(projectTableNavState.trajectoryPath).toBeFalsy();
   });
 
-  test('configure: Estimate Runtime button is visible and clickable', async ({ window }) => {
-    // NOTE: Full benchmark test is blocked by a Python bug in run_md_simulation.py:
-    // _patched_createSystem conflicts with OpenMM ArgTracker — flexibleConstraints
-    // default arg is considered "unused" by ArgTracker when fn.__name__ is the patched wrapper.
-    // This causes BENCHMARK_FAILED(code 1). Do not fix in staging scripts.
-    test.setTimeout(60_000);
+  test('configure: Estimate Runtime returns throughput and estimated runtime', async ({ window }) => {
+    test.setTimeout(240_000);
     await navigateToConfigure(window);
 
-    const benchmarkBtn = window.locator('.btn.btn-secondary', { hasText: /Estimate Runtime/i });
+    const benchmarkBtn = window.locator('.btn.btn-secondary:visible', { hasText: /Estimate Runtime/i });
     await expect(benchmarkBtn).toBeVisible({ timeout: 5_000 });
     await expect(benchmarkBtn).toBeEnabled();
 
-    // Click — should show some status change (Cancel button or status text)
     await benchmarkBtn.click();
-    await window.waitForTimeout(2_000);
+    await expect(window.locator('[data-testid="benchmark-status"]')).toBeVisible({ timeout: 10_000 });
 
-    // Either showing Cancel (benchmarking) or benchmark already errored
-    // The button should have changed state — either Cancel or back to Estimate Runtime
-    // We just verify no crash: app still responsive
-    const simulateTab = window.locator('.tab.tab-sm', { hasText: 'Simulate' });
-    await expect(simulateTab).toBeVisible();
+    const benchmarkOutcomeHandle = await window.waitForFunction(() => {
+      const result = (window as any).__emberStore.state().md.benchmarkResult;
+      const statusEl = document.querySelector('[data-testid="benchmark-status"]');
+      const statusText = statusEl?.textContent ?? '';
+      return !!result || /^Error:/i.test(statusText);
+    }, null, { timeout: 220_000 });
+    expect(await benchmarkOutcomeHandle.jsonValue()).toBe(true);
+
+    const benchmarkOutcome = await window.evaluate(() => {
+      const result = (window as any).__emberStore.state().md.benchmarkResult;
+      const statusEl = document.querySelector('[data-testid="benchmark-status"]');
+      return {
+        result,
+        statusText: statusEl?.textContent ?? '',
+      };
+    }) as {
+      result: { nsPerDay: number; estimatedHours: number; systemInfo: { atomCount: number; boxVolumeA3: number } } | null;
+      statusText: string;
+    };
+
+    expect(benchmarkOutcome.statusText).not.toMatch(/^Error:/i);
+    expect(benchmarkOutcome.result).not.toBeNull();
+    expect(benchmarkOutcome.result!.nsPerDay).toBeGreaterThan(0);
+    expect(benchmarkOutcome.result!.estimatedHours).toBeGreaterThan(0);
+    expect(benchmarkOutcome.result!.systemInfo.atomCount).toBeGreaterThan(0);
+    expect(benchmarkOutcome.result!.systemInfo.boxVolumeA3).toBeGreaterThan(0);
+
+    const benchmarkPanel = window.locator('[data-testid="benchmark-results"]');
+    await expect(benchmarkPanel).toBeVisible({ timeout: 10_000 });
+    await expect(benchmarkPanel).toContainText('Benchmark Results');
+    await expect(benchmarkPanel).toContainText(/ns\/day/);
+    await expect(benchmarkPanel).toContainText('Atom Count');
+    await expect(benchmarkPanel).toContainText('Box Volume');
   });
 });

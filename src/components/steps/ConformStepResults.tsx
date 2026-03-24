@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { buildConformerViewerQueue } from '../../utils/viewerQueue';
+import { buildConformerProjectTable, buildConformerViewerQueue } from '../../utils/viewerQueue';
 
 const ConformStepResults: Component = () => {
   const {
@@ -31,10 +31,18 @@ const ConformStepResults: Component = () => {
     const paths = conformers();
     if (paths.length === 0) return;
     const queue = buildConformerViewerQueue(paths);
+    const projectTable = buildConformerProjectTable({
+      familyId: `conform:${state().jobName || 'current'}`,
+      title: state().conform.outputName || state().conform.ligandName || 'Conformer job',
+      inputPath: state().conform.ligandSdfPath,
+      conformerPaths: paths,
+      conformerEnergies: energies(),
+    });
     openViewerSession({
       pdbPath: queue[0].pdbPath,
       pdbQueue: queue,
       pdbQueueIndex: 0,
+      projectTable,
     });
   };
 
@@ -111,9 +119,14 @@ const ConformStepResults: Component = () => {
 
             <Show when={hasEnergies()}>
               <p class="text-[10px] text-base-content/50 mt-2">
-                Energies are relative to the lowest-energy conformer (kcal/mol).
-                {method() === 'crest' ? ' Computed at GFN2-xTB level with ALPB water solvation.' : ''}
-                {method() === 'mcmm' ? ' Computed with Sage 2.3.0 + OBC2 implicit solvent.' : ''}
+                Relative to lowest-energy conformer (kcal/mol).
+                {method() === 'crest'
+                  ? ' GFN2-xTB + ALPB solvation.'
+                  : state().conform.config.xtbRerank
+                    ? ' GFN2-xTB + ALPB solvation (reranked).'
+                    : method() === 'mcmm'
+                      ? ' Sage 2.3.0 + OBC2 implicit solvent.'
+                      : ' MMFF94s.'}
               </p>
             </Show>
           </div>

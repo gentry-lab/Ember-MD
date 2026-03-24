@@ -26,6 +26,8 @@ import time
 from pathlib import Path
 from typing import Any, List, Tuple
 
+from utils import load_sdf
+
 try:
     from vina import Vina
     from rdkit import Chem
@@ -46,12 +48,7 @@ def sdf_to_pdbqt_string(sdf_path: str, mol: Any = None) -> str:
     pre-loaded RDKit mol to avoid re-reading the file.
     """
     if mol is None:
-        if sdf_path.endswith('.gz'):
-            with gzip.open(sdf_path, 'rt') as f:
-                mol = Chem.MolFromMolBlock(f.read(), removeHs=False)
-        else:
-            supplier = Chem.SDMolSupplier(sdf_path, removeHs=False)
-            mol = supplier[0]
+        mol = load_sdf(sdf_path)
 
     if mol is None or mol.GetNumAtoms() == 0:
         raise ValueError(f"Failed to read molecule from {sdf_path}")

@@ -126,12 +126,16 @@ const DockStepProgress: Component = () => {
           ligandPaths, protonDir,
           dock.protonationConfig.phMin, dock.protonationConfig.phMax
         );
-        if (protonResult.ok && protonResult.value.protonatedPaths.length > 0) {
-          ligandPaths = protonResult.value.protonatedPaths;
-          appendLog(`  ${ligandPaths.length} protonation variants generated\n\n`);
-        } else {
-          appendLog('  Protonation unchanged (Dimorphite-DL may not be installed)\n\n');
+        if (!protonResult.ok) {
+          if (state().currentPhase !== 'idle') {
+            setError(protonResult.error.message);
+            setCurrentPhase('error');
+          }
+          setIsRunning(false);
+          return;
         }
+        ligandPaths = protonResult.value.protonatedPaths;
+        appendLog(`  ${ligandPaths.length} protonation variants generated\n\n`);
       }
 
       // Preprocessing: stereoisomer enumeration

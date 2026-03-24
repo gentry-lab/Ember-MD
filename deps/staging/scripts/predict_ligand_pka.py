@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Thin Ember wrapper around a forked or external QupKake installation.
+Thin Ember wrapper around the authoritative QupKake runtime.
 
-The wrapper prefers a repo-local or bundled QupKake fork and falls back to an
-installed package in the selected Python runtime. It supports a cheap
+The wrapper resolves a single QupKake source tree, Python runtime, and xTB
+binary. It supports a cheap
 availability check and a single-molecule prediction path that normalizes
 QupKake's SDF output into stable JSON.
 """
@@ -14,7 +14,7 @@ import argparse
 import gzip
 import json
 import os
-import shutil
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,9 +26,69 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 
-ENV_NAMES = ("qupkake",)
-CONDA_DIRS = ("miniconda3", "anaconda3", "miniforge3", "mambaforge")
 VALIDATION_SMILES = "CC(=O)O"
+RUNTIME_PROBE_CODE = """
+import json
+import os
+import re
+import subprocess
+import sys
+
+payload = {
+    "pythonVersion": sys.version.split()[0],
+    "moduleVersions": {},
+    "moduleErrors": {},
+}
+
+for label, module_name in [
+    ("rdkit", "rdkit"),
+    ("torch", "torch"),
+    ("pytorch_lightning", "pytorch_lightning"),
+    ("torch_geometric", "torch_geometric"),
+    ("qupkake", "qupkake"),
+    ("qupkake_cli", "qupkake.cli"),
+]:
+    try:
+        module = __import__(module_name, fromlist=["*"])
+        payload["moduleVersions"][label] = getattr(module, "__version__", None)
+    except Exception as exc:
+        payload["moduleErrors"][label] = f"{type(exc).__name__}: {exc}"
+
+xtb_version = None
+xtb_path = os.environ.get("QUPKAKE_XTBPATH") or os.environ.get("XTBPATH")
+if xtb_path:
+    try:
+        xtb_proc = subprocess.run([xtb_path, "--version"], capture_output=True, text=True, timeout=30)
+        xtb_output = "\\n".join(
+            chunk for chunk in [xtb_proc.stdout.strip(), xtb_proc.stderr.strip()] if chunk
+        )
+        match = re.search(r"xtb version\\s+([^\\s)]+)", xtb_output, flags=re.IGNORECASE)
+        if match:
+            xtb_version = match.group(1)
+    except Exception as exc:
+        payload["moduleErrors"]["xtb_probe"] = f"{type(exc).__name__}: {exc}"
+
+payload["xtbVersion"] = xtb_version
+try:
+    from qupkake.xtbp import resolve_fukui_compatibility_mode, resolve_fukui_compatibility_source
+
+    payload["fukuiCompatibilityMode"] = resolve_fukui_compatibility_mode(xtb_version)
+    payload["fukuiCompatibilitySource"] = resolve_fukui_compatibility_source(
+        xtb_version, payload["fukuiCompatibilityMode"]
+    )
+except Exception as exc:
+    payload["moduleErrors"]["qupkake_xtbp"] = f"{type(exc).__name__}: {exc}"
+
+payload["ok"] = len(payload["moduleErrors"]) == 0
+print(json.dumps(payload))
+""".strip()
+VALIDATION_PANEL_CODE = """
+import json
+from qupkake.contracts import to_json_data
+from qupkake.validation import run_validation_panel
+
+print(json.dumps(to_json_data(run_validation_panel(mp=False))))
+""".strip()
 
 
 def load_molecule(path: str) -> Any:
@@ -86,119 +146,63 @@ def normalize_input_for_qupkake(input_path: str, root: str) -> tuple[str, Any]:
     return normalized_path, mol
 
 
-def candidate_python_paths() -> list[str]:
-    candidates: list[str] = []
+def resolve_qupkake_python_path() -> str | None:
     env_python = os.environ.get("QUPKAKE_PYTHON")
     if env_python and os.path.exists(env_python):
-        candidates.append(env_python)
+        return str(Path(env_python).resolve())
 
     script_path = Path(__file__).resolve()
     resources_root = script_path.parent.parent
     bundled_python = resources_root / "qupkake-python" / "bin" / "python"
     if bundled_python.exists():
-        candidates.append(str(bundled_python))
+        return str(bundled_python.resolve())
 
-    repo_root = script_path.parents[3] if len(script_path.parents) >= 4 else None
-    if repo_root:
-        dev_bundled_python = repo_root / "bundle-mac" / "extra-resources" / "qupkake-python" / "bin" / "python"
-        if dev_bundled_python.exists():
-            candidates.append(str(dev_bundled_python))
+    canonical_local = Path.home() / "miniconda3" / "envs" / "qupkake" / "bin" / "python3.9"
+    if canonical_local.exists():
+        return str(canonical_local.resolve())
 
-    home = Path.home()
-    for env_name in ENV_NAMES:
-        for conda_dir in CONDA_DIRS:
-            candidate = home / conda_dir / "envs" / env_name / "bin" / "python"
-            if candidate.exists():
-                candidates.append(str(candidate))
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        resolved = str(Path(candidate).resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        deduped.append(resolved)
-    return deduped
+    return None
 
 
-def candidate_qupkake_roots() -> list[str]:
-    candidates: list[str] = []
+def resolve_qupkake_root() -> str | None:
     env_root = os.environ.get("QUPKAKE_ROOT")
     if env_root and os.path.exists(env_root):
-        candidates.append(env_root)
+        return str(Path(env_root).resolve())
 
     script_path = Path(__file__).resolve()
     resources_root = script_path.parent.parent
     bundled_root = resources_root / "qupkake-fork"
     if bundled_root.exists():
-        candidates.append(str(bundled_root))
+        return str(bundled_root.resolve())
 
     repo_root = script_path.parents[3] if len(script_path.parents) >= 4 else None
     if repo_root:
-        dev_bundled_root = repo_root / "bundle-mac" / "extra-resources" / "qupkake-fork"
-        if dev_bundled_root.exists():
-            candidates.append(str(dev_bundled_root))
         repo_vendor_root = repo_root / "vendor" / "QupKake"
         if repo_vendor_root.exists():
-            candidates.append(str(repo_vendor_root))
+            return str(repo_vendor_root.resolve())
 
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        resolved = str(Path(candidate).resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        deduped.append(resolved)
-    return deduped
+    return None
 
 
-def candidate_xtb_paths(python_path: str) -> list[str]:
-    candidates: list[str] = []
-
+def resolve_xtb_path() -> str | None:
     for env_var in ("QUPKAKE_XTBPATH", "XTBPATH"):
         env_xtb = os.environ.get(env_var)
         if env_xtb and os.path.exists(env_xtb):
-            candidates.append(env_xtb)
+            return str(Path(env_xtb).resolve())
 
     script_path = Path(__file__).resolve()
     resources_root = script_path.parent.parent
     bundled_xtb = resources_root / "qupkake-xtb" / "bin" / "xtb"
     if bundled_xtb.exists():
-        candidates.append(str(bundled_xtb))
-
-    env_bin = Path(python_path).resolve().parent
-    env_xtb = env_bin / "xtb"
-    if env_xtb.exists():
-        candidates.append(str(env_xtb))
+        return str(bundled_xtb.resolve())
 
     repo_root = script_path.parents[3] if len(script_path.parents) >= 4 else None
     if repo_root:
-        dev_bundled_xtb = repo_root / "bundle-mac" / "extra-resources" / "qupkake-xtb" / "bin" / "xtb"
-        if dev_bundled_xtb.exists():
-            candidates.append(str(dev_bundled_xtb))
-        for repo_xtb in (
-            repo_root / "vendor" / "xtb-env" / "bin" / "xtb",
-            repo_root / "vendor" / "xtb-6.4.1" / "install" / "bin" / "xtb",
-            repo_root / "vendor" / "xtb-6.4.1" / "install-openblas" / "bin" / "xtb",
-        ):
-            if repo_xtb.exists():
-                candidates.append(str(repo_xtb))
+        repo_xtb = repo_root / "vendor" / "xtb-env" / "bin" / "xtb"
+        if repo_xtb.exists():
+            return str(repo_xtb.resolve())
 
-    which_xtb = shutil.which("xtb", path=f"{env_bin}:{os.environ.get('PATH', '')}")
-    if which_xtb:
-        candidates.append(which_xtb)
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        resolved = str(Path(candidate).resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        deduped.append(resolved)
-    return deduped
+    return None
 
 
 def build_external_env(python_path: str, xtb_path: str, qupkake_root: str | None = None) -> dict[str, str]:
@@ -207,7 +211,6 @@ def build_external_env(python_path: str, xtb_path: str, qupkake_root: str | None
     xtb_bin = str(Path(xtb_path).resolve().parent)
     xtb_root = str(Path(xtb_bin).parent)
     env["PATH"] = f"{xtb_bin}:{env_bin}:{env.get('PATH', '')}"
-    env["XTBPATH"] = xtb_path
     env["QUPKAKE_XTBPATH"] = xtb_path
     xtb_lib = Path(xtb_root) / "lib"
     if xtb_lib.exists():
@@ -236,50 +239,61 @@ def run_external(
     )
 
 
+def trimmed_output(text: str) -> str | None:
+    stripped = text.strip()
+    return stripped or None
+
+
 def resolve_runtime() -> dict[str, Any]:
-    candidates = candidate_python_paths()
-    if not candidates:
+    python_path = resolve_qupkake_python_path()
+    if not python_path:
         return {
             "available": False,
             "validated": False,
+            "failureStage": "runtime_setup",
             "message": "Dedicated QupKake Python not found. Build or bundle the qupkake runtime first.",
         }
 
-    qupkake_roots = candidate_qupkake_roots()
-    last_error = "QupKake is unavailable."
-    missing_xtb = False
-    for python_path in candidates:
-        xtb_paths = candidate_xtb_paths(python_path)
-        if not xtb_paths:
-            missing_xtb = True
-            last_error = "Dedicated xTB executable not found. Bundle or build qupkake-xtb and point QUPKAKE_XTBPATH at it."
-            continue
+    xtb_path = resolve_xtb_path()
+    if not xtb_path:
+        return {
+            "available": False,
+            "validated": False,
+            "failureStage": "runtime_setup",
+            "message": "Dedicated xTB executable not found. Build or bundle qupkake-xtb and point QUPKAKE_XTBPATH at it.",
+        }
 
-        for xtb_path in xtb_paths:
-            for qupkake_root in [*qupkake_roots, None]:
-                env = build_external_env(python_path, xtb_path, qupkake_root)
+    qupkake_root = resolve_qupkake_root()
+    if not qupkake_root:
+        return {
+            "available": False,
+            "validated": False,
+            "failureStage": "runtime_setup",
+            "message": "QupKake source root not found. Provide QUPKAKE_ROOT or restore the authoritative fork.",
+        }
 
-                import_proc = run_external(python_path, ["-c", "import qupkake; print('OK')"], env)
-                if import_proc.returncode != 0:
-                    last_error = import_proc.stderr.strip() or import_proc.stdout.strip() or "Failed to import qupkake."
-                    continue
+    runtime = {
+        "available": True,
+        "validated": False,
+        "pythonPath": python_path,
+        "xtbPath": xtb_path,
+        "qupkakeRoot": qupkake_root,
+    }
+    runtime_probe = run_runtime_probe(runtime)
+    if not runtime_probe.get("ok"):
+        return {
+            "available": False,
+            "validated": False,
+            "failureStage": "runtime_setup",
+            "message": runtime_probe.get("message") or "QupKake runtime preflight failed.",
+            "runtimeProbe": runtime_probe,
+            "pythonPath": python_path,
+            "xtbPath": xtb_path,
+            "qupkakeRoot": qupkake_root,
+        }
 
-                cli_proc = run_external(python_path, ["-m", "qupkake.cli", "--version"], env)
-                if cli_proc.returncode != 0:
-                    last_error = cli_proc.stderr.strip() or cli_proc.stdout.strip() or "QupKake CLI is not runnable."
-                    continue
-
-                return {
-                    "available": True,
-                    "validated": False,
-                    "pythonPath": python_path,
-                    "xtbPath": xtb_path,
-                    "qupkakeRoot": qupkake_root,
-                }
-
-    if missing_xtb and "xTB executable" in last_error:
-        return {"available": False, "validated": False, "message": last_error}
-    return {"available": False, "validated": False, "message": last_error}
+    runtime["runtimeProbe"] = runtime_probe
+    return runtime
 
 
 def create_validation_ligand(path: str) -> None:
@@ -377,7 +391,243 @@ def parse_predictions(output_path: str) -> list[dict[str, Any]]:
     return entries
 
 
-def run_prediction_with_runtime(ligand_path: str, runtime: dict[str, Any]) -> dict[str, Any]:
+def probe_python_runtime(python_path: str, env: dict[str, str]) -> dict[str, Any]:
+    proc = run_external(
+        python_path,
+        ["-c", RUNTIME_PROBE_CODE],
+        env,
+    )
+    if proc.returncode != 0:
+        return {"pythonVersion": None}
+    try:
+        payload = json.loads(proc.stdout.strip())
+        module_versions = payload.get("moduleVersions", {}) if isinstance(payload, dict) else {}
+        module_errors = payload.get("moduleErrors", {}) if isinstance(payload, dict) else {}
+        return {
+            "pythonVersion": payload.get("pythonVersion"),
+            "rdkitVersion": module_versions.get("rdkit"),
+            "qupkakeVersion": module_versions.get("qupkake"),
+            "runtimeProbeOk": payload.get("ok"),
+            "runtimeProbeModuleErrors": module_errors or None,
+            "fukuiCompatibilityMode": payload.get("fukuiCompatibilityMode"),
+            "fukuiCompatibilitySource": payload.get("fukuiCompatibilitySource"),
+        }
+    except json.JSONDecodeError:
+        return {"pythonVersion": None}
+
+
+def parse_xtb_version(output: str) -> str | None:
+    match = re.search(r"xtb version\s+([^\s)]+)", output, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None
+
+
+def probe_xtb_runtime(xtb_path: str, env: dict[str, str]) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(
+            [xtb_path, "--version"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+    except Exception as exc:
+        return {"xtbVersion": None, "xtbError": str(exc)}
+
+    combined_output = "\n".join(
+        chunk for chunk in [proc.stdout.strip(), proc.stderr.strip()] if chunk
+    )
+    return {
+        "xtbVersion": parse_xtb_version(combined_output),
+        "xtbRawVersion": trimmed_output(combined_output),
+    }
+
+
+def build_runtime_fingerprint(runtime: dict[str, Any]) -> dict[str, Any]:
+    fingerprint = {
+        "pythonPath": runtime.get("pythonPath"),
+        "xtbPath": runtime.get("xtbPath"),
+        "qupkakeRoot": runtime.get("qupkakeRoot"),
+    }
+    python_path = runtime.get("pythonPath")
+    xtb_path = runtime.get("xtbPath")
+    if not python_path or not xtb_path:
+        return fingerprint
+
+    env = build_external_env(python_path, xtb_path, runtime.get("qupkakeRoot"))
+    fingerprint.update(probe_python_runtime(python_path, env))
+    fingerprint.update(probe_xtb_runtime(xtb_path, env))
+    return fingerprint
+
+
+def process_signal_name(returncode: int | None) -> str | None:
+    if returncode is None or returncode >= 0:
+        return None
+    return f"signal_{abs(returncode)}"
+
+
+def runtime_setup_message(proc: subprocess.CompletedProcess[str], fallback: str) -> str:
+    stderr = trimmed_output(proc.stderr or "")
+    stdout = trimmed_output(proc.stdout or "")
+    return stderr or stdout or fallback
+
+
+def run_runtime_probe(runtime: dict[str, Any]) -> dict[str, Any]:
+    python_path = runtime["pythonPath"]
+    xtb_path = runtime["xtbPath"]
+    env = build_external_env(python_path, xtb_path, runtime.get("qupkakeRoot"))
+    payload, proc = run_json_probe(python_path, env, RUNTIME_PROBE_CODE)
+    xtb_probe = probe_xtb_runtime(xtb_path, env)
+
+    result: dict[str, Any] = {
+        "ok": False,
+        "returnCode": proc.returncode,
+        "signal": process_signal_name(proc.returncode),
+        "rawStdout": trimmed_output(proc.stdout or ""),
+        "rawStderr": trimmed_output(proc.stderr or ""),
+        "xtbVersion": xtb_probe.get("xtbVersion"),
+        "xtbRawVersion": xtb_probe.get("xtbRawVersion"),
+    }
+    if payload is None:
+        result["failureStage"] = "runtime_setup"
+        result["message"] = runtime_setup_message(proc, "Failed to execute the QupKake runtime preflight.")
+        return result
+
+    result["pythonVersion"] = payload.get("pythonVersion")
+    result["moduleVersions"] = payload.get("moduleVersions", {})
+    result["moduleErrors"] = payload.get("moduleErrors", {})
+    result["fukuiCompatibilityMode"] = payload.get("fukuiCompatibilityMode")
+    result["fukuiCompatibilitySource"] = payload.get("fukuiCompatibilitySource")
+    result["ok"] = bool(payload.get("ok"))
+
+    if result["moduleErrors"]:
+        result["failureStage"] = "runtime_setup"
+        result["message"] = "; ".join(
+            f"{name}: {message}" for name, message in result["moduleErrors"].items()
+        )
+        return result
+
+    if not xtb_probe.get("xtbVersion"):
+        result["failureStage"] = "runtime_setup"
+        result["message"] = xtb_probe.get("xtbError") or "xTB did not report a version during runtime preflight."
+        return result
+
+    return result
+
+
+def run_json_probe(
+    python_path: str,
+    env: dict[str, str],
+    code: str,
+) -> tuple[dict[str, Any] | None, subprocess.CompletedProcess[str]]:
+    proc = run_external(python_path, ["-c", code], env)
+    if proc.returncode != 0:
+        return None, proc
+    try:
+        return json.loads(proc.stdout.strip()), proc
+    except json.JSONDecodeError:
+        return None, proc
+
+
+def classify_failure_stage(proc: subprocess.CompletedProcess[str], output_exists: bool) -> str | None:
+    stdout = proc.stdout or ""
+    if proc.returncode != 0:
+        return "prediction_failed"
+    if output_exists:
+        return None
+    if "No valid QupKake features were generated" in stdout:
+        return "feature_generation"
+    if "No protonation/deprotonation sites were found." in stdout:
+        return "no_sites"
+    return "prediction_failed"
+
+
+def run_validation_with_runtime(runtime: dict[str, Any]) -> tuple[dict[str, Any] | None, subprocess.CompletedProcess[str]]:
+    python_path = runtime["pythonPath"]
+    xtb_path = runtime["xtbPath"]
+    env = build_external_env(python_path, xtb_path, runtime.get("qupkakeRoot"))
+    return run_json_probe(python_path, env, VALIDATION_PANEL_CODE)
+
+
+def warning_from_validation_report(report: dict[str, Any]) -> str:
+    summary = report.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        return summary
+    overall_failure = report.get("overallFailure")
+    if isinstance(overall_failure, dict):
+        message = overall_failure.get("message")
+        if isinstance(message, str) and message.strip():
+            return message
+    return "QupKake validation failed the required acid/base control panel."
+
+
+def normalize_validation_report(
+    report: dict[str, Any], runtime_fingerprint: dict[str, Any]
+) -> dict[str, Any]:
+    normalized_controls: list[dict[str, Any]] = []
+    for control in report.get("controls", []) if isinstance(report.get("controls"), list) else []:
+        if not isinstance(control, dict):
+            continue
+        failure = control.get("failure") if isinstance(control.get("failure"), dict) else {}
+        normalized_controls.append(
+            {
+                "name": control.get("name"),
+                "required": bool(control.get("required")),
+                "smiles": control.get("smiles"),
+                "expectedTypeCounts": control.get("expected_type_counts", {}),
+                "forbiddenTypes": control.get("forbidden_types", []),
+                "observedTypeCounts": control.get("observed_type_counts", {}),
+                "entries": control.get("entries", []),
+                "entryCount": control.get("entry_count", 0),
+                "passed": bool(control.get("passed")),
+                "reasons": control.get("reasons", []),
+                "failureStage": failure.get("stage"),
+            }
+        )
+
+    overall_failure = report.get("overall_failure") if isinstance(report.get("overall_failure"), dict) else {}
+    return {
+        "controls": normalized_controls,
+        "requiredControlNames": report.get("required_control_names", []),
+        "informationalControlNames": report.get("informational_control_names", []),
+        "validated": bool(report.get("validated")),
+        "summary": report.get("summary"),
+        "overallFailureStage": overall_failure.get("stage"),
+        "runtimeFingerprint": runtime_fingerprint,
+    }
+
+
+def legacy_validation_case_from_report(report: dict[str, Any]) -> dict[str, Any] | None:
+    controls = report.get("controls")
+    if not isinstance(controls, list) or not controls:
+        return None
+    preferred = None
+    for control in controls:
+        if isinstance(control, dict) and control.get("required") and not control.get("passed"):
+            preferred = control
+            break
+    if preferred is None:
+        for control in controls:
+            if isinstance(control, dict) and control.get("required"):
+                preferred = control
+                break
+    if preferred is None or not isinstance(preferred, dict):
+        return None
+
+    return {
+        "name": preferred.get("name"),
+        "smiles": preferred.get("smiles"),
+        "outputCreated": preferred.get("entryCount", 0) > 0,
+        "entryCount": preferred.get("entryCount", 0),
+        "entries": preferred.get("entries", []),
+        "failureStage": preferred.get("failureStage"),
+        "rawStdout": None,
+        "rawStderr": None,
+    }
+
+
+def run_qupkake_cli_with_runtime(ligand_path: str, runtime: dict[str, Any]) -> dict[str, Any]:
     python_path = runtime["pythonPath"]
     xtb_path = runtime["xtbPath"]
     env = build_external_env(python_path, xtb_path, runtime.get("qupkakeRoot"))
@@ -394,35 +644,71 @@ def run_prediction_with_runtime(ligand_path: str, runtime: dict[str, Any]) -> di
             env,
         )
         runtime_ms = round((time.perf_counter() - started) * 1000, 1)
-
-        if proc.returncode != 0:
-            raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "QupKake prediction failed")
-
         output_path = os.path.join(root, "output", output_name)
-        if not os.path.exists(output_path):
-            if (
-                "No protonation/deprotonation sites were found." in proc.stdout
-                or "No valid QupKake features were generated" in proc.stdout
-                or "Output file will not be created." in proc.stdout
-            ):
-                return {
-                    "name": name,
-                    "smiles": smiles,
-                    "method": "qupkake",
-                    "methodLabel": "QupKake",
-                    "runtimeMs": runtime_ms,
-                    "entries": [],
-                }
-            raise RuntimeError(proc.stdout.strip() or "QupKake did not produce an output SDF")
+        output_exists = os.path.exists(output_path)
+        failure_stage = classify_failure_stage(proc, output_exists)
+        entries = parse_predictions(output_path) if output_exists else []
 
         return {
             "name": name,
+            "inputPath": ligand_path,
             "smiles": smiles,
             "method": "qupkake",
             "methodLabel": "QupKake",
             "runtimeMs": runtime_ms,
-            "entries": parse_predictions(output_path),
+            "entries": entries,
+            "entryCount": len(entries),
+            "outputCreated": output_exists,
+            "outputPath": output_path if output_exists else None,
+            "returnCode": proc.returncode,
+            "rawStdout": trimmed_output(proc.stdout),
+            "rawStderr": trimmed_output(proc.stderr),
+            "failureStage": failure_stage,
         }
+
+
+def run_prediction_with_runtime(ligand_path: str, runtime: dict[str, Any]) -> dict[str, Any]:
+    cli_result = run_qupkake_cli_with_runtime(ligand_path, runtime)
+
+    if cli_result["returnCode"] != 0:
+        raise RuntimeError(
+            cli_result.get("rawStderr")
+            or cli_result.get("rawStdout")
+            or "QupKake prediction failed"
+        )
+
+    if not cli_result["outputCreated"]:
+        if cli_result["failureStage"] in {"no_sites", "feature_generation"}:
+            return {
+                "name": cli_result["name"],
+                "smiles": cli_result["smiles"],
+                "method": "qupkake",
+                "methodLabel": "QupKake",
+                "runtimeMs": cli_result["runtimeMs"],
+                "entries": [],
+            }
+        raise RuntimeError(cli_result.get("rawStdout") or "QupKake did not produce an output SDF")
+
+    return {
+        "name": cli_result["name"],
+        "smiles": cli_result["smiles"],
+        "method": "qupkake",
+        "methodLabel": "QupKake",
+        "runtimeMs": cli_result["runtimeMs"],
+        "entries": cli_result["entries"],
+    }
+
+
+def warning_from_validation_case(case: dict[str, Any]) -> str:
+    failure_stage = case.get("failureStage")
+    if failure_stage == "feature_generation":
+        return "QupKake launched, but the validation molecule produced no usable features on this machine."
+    if failure_stage == "no_sites":
+        return "QupKake launched, but the validation molecule produced no predicted micro-pKa sites on this machine."
+    details = case.get("rawStderr") or case.get("rawStdout")
+    if details:
+        return f"QupKake launched, but validation failed: {details}"
+    return "QupKake launched, but validation failed during prediction."
 
 
 def check_installation() -> dict[str, Any]:
@@ -430,23 +716,53 @@ def check_installation() -> dict[str, Any]:
     if not runtime.get("available"):
         return runtime
 
+    runtime_probe = runtime.get("runtimeProbe")
+    if not isinstance(runtime_probe, dict):
+        runtime_probe = run_runtime_probe(runtime)
+        runtime["runtimeProbe"] = runtime_probe
+    if not runtime_probe.get("ok"):
+        runtime["available"] = False
+        runtime["validated"] = False
+        runtime["failureStage"] = "runtime_setup"
+        runtime["message"] = runtime_probe.get("message") or "QupKake runtime preflight failed."
+        runtime["warning"] = runtime["message"]
+        return runtime
+
+    runtime["runtimeFingerprint"] = build_runtime_fingerprint(runtime)
+
     validation_ligand = find_validation_ligand()
     runtime["validationLigand"] = validation_ligand
 
-    with tempfile.TemporaryDirectory(prefix="ember_qupkake_check_") as root:
-        validation_input = os.path.join(root, "validation_input.sdf")
-        create_validation_ligand(validation_input)
+    validation_report, validation_proc = run_validation_with_runtime(runtime)
+    if validation_report is None:
+        runtime["validated"] = False
+        runtime["failureStage"] = "prediction_failed"
+        runtime["warning"] = (
+            trimmed_output(validation_proc.stderr)
+            or trimmed_output(validation_proc.stdout)
+            or "Failed to run the QupKake validation panel."
+        )
+        runtime["validationReport"] = {
+            "controls": [],
+            "requiredControlNames": ["acetic_acid_validation", "pyridine_validation"],
+            "informationalControlNames": ["piperidine_validation", "indole_validation"],
+            "validated": False,
+            "summary": runtime["warning"],
+            "overallFailureStage": runtime["failureStage"],
+        }
+        return runtime
 
-        try:
-            validation_result = run_prediction_with_runtime(validation_input, runtime)
-            if validation_result["entries"]:
-                runtime["validated"] = True
-            else:
-                runtime["warning"] = (
-                    "QupKake launched, but the bundled validation molecule returned no micro-pKa entries on this machine."
-                )
-        except Exception as exc:
-            runtime["warning"] = f"QupKake launched, but validation failed: {exc}"
+    runtime["validationReport"] = normalize_validation_report(
+        validation_report,
+        runtime["runtimeFingerprint"],
+    )
+    runtime["validationCase"] = legacy_validation_case_from_report(runtime["validationReport"])
+    runtime["validated"] = bool(runtime["validationReport"].get("validated"))
+    if not runtime["validated"]:
+        runtime["failureStage"] = runtime["validationReport"].get("overallFailureStage")
+        if not runtime.get("failureStage") and runtime.get("validationCase"):
+            runtime["failureStage"] = runtime["validationCase"].get("failureStage")
+        runtime["warning"] = warning_from_validation_report(runtime["validationReport"])
 
     if validation_ligand and runtime.get("available") and runtime.get("validated"):
         try:
@@ -468,18 +784,28 @@ def predict(ligand_path: str) -> dict[str, Any]:
     status = check_installation()
     if not status.get("available"):
         raise RuntimeError(status.get("message") or "QupKake is unavailable")
+    if not status.get("validated"):
+        raise RuntimeError(status.get("warning") or "QupKake runtime failed validation and is blocked.")
     return run_prediction_with_runtime(ligand_path, status)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Predict ligand micro-pKa with external QupKake")
     parser.add_argument("--check", action="store_true", help="Check whether external QupKake is available")
+    parser.add_argument("--probe-runtime", action="store_true", help="Run only the QupKake runtime preflight probe")
     parser.add_argument("--ligand", help="Input ligand file for a single prediction")
     args = parser.parse_args()
 
     try:
         if args.check:
             print(json.dumps(check_installation()))
+            return
+        if args.probe_runtime:
+            runtime = resolve_runtime()
+            if not runtime.get("available"):
+                print(json.dumps(runtime))
+                return
+            print(json.dumps(run_runtime_probe(runtime)))
             return
         if not args.ligand:
             raise RuntimeError("--ligand is required unless --check is used")

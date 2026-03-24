@@ -38,9 +38,16 @@ const conformSteps: StepInfo[] = [
   { id: 'conform-results', label: 'Results', icon: '4' },
 ];
 
+const scoreSteps: StepInfo[] = [
+  { id: 'score-load', label: 'Load', icon: '1' },
+  { id: 'score-progress', label: 'Analyze', icon: '2' },
+  { id: 'score-results', label: 'Results', icon: '3' },
+];
+
 const dockStepOrder = dockSteps.map((s) => s.id);
 const mdStepOrder = mdSteps.map((s) => s.id);
 const conformStepOrder = conformSteps.map((s) => s.id);
+const scoreStepOrder = scoreSteps.map((s) => s.id);
 
 type PickerView = 'list' | 'rename' | 'delete';
 
@@ -224,6 +231,14 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
       if (stepIndex === currentIndex) return 'active';
       return 'pending';
     }
+    if (state().mode === 'score') {
+      const currentStep = state().scoreStep;
+      const currentIndex = scoreStepOrder.indexOf(currentStep);
+      const stepIndex = scoreStepOrder.indexOf(stepId);
+      if (stepIndex < currentIndex) return 'done';
+      if (stepIndex === currentIndex) return 'active';
+      return 'pending';
+    }
     const currentStep = state().mdStep;
     const currentIndex = mdStepOrder.indexOf(currentStep);
     const stepIndex = mdStepOrder.indexOf(stepId);
@@ -248,6 +263,8 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
     clearViewerSession();
     setMode('viewer');
   };
+
+  const useFullWidthWorkspace = () => state().mode === 'viewer';
 
   return (
     <div class="h-screen flex flex-col bg-base-100 overflow-hidden">
@@ -311,6 +328,13 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
               disabled={!canSwitchMode()}
             >
               View
+            </button>
+            <button
+              class={`tab tab-sm ${state().mode === 'score' ? 'tab-active' : ''}`}
+              onClick={() => handleModeSwitch('score')}
+              disabled={!canSwitchMode()}
+            >
+              Score X-ray Pose
             </button>
             <button
               class={`tab tab-sm ${state().mode === 'conform' ? 'tab-active' : ''}`}
@@ -414,6 +438,25 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
           </ul>
         </Show>
 
+        {/* Step indicators — Score mode */}
+        <Show when={state().mode === 'score' && state().projectReady}>
+          <ul class="steps steps-horizontal">
+            <For each={scoreSteps}>{(step) => {
+              const status = () => getStepStatus(step.id);
+              return (
+                <li
+                  class={`step step-sm ${status() === 'done' || status() === 'active' ? 'step-primary' : ''}`}
+                  data-content={status() === 'done' ? '✓' : step.icon}
+                >
+                  <span class={`text-xs ${status() === 'active' ? 'font-semibold' : 'text-base-content/90'}`}>
+                    {step.label}
+                  </span>
+                </li>
+              );
+            }}</For>
+          </ul>
+        </Show>
+
         {/* Step indicators — View mode */}
         <Show when={state().mode === 'viewer' && state().projectReady}>
           <ul class="steps steps-horizontal">
@@ -437,8 +480,10 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
       </header>
 
       {/* Main content */}
-      <main class="flex-1 min-h-0 overflow-auto relative">
-        <div class="h-full max-w-4xl mx-auto px-4 py-3">{props.children}</div>
+      <main class={`flex-1 min-h-0 relative ${useFullWidthWorkspace() ? 'overflow-hidden' : 'overflow-auto'}`}>
+        <div class={useFullWidthWorkspace() ? 'h-full w-full px-3 py-3' : 'h-full max-w-4xl mx-auto px-4 py-3'}>
+          {props.children}
+        </div>
 
         {/* Project selection overlay — blocks all content until a project is picked */}
         <Show when={!state().projectReady}>

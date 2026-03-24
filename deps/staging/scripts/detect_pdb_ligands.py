@@ -284,7 +284,7 @@ RETAIN_COFACTORS = {
 }
 
 
-def prepare_receptor(
+def prepare_docking_receptor(
     pdb_path: str,
     ligand_id: str,
     output_path: str,
@@ -476,10 +476,22 @@ def main() -> None:
     if args.mode == 'detect':
         if ligands is None:
             ligands = parse_pdb_ligands(args.pdb)
+        # Count hydrogens and total atoms for raw-vs-prepared detection
+        h_count = 0
+        total_atoms = 0
+        pdb_file = args.pdb
+        with open(pdb_file, 'r') as f:
+            for line in f:
+                if line.startswith(('ATOM', 'HETATM')):
+                    total_atoms += 1
+                    element = line[76:78].strip() if len(line) > 76 else ''
+                    atom_name = line[12:16].strip()
+                    if element == 'H' or (not element and atom_name.startswith('H')):
+                        h_count += 1
         # Output as JSON for easy parsing
-        result = []
+        lig_list = []
         for lig_id, data in ligands.items():
-            result.append({
+            lig_list.append({
                 'id': lig_id,
                 'resname': data['resname'],
                 'chain': data['chain'],
@@ -487,7 +499,14 @@ def main() -> None:
                 'num_atoms': data['num_atoms'],
                 'centroid': data['centroid']
             })
-        print(json.dumps(result))
+        print(json.dumps({
+            'ligands': lig_list,
+            'structureInfo': {
+                'totalAtoms': total_atoms,
+                'hydrogenCount': h_count,
+                'isPrepared': h_count > total_atoms * 0.1,  # >10% H → likely prepared
+            }
+        }))
 
     elif args.mode == 'extract':
         if not args.ligand_id or not args.output:
@@ -502,7 +521,7 @@ def main() -> None:
         if not args.ligand_id or not args.output:
             print("ERROR: --ligand_id and --output required for prepare_receptor mode", file=sys.stderr)
             sys.exit(1)
-        if prepare_receptor(args.pdb, args.ligand_id, args.output,
+        if prepare_docking_receptor(args.pdb, args.ligand_id, args.output,
                            water_distance=args.water_distance,
                            add_hydrogens=not args.no_hydrogens,
                            protonation_ph=args.ph):

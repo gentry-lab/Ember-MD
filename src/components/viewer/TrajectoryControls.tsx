@@ -109,7 +109,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
 
   return (
     <Show when={trajectoryInfo()}>
-      <div class="card bg-base-200 p-2">
+      <div class="card bg-base-200 p-2" data-testid="trajectory-controls">
         <div class="flex flex-col gap-2">
           {/* Playback controls row */}
           <div class="flex items-center gap-2">
@@ -119,6 +119,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 class="btn btn-xs btn-ghost"
                 onClick={() => props.onFirstFrame()}
                 title="First frame (Home)"
+                data-testid="trajectory-first"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm1.5-13h-4a.5.5 0 00-.5.5v9a.5.5 0 00.5.5h4a.5.5 0 00.5-.5v-9a.5.5 0 00-.5-.5z" />
@@ -129,6 +130,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 class="btn btn-xs btn-ghost"
                 onClick={() => props.onStepBackward()}
                 title="Previous frame (Left arrow)"
+                data-testid="trajectory-prev"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
@@ -138,6 +140,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 class={`btn btn-xs ${isPlaying() ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => isPlaying() ? props.onPause() : props.onPlay()}
                 title={isPlaying() ? 'Pause (Space)' : 'Play (Space)'}
+                data-testid="trajectory-play"
               >
                 <Show when={isPlaying()} fallback={
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -153,6 +156,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 class="btn btn-xs btn-ghost"
                 onClick={() => props.onStepForward()}
                 title="Next frame (Right arrow)"
+                data-testid="trajectory-next"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
@@ -162,6 +166,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 class="btn btn-xs btn-ghost"
                 onClick={() => props.onLastFrame()}
                 title="Last frame (End)"
+                data-testid="trajectory-last"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.5 5h4a.5.5 0 01.5.5v9a.5.5 0 01-.5.5h-4a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" />
@@ -190,6 +195,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 class="select select-xs select-bordered w-16"
                 value={playbackSpeed()}
                 onChange={handleSpeedChange}
+                data-testid="trajectory-speed"
               >
                 <option value="0.25">0.25x</option>
                 <option value="0.5">0.5x</option>
@@ -206,6 +212,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 class="checkbox checkbox-xs checkbox-primary"
                 checked={loopPlayback()}
                 onChange={() => setViewerLoopPlayback(!loopPlayback())}
+                data-testid="trajectory-loop"
               />
               <span class="text-xs">Loop</span>
             </label>
@@ -220,6 +227,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
               max={(trajectoryInfo()?.frameCount || 1) - 1}
               value={currentFrame()}
               onInput={handleSliderChange}
+              data-testid="trajectory-slider"
             />
           </div>
 
@@ -235,6 +243,7 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 max="10"
                 value={smoothing()}
                 onInput={handleSmoothingChange}
+                data-testid="trajectory-smoothing"
               />
               <span class="text-xs font-mono w-4">{smoothing()}</span>
             </div>
@@ -246,18 +255,21 @@ const TrajectoryControls: Component<TrajectoryControlsProps> = (props) => {
                 <button
                   class={`btn btn-xs ${centerTarget() === 'ligand' ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => handleCenterTargetChange('ligand')}
+                  data-testid="trajectory-center-ligand"
                 >
                   Ligand
                 </button>
                 <button
                   class={`btn btn-xs ${centerTarget() === 'protein' ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => handleCenterTargetChange('protein')}
+                  data-testid="trajectory-center-protein"
                 >
                   Protein
                 </button>
                 <button
                   class={`btn btn-xs ${centerTarget() === 'none' ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => handleCenterTargetChange('none')}
+                  data-testid="trajectory-center-none"
                 >
                   None
                 </button>

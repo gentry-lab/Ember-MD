@@ -28,6 +28,7 @@ import os
 import sys
 from typing import Any, Dict, Optional, Set, Tuple
 
+from utils import load_sdf
 from receptor_protonation import (
     collect_propka_shifted_residues,
     identify_pocket_residue_keys_from_pdb,
@@ -117,14 +118,7 @@ def prepare_receptor(
         print(f'  Using {len(pocket_residue_keys)} pre-computed pocket residue keys', file=sys.stderr)
     elif pocket_ligand_sdf:
         try:
-            import rdkit.Chem as Chem
-            if pocket_ligand_sdf.endswith('.gz'):
-                import gzip
-                with gzip.open(pocket_ligand_sdf, 'rt') as f:
-                    mol = Chem.MolFromMolBlock(f.read(), removeHs=True)
-            else:
-                supplier = Chem.SDMolSupplier(pocket_ligand_sdf, removeHs=True)
-                mol = supplier[0]
+            mol = load_sdf(pocket_ligand_sdf, remove_hs=True)
             if mol is not None:
                 conf = mol.GetConformer()
                 ligand_coords = [

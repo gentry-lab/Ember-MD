@@ -1,0 +1,11 @@
+prefix=/Users/controller/Desktop/Ember-MD/vendor/xtb-env
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: dftd4
+Description: Generally Applicable Atomic-Charge Dependent London Dispersion Correction
+Version: 3.7.0
+Requires.private: mctc-lib >= 0.3.0, multicharge
+Libs: -L${libdir} -ldftd4
+Libs.private: -fopenmp -llapack -lblas
+Cflags: -I${includedir} -I${includedir}/dftd4/gcc-13.3.0

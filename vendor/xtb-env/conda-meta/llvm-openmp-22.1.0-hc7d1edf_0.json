@@ -1,0 +1,83 @@
+{
+  "name": "llvm-openmp",
+  "version": "22.1.0",
+  "build": "hc7d1edf_0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/conda-forge/osx-arm64",
+  "subdir": "osx-arm64",
+  "fn": "llvm-openmp-22.1.0-hc7d1edf_0.conda",
+  "md5": "ff0820b5588b20be3b858552ecf8ffae",
+  "url": "https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-22.1.0-hc7d1edf_0.conda",
+  "sha256": "0daeedb3872ad0fdd6f0d7e7165c63488e8a315d7057907434145fba0c1e7b3d",
+  "depends": [
+    "__osx >=11.0"
+  ],
+  "constrains": [
+    "openmp 22.1.0|22.1.0.*",
+    "intel-openmp <0.0a0"
+  ],
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "timestamp": 1772028716000,
+  "size": 285558,
+  "requested_spec": "None",
+  "package_tarball_full_path": "/Users/controller/miniconda3/pkgs/llvm-openmp-22.1.0-hc7d1edf_0.conda",
+  "extracted_package_dir": "/Users/controller/miniconda3/pkgs/llvm-openmp-22.1.0-hc7d1edf_0",
+  "files": [
+    "include/omp-tools.h",
+    "include/omp.h",
+    "include/ompt.h",
+    "include/ompx.h",
+    "lib/libiomp5.dylib",
+    "lib/libomp.dylib"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "include/omp-tools.h",
+        "path_type": "hardlink",
+        "sha256": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be",
+        "size_in_bytes": 52077,
+        "sha256_in_prefix": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be"
+      },
+      {
+        "_path": "include/omp.h",
+        "path_type": "hardlink",
+        "sha256": "5974470842520cea4bc50136e2329bbf4e36ba928d317e86f7def2ba1752d3d4",
+        "size_in_bytes": 26072,
+        "sha256_in_prefix": "5974470842520cea4bc50136e2329bbf4e36ba928d317e86f7def2ba1752d3d4"
+      },
+      {
+        "_path": "include/ompt.h",
+        "path_type": "hardlink",
+        "sha256": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be",
+        "size_in_bytes": 52077,
+        "sha256_in_prefix": "4876d0addcf2783953a6d0aeed8efc495ff0476b6a5784ca6e43bdd1c62df5be"
+      },
+      {
+        "_path": "include/ompx.h",
+        "path_type": "hardlink",
+        "sha256": "a84d0460771cec5695ce16fc8698bddf3276a1908a372087b3f6aa60782acf88",
+        "size_in_bytes": 7720,
+        "sha256_in_prefix": "a84d0460771cec5695ce16fc8698bddf3276a1908a372087b3f6aa60782acf88"
+      },
+      {
+        "_path": "lib/libiomp5.dylib",
+        "path_type": "softlink",
+        "sha256": "ce4985af1eb24c5cf570933a9234a54353c4b649cd1985fbe4300d67be97d76b",
+        "size_in_bytes": 844288
+      },
+      {
+        "_path": "lib/libomp.dylib",
+        "path_type": "hardlink",
+        "sha256": "ce4985af1eb24c5cf570933a9234a54353c4b649cd1985fbe4300d67be97d76b",
+        "size_in_bytes": 844288,
+        "sha256_in_prefix": "ce4985af1eb24c5cf570933a9234a54353c4b649cd1985fbe4300d67be97d76b"
+      }
+    ]
+  },
+  "link": {
+    "source": "/Users/controller/miniconda3/pkgs/llvm-openmp-22.1.0-hc7d1edf_0",
+    "type": 1
+  }
+}

@@ -73,9 +73,10 @@ const MapMode: Component = () => {
 
     try {
       const detected = await api.detectPdbLigands(pdbPath);
-      if (detected.ok && detected.value.length > 0) {
-        setMapDetectedLigands(detected.value);
-        setMapSelectedLigandId(detected.value[0].id);
+      const ligands = detected.ok ? (Array.isArray(detected.value) ? detected.value : detected.value.ligands) : [];
+      if (ligands.length > 0) {
+        setMapDetectedLigands(ligands);
+        setMapSelectedLigandId(ligands[0].id);
       }
     } catch (err) {
       console.error('[Map] Failed to detect ligands:', err);

@@ -1,0 +1,1413 @@
+{
+  "name": "tblite",
+  "version": "0.4.0",
+  "build": "hb3fdf34_2",
+  "build_number": 2,
+  "channel": "https://conda.anaconda.org/conda-forge/osx-arm64",
+  "subdir": "osx-arm64",
+  "fn": "tblite-0.4.0-hb3fdf34_2.conda",
+  "md5": "044c07431d95c06e039b063b1483954a",
+  "url": "https://conda.anaconda.org/conda-forge/osx-arm64/tblite-0.4.0-hb3fdf34_2.conda",
+  "sha256": "d12940b7559ceff3546f07f04362cfeca493a9b494d628661020251005ad9100",
+  "depends": [
+    "__osx >=11.0",
+    "dftd4 >=3.7.0,<3.8.0a0",
+    "libblas >=3.9.0,<4.0a0",
+    "libgfortran >=5",
+    "libgfortran5 >=13.3.0",
+    "libgfortran5 >=14.2.0",
+    "liblapack >=3.9.0,<4.0a0",
+    "llvm-openmp >=18.1.8",
+    "llvm-openmp >=20.1.2",
+    "mctc-lib >=0.4.1,<0.5.0a0",
+    "simple-dftd3 >=1.2.1,<1.3.0a0",
+    "toml-f >=0.4.2,<0.5.0a0"
+  ],
+  "constrains": [],
+  "license": "LGPL-3.0-or-later",
+  "timestamp": 1743774521000,
+  "size": 4822189,
+  "requested_spec": "None",
+  "package_tarball_full_path": "/Users/controller/miniconda3/pkgs/tblite-0.4.0-hb3fdf34_2.conda",
+  "extracted_package_dir": "/Users/controller/miniconda3/pkgs/tblite-0.4.0-hb3fdf34_2",
+  "files": [
+    "bin/tblite",
+    "include/tblite.h",
+    "include/tblite/calculator.h",
+    "include/tblite/container.h",
+    "include/tblite/context.h",
+    "include/tblite/double_dictionary.h",
+    "include/tblite/error.h",
+    "include/tblite/gcc-13.3.0/tblite_adjlist.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_calculator.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_container.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_context.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_double_dictionary.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_error.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_param.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_result.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_structure.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_table.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_utils.mod",
+    "include/tblite/gcc-13.3.0/tblite_api_version.mod",
+    "include/tblite/gcc-13.3.0/tblite_basis.mod",
+    "include/tblite/gcc-13.3.0/tblite_basis_ortho.mod",
+    "include/tblite/gcc-13.3.0/tblite_basis_slater.mod",
+    "include/tblite/gcc-13.3.0/tblite_basis_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_blas.mod",
+    "include/tblite/gcc-13.3.0/tblite_blas_level1.mod",
+    "include/tblite/gcc-13.3.0/tblite_blas_level2.mod",
+    "include/tblite/gcc-13.3.0/tblite_blas_level3.mod",
+    "include/tblite/gcc-13.3.0/tblite_ceh_ceh.mod",
+    "include/tblite/gcc-13.3.0/tblite_ceh_h0.mod",
+    "include/tblite/gcc-13.3.0/tblite_ceh_singlepoint.mod",
+    "include/tblite/gcc-13.3.0/tblite_classical_halogen.mod",
+    "include/tblite/gcc-13.3.0/tblite_container.mod",
+    "include/tblite/gcc-13.3.0/tblite_container_cache.mod",
+    "include/tblite/gcc-13.3.0/tblite_container_list.mod",
+    "include/tblite/gcc-13.3.0/tblite_container_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_context.mod",
+    "include/tblite/gcc-13.3.0/tblite_context_logger.mod",
+    "include/tblite/gcc-13.3.0/tblite_context_solver.mod",
+    "include/tblite/gcc-13.3.0/tblite_context_terminal.mod",
+    "include/tblite/gcc-13.3.0/tblite_context_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_cache.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_charge.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_charge_effective.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_charge_gamma.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_charge_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_ewald.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_multipole.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_thirdorder.mod",
+    "include/tblite/gcc-13.3.0/tblite_coulomb_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_cutoff.mod",
+    "include/tblite/gcc-13.3.0/tblite_data.mod",
+    "include/tblite/gcc-13.3.0/tblite_data_atomicrad.mod",
+    "include/tblite/gcc-13.3.0/tblite_data_covrad.mod",
+    "include/tblite/gcc-13.3.0/tblite_data_paulingen.mod",
+    "include/tblite/gcc-13.3.0/tblite_data_spin.mod",
+    "include/tblite/gcc-13.3.0/tblite_disp.mod",
+    "include/tblite/gcc-13.3.0/tblite_disp_cache.mod",
+    "include/tblite/gcc-13.3.0/tblite_disp_d3.mod",
+    "include/tblite/gcc-13.3.0/tblite_disp_d4.mod",
+    "include/tblite/gcc-13.3.0/tblite_disp_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_double_dictionary.mod",
+    "include/tblite/gcc-13.3.0/tblite_external_field.mod",
+    "include/tblite/gcc-13.3.0/tblite_fit_newuoa.mod",
+    "include/tblite/gcc-13.3.0/tblite_fit_settings.mod",
+    "include/tblite/gcc-13.3.0/tblite_integral_diat_trafo.mod",
+    "include/tblite/gcc-13.3.0/tblite_integral_dipole.mod",
+    "include/tblite/gcc-13.3.0/tblite_integral_multipole.mod",
+    "include/tblite/gcc-13.3.0/tblite_integral_overlap.mod",
+    "include/tblite/gcc-13.3.0/tblite_integral_trafo.mod",
+    "include/tblite/gcc-13.3.0/tblite_integral_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_io_tag.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_getrf.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_getri.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_getrs.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_potrf.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_solver.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_sygst.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_sygvd.mod",
+    "include/tblite/gcc-13.3.0/tblite_lapack_sygvr.mod",
+    "include/tblite/gcc-13.3.0/tblite_mesh_lebedev.mod",
+    "include/tblite/gcc-13.3.0/tblite_ncoord.mod",
+    "include/tblite/gcc-13.3.0/tblite_ncoord_erf.mod",
+    "include/tblite/gcc-13.3.0/tblite_ncoord_erf_en.mod",
+    "include/tblite/gcc-13.3.0/tblite_ncoord_exp.mod",
+    "include/tblite/gcc-13.3.0/tblite_ncoord_gfn.mod",
+    "include/tblite/gcc-13.3.0/tblite_ncoord_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_os.mod",
+    "include/tblite/gcc-13.3.0/tblite_output_ascii.mod",
+    "include/tblite/gcc-13.3.0/tblite_output_format.mod",
+    "include/tblite/gcc-13.3.0/tblite_output_property.mod",
+    "include/tblite/gcc-13.3.0/tblite_param.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_charge.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_dispersion.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_element.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_halogen.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_hamiltonian.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_mask.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_molecular_moments.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_multipole.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_post_processing.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_repulsion.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_serde.mod",
+    "include/tblite/gcc-13.3.0/tblite_param_thirdorder.mod",
+    "include/tblite/gcc-13.3.0/tblite_post_processing_bond_orders.mod",
+    "include/tblite/gcc-13.3.0/tblite_post_processing_list.mod",
+    "include/tblite/gcc-13.3.0/tblite_post_processing_molecular_moments.mod",
+    "include/tblite/gcc-13.3.0/tblite_post_processing_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_repulsion.mod",
+    "include/tblite/gcc-13.3.0/tblite_repulsion_effective.mod",
+    "include/tblite/gcc-13.3.0/tblite_repulsion_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_results.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf_info.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf_iterator.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf_mixer.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf_mixer_broyden.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf_mixer_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf_potential.mod",
+    "include/tblite/gcc-13.3.0/tblite_scf_solver.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_alpb.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_born.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_cds.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_cpcm.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_cpcm_dd.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_data.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_input.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_surface.mod",
+    "include/tblite/gcc-13.3.0/tblite_solvation_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_spin.mod",
+    "include/tblite/gcc-13.3.0/tblite_timer.mod",
+    "include/tblite/gcc-13.3.0/tblite_toml.mod",
+    "include/tblite/gcc-13.3.0/tblite_version.mod",
+    "include/tblite/gcc-13.3.0/tblite_wavefunction.mod",
+    "include/tblite/gcc-13.3.0/tblite_wavefunction_fermi.mod",
+    "include/tblite/gcc-13.3.0/tblite_wavefunction_guess.mod",
+    "include/tblite/gcc-13.3.0/tblite_wavefunction_mulliken.mod",
+    "include/tblite/gcc-13.3.0/tblite_wavefunction_spin.mod",
+    "include/tblite/gcc-13.3.0/tblite_wavefunction_type.mod",
+    "include/tblite/gcc-13.3.0/tblite_wignerseitz.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_calculator.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_coulomb.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_gfn1.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_gfn2.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_h0.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_ipea1.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_singlepoint.mod",
+    "include/tblite/gcc-13.3.0/tblite_xtb_spec.mod",
+    "include/tblite/macros.h",
+    "include/tblite/param.h",
+    "include/tblite/result.h",
+    "include/tblite/structure.h",
+    "include/tblite/table.h",
+    "include/tblite/version.h",
+    "lib/libtblite.0.dylib",
+    "lib/libtblite.a",
+    "lib/libtblite.dylib",
+    "lib/pkgconfig/tblite.pc",
+    "share/licenses/tblite/COPYING",
+    "share/licenses/tblite/COPYING.LESSER",
+    "share/man/man1/tblite-fit.1",
+    "share/man/man1/tblite-guess.1",
+    "share/man/man1/tblite-param.1",
+    "share/man/man1/tblite-run.1",
+    "share/man/man1/tblite-tagdiff.1",
+    "share/man/man1/tblite.1",
+    "share/man/man5/tblite-tag.5",
+    "share/man/man7/tblite-solvents.7"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/tblite",
+        "path_type": "hardlink",
+        "sha256": "6cb3602f64d263fe005da23ad675909421f6f62e91da2aa58c403b1dbd4d9f1c",
+        "size_in_bytes": 171104,
+        "sha256_in_prefix": "6cb3602f64d263fe005da23ad675909421f6f62e91da2aa58c403b1dbd4d9f1c"
+      },
+      {
+        "_path": "include/tblite.h",
+        "path_type": "hardlink",
+        "sha256": "6c8c1aec42fa59153713a7953303d295f3563c53317e01c42e7c8e7493f2da2d",
+        "size_in_bytes": 2116,
+        "sha256_in_prefix": "6c8c1aec42fa59153713a7953303d295f3563c53317e01c42e7c8e7493f2da2d"
+      },
+      {
+        "_path": "include/tblite/calculator.h",
+        "path_type": "hardlink",
+        "sha256": "0a4dbc5ba56a771234ac67c3a93c06d2386df1cfa54f367ce050d027262bd21b",
+        "size_in_bytes": 8701,
+        "sha256_in_prefix": "0a4dbc5ba56a771234ac67c3a93c06d2386df1cfa54f367ce050d027262bd21b"
+      },
+      {
+        "_path": "include/tblite/container.h",
+        "path_type": "hardlink",
+        "sha256": "6c80229b9286048431a4da7ba1f3ae34df7f0b2234d8eaaa677c07ee1d1abfbe",
+        "size_in_bytes": 5476,
+        "sha256_in_prefix": "6c80229b9286048431a4da7ba1f3ae34df7f0b2234d8eaaa677c07ee1d1abfbe"
+      },
+      {
+        "_path": "include/tblite/context.h",
+        "path_type": "hardlink",
+        "sha256": "1a6a1e2ae15317103f14aa8892346b865f687dc4ee586a2951398794501878d9",
+        "size_in_bytes": 3488,
+        "sha256_in_prefix": "1a6a1e2ae15317103f14aa8892346b865f687dc4ee586a2951398794501878d9"
+      },
+      {
+        "_path": "include/tblite/double_dictionary.h",
+        "path_type": "hardlink",
+        "sha256": "518baa81117d78cc3270509ffe28b0ff117d609640eadd8aab103e6bc79b90e1",
+        "size_in_bytes": 4716,
+        "sha256_in_prefix": "518baa81117d78cc3270509ffe28b0ff117d609640eadd8aab103e6bc79b90e1"
+      },
+      {
+        "_path": "include/tblite/error.h",
+        "path_type": "hardlink",
+        "sha256": "a98e8556c9930b1a6c090d3529a1b7fd7f52a21a077f7934c522009186785e5d",
+        "size_in_bytes": 2131,
+        "sha256_in_prefix": "a98e8556c9930b1a6c090d3529a1b7fd7f52a21a077f7934c522009186785e5d"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_adjlist.mod",
+        "path_type": "hardlink",
+        "sha256": "5a0f7ea0a1d55f4516cbc4233be5219f883adc3a75c120f517772e78c709c73c",
+        "size_in_bytes": 23007,
+        "sha256_in_prefix": "5a0f7ea0a1d55f4516cbc4233be5219f883adc3a75c120f517772e78c709c73c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_calculator.mod",
+        "path_type": "hardlink",
+        "sha256": "2c504219e87195a12e688e4ec03239afdb5083ec47be969bc7415ba9aa5a8338",
+        "size_in_bytes": 118390,
+        "sha256_in_prefix": "2c504219e87195a12e688e4ec03239afdb5083ec47be969bc7415ba9aa5a8338"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_container.mod",
+        "path_type": "hardlink",
+        "sha256": "5b13f282995cd94968ec98341727169d10285d21f1d79185086632d5fed9e6f1",
+        "size_in_bytes": 124610,
+        "sha256_in_prefix": "5b13f282995cd94968ec98341727169d10285d21f1d79185086632d5fed9e6f1"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_context.mod",
+        "path_type": "hardlink",
+        "sha256": "38891553ed3d275774939e5f875c7866dabb72a3749cc9dce0d5383ead52aa80",
+        "size_in_bytes": 7038,
+        "sha256_in_prefix": "38891553ed3d275774939e5f875c7866dabb72a3749cc9dce0d5383ead52aa80"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_double_dictionary.mod",
+        "path_type": "hardlink",
+        "sha256": "f73d7b3aebaf960527310b121051d012d33b8ddc18924d852a328c658cb4e7c0",
+        "size_in_bytes": 28186,
+        "sha256_in_prefix": "f73d7b3aebaf960527310b121051d012d33b8ddc18924d852a328c658cb4e7c0"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_error.mod",
+        "path_type": "hardlink",
+        "sha256": "919e54a9d170e3b0a50bbc31b3205778ddc3c136ab025117989c06b0ac5e47a0",
+        "size_in_bytes": 2370,
+        "sha256_in_prefix": "919e54a9d170e3b0a50bbc31b3205778ddc3c136ab025117989c06b0ac5e47a0"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_param.mod",
+        "path_type": "hardlink",
+        "sha256": "9c3b1fc559d4c59b780023bb815a8cf7a919a92aecd4bef4c8d8e49edc88f409",
+        "size_in_bytes": 99293,
+        "sha256_in_prefix": "9c3b1fc559d4c59b780023bb815a8cf7a919a92aecd4bef4c8d8e49edc88f409"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_result.mod",
+        "path_type": "hardlink",
+        "sha256": "357173a89c3929398537a96fa76ca78ebf754867e2fd3bd36f83edfddede2b6d",
+        "size_in_bytes": 30456,
+        "sha256_in_prefix": "357173a89c3929398537a96fa76ca78ebf754867e2fd3bd36f83edfddede2b6d"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_structure.mod",
+        "path_type": "hardlink",
+        "sha256": "c6b33cae121e6493fef963b7b779e759e8f6a81d78877388d17a9195d88374ba",
+        "size_in_bytes": 24423,
+        "sha256_in_prefix": "c6b33cae121e6493fef963b7b779e759e8f6a81d78877388d17a9195d88374ba"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_table.mod",
+        "path_type": "hardlink",
+        "sha256": "085221c96655ff222734aafe42f14de7c2d53232a0f75ca3aca73a7e5a159136",
+        "size_in_bytes": 23997,
+        "sha256_in_prefix": "085221c96655ff222734aafe42f14de7c2d53232a0f75ca3aca73a7e5a159136"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_utils.mod",
+        "path_type": "hardlink",
+        "sha256": "32005f19c149b77ed4f42c11e44fcf801d7bd258321ab89c15f7b49ef078e073",
+        "size_in_bytes": 1299,
+        "sha256_in_prefix": "32005f19c149b77ed4f42c11e44fcf801d7bd258321ab89c15f7b49ef078e073"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_api_version.mod",
+        "path_type": "hardlink",
+        "sha256": "2114b49e3f1382bb1ca59208d48e63ab9d5e1f3da85e9a83c8f466784db822ee",
+        "size_in_bytes": 1124,
+        "sha256_in_prefix": "2114b49e3f1382bb1ca59208d48e63ab9d5e1f3da85e9a83c8f466784db822ee"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_basis.mod",
+        "path_type": "hardlink",
+        "sha256": "3382bc199d0b246abc7d29eca1da815b099a8c3447bda3239f96493a7a6e6799",
+        "size_in_bytes": 23887,
+        "sha256_in_prefix": "3382bc199d0b246abc7d29eca1da815b099a8c3447bda3239f96493a7a6e6799"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_basis_ortho.mod",
+        "path_type": "hardlink",
+        "sha256": "915f4f8b001a87e3c3d6c373b2d61a61b7ca06314e6c48b1e74852cb78ec2e52",
+        "size_in_bytes": 23150,
+        "sha256_in_prefix": "915f4f8b001a87e3c3d6c373b2d61a61b7ca06314e6c48b1e74852cb78ec2e52"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_basis_slater.mod",
+        "path_type": "hardlink",
+        "sha256": "abb6a09fbdf6b34a443bb4d43729143196cc078098a2a4d4a587b0a48e0e03b5",
+        "size_in_bytes": 23358,
+        "sha256_in_prefix": "abb6a09fbdf6b34a443bb4d43729143196cc078098a2a4d4a587b0a48e0e03b5"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_basis_type.mod",
+        "path_type": "hardlink",
+        "sha256": "685fe58ee5c8239d1936a0abafee1185f85ecae1154118a0e3f8d8e9bb8193fb",
+        "size_in_bytes": 23569,
+        "sha256_in_prefix": "685fe58ee5c8239d1936a0abafee1185f85ecae1154118a0e3f8d8e9bb8193fb"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_blas.mod",
+        "path_type": "hardlink",
+        "sha256": "44c655c2713709ebb02453d8c5223b112787e54cabe30192bf3b62cbdec4f77a",
+        "size_in_bytes": 3523,
+        "sha256_in_prefix": "44c655c2713709ebb02453d8c5223b112787e54cabe30192bf3b62cbdec4f77a"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_blas_level1.mod",
+        "path_type": "hardlink",
+        "sha256": "d9373c0db6cb3ebd47b37590f41b37ea8d2e4ccf333804544a383e67aad1c206",
+        "size_in_bytes": 1707,
+        "sha256_in_prefix": "d9373c0db6cb3ebd47b37590f41b37ea8d2e4ccf333804544a383e67aad1c206"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_blas_level2.mod",
+        "path_type": "hardlink",
+        "sha256": "1d93ab631f93abbed009551ee632d615a0045dcd70c42630bcf6923c2d001996",
+        "size_in_bytes": 2189,
+        "sha256_in_prefix": "1d93ab631f93abbed009551ee632d615a0045dcd70c42630bcf6923c2d001996"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_blas_level3.mod",
+        "path_type": "hardlink",
+        "sha256": "2c119ab0913ab795a8f8714fc9e951955782b34c2f9b382d92a59d0b9b0e523e",
+        "size_in_bytes": 2264,
+        "sha256_in_prefix": "2c119ab0913ab795a8f8714fc9e951955782b34c2f9b382d92a59d0b9b0e523e"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ceh_ceh.mod",
+        "path_type": "hardlink",
+        "sha256": "a37b256f3428f2db7e0ffac58553cceb1ca16323e924995b5b71151fcad87c8e",
+        "size_in_bytes": 96318,
+        "sha256_in_prefix": "a37b256f3428f2db7e0ffac58553cceb1ca16323e924995b5b71151fcad87c8e"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ceh_h0.mod",
+        "path_type": "hardlink",
+        "sha256": "dd9017c1647b29c908f89adb1e32e6a5d19cae396f9be087e333e4f138733761",
+        "size_in_bytes": 26616,
+        "sha256_in_prefix": "dd9017c1647b29c908f89adb1e32e6a5d19cae396f9be087e333e4f138733761"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ceh_singlepoint.mod",
+        "path_type": "hardlink",
+        "sha256": "12d2e862d28ebac38b045eaaceb856a6bc7bc126466379dc967d115375742ddc",
+        "size_in_bytes": 103054,
+        "sha256_in_prefix": "12d2e862d28ebac38b045eaaceb856a6bc7bc126466379dc967d115375742ddc"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_classical_halogen.mod",
+        "path_type": "hardlink",
+        "sha256": "e38860c736eb6a68efd6dc3213bce170eba757ec82480185d357b6ecb051c90f",
+        "size_in_bytes": 30448,
+        "sha256_in_prefix": "e38860c736eb6a68efd6dc3213bce170eba757ec82480185d357b6ecb051c90f"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_container.mod",
+        "path_type": "hardlink",
+        "sha256": "6ae3c21a3df377e0a225bc391f265c91f91a927b0db44ba2509cb6c413b58800",
+        "size_in_bytes": 29279,
+        "sha256_in_prefix": "6ae3c21a3df377e0a225bc391f265c91f91a927b0db44ba2509cb6c413b58800"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_container_cache.mod",
+        "path_type": "hardlink",
+        "sha256": "6753c08f86812544a299838b58ab0b26c017a13da14a17c8484b681d83be9d91",
+        "size_in_bytes": 1446,
+        "sha256_in_prefix": "6753c08f86812544a299838b58ab0b26c017a13da14a17c8484b681d83be9d91"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_container_list.mod",
+        "path_type": "hardlink",
+        "sha256": "79811712c061c736a7de876f81b924a7b41cac5e2750025eab319995d65c21b3",
+        "size_in_bytes": 29172,
+        "sha256_in_prefix": "79811712c061c736a7de876f81b924a7b41cac5e2750025eab319995d65c21b3"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_container_type.mod",
+        "path_type": "hardlink",
+        "sha256": "9b68ddab246b4cd5a92e7bd22db165a9b4f5b1c448bea492dc901d2fa956534e",
+        "size_in_bytes": 26933,
+        "sha256_in_prefix": "9b68ddab246b4cd5a92e7bd22db165a9b4f5b1c448bea492dc901d2fa956534e"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_context.mod",
+        "path_type": "hardlink",
+        "sha256": "91df2f80db9cec2c8825c4d1cad9b6259afbb0f18484e89b2a7fb427b56ee671",
+        "size_in_bytes": 5133,
+        "sha256_in_prefix": "91df2f80db9cec2c8825c4d1cad9b6259afbb0f18484e89b2a7fb427b56ee671"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_context_logger.mod",
+        "path_type": "hardlink",
+        "sha256": "2355550d72a4621b995243c70594027fc3bf600736fae514b9a106b6c39682b7",
+        "size_in_bytes": 1705,
+        "sha256_in_prefix": "2355550d72a4621b995243c70594027fc3bf600736fae514b9a106b6c39682b7"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_context_solver.mod",
+        "path_type": "hardlink",
+        "sha256": "5496a97b67f29af6eb30b142bf793a8239acfcecfca128acac46708ed4841f37",
+        "size_in_bytes": 2285,
+        "sha256_in_prefix": "5496a97b67f29af6eb30b142bf793a8239acfcecfca128acac46708ed4841f37"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_context_terminal.mod",
+        "path_type": "hardlink",
+        "sha256": "dc5a6ccd2cbb049efaa00b90996f09d81062fd54f1940525eebea4c2f6e49e9a",
+        "size_in_bytes": 2536,
+        "sha256_in_prefix": "dc5a6ccd2cbb049efaa00b90996f09d81062fd54f1940525eebea4c2f6e49e9a"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_context_type.mod",
+        "path_type": "hardlink",
+        "sha256": "f94e047f4a05426624403e487f3439ac40a94f671ac98e18c093fb6cb6a3a976",
+        "size_in_bytes": 4653,
+        "sha256_in_prefix": "f94e047f4a05426624403e487f3439ac40a94f671ac98e18c093fb6cb6a3a976"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb.mod",
+        "path_type": "hardlink",
+        "sha256": "6d5288ca9c86ce105f99c84df6a6c55994faf588bd763342261ac462ef6a4abe",
+        "size_in_bytes": 38854,
+        "sha256_in_prefix": "6d5288ca9c86ce105f99c84df6a6c55994faf588bd763342261ac462ef6a4abe"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_cache.mod",
+        "path_type": "hardlink",
+        "sha256": "c707a029524ab0593588b34594941e54b5ec3631ae798acd55a36bd5f4f8bf39",
+        "size_in_bytes": 25271,
+        "sha256_in_prefix": "c707a029524ab0593588b34594941e54b5ec3631ae798acd55a36bd5f4f8bf39"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_charge.mod",
+        "path_type": "hardlink",
+        "sha256": "40bcd990a1cd9a61ef300b63880003e825543dfd7f94601d987882254381fa4c",
+        "size_in_bytes": 34175,
+        "sha256_in_prefix": "40bcd990a1cd9a61ef300b63880003e825543dfd7f94601d987882254381fa4c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_charge_effective.mod",
+        "path_type": "hardlink",
+        "sha256": "3e6901c4b18090817e83ab2dbe4dabab38a7c570b8b04758de30e7fa0c7fd84c",
+        "size_in_bytes": 32844,
+        "sha256_in_prefix": "3e6901c4b18090817e83ab2dbe4dabab38a7c570b8b04758de30e7fa0c7fd84c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_charge_gamma.mod",
+        "path_type": "hardlink",
+        "sha256": "9fb8c0424dfefcff28649a248b0d050062f8ce56f36283c509119be5dc0c6a07",
+        "size_in_bytes": 32368,
+        "sha256_in_prefix": "9fb8c0424dfefcff28649a248b0d050062f8ce56f36283c509119be5dc0c6a07"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_charge_type.mod",
+        "path_type": "hardlink",
+        "sha256": "ea2155cd19f34c6621e0e6097ce7a4525c86837c6686942ba9c286d382807057",
+        "size_in_bytes": 31374,
+        "sha256_in_prefix": "ea2155cd19f34c6621e0e6097ce7a4525c86837c6686942ba9c286d382807057"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_ewald.mod",
+        "path_type": "hardlink",
+        "sha256": "5ecd55154a24acedc6786f703139369eca7b005877286665a15009d7c96ed63b",
+        "size_in_bytes": 3556,
+        "sha256_in_prefix": "5ecd55154a24acedc6786f703139369eca7b005877286665a15009d7c96ed63b"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_multipole.mod",
+        "path_type": "hardlink",
+        "sha256": "560662b4fb565c92011e201520f1eb2f8130ed1fe132898faa5ede0900c91e96",
+        "size_in_bytes": 33268,
+        "sha256_in_prefix": "560662b4fb565c92011e201520f1eb2f8130ed1fe132898faa5ede0900c91e96"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_thirdorder.mod",
+        "path_type": "hardlink",
+        "sha256": "e92789af451832f67e42eb1883001345cd7d88d753feb2842632f1b7eb051a46",
+        "size_in_bytes": 37583,
+        "sha256_in_prefix": "e92789af451832f67e42eb1883001345cd7d88d753feb2842632f1b7eb051a46"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_coulomb_type.mod",
+        "path_type": "hardlink",
+        "sha256": "a47132ccbb5f5413795e53d2aca02f77d92541279661849438170274f748e2fc",
+        "size_in_bytes": 27392,
+        "sha256_in_prefix": "a47132ccbb5f5413795e53d2aca02f77d92541279661849438170274f748e2fc"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_cutoff.mod",
+        "path_type": "hardlink",
+        "sha256": "7fb40dbf0a4c9805a121bdddc6b644527dc8aee1447cdb85621263a7a9bbf8c9",
+        "size_in_bytes": 1927,
+        "sha256_in_prefix": "7fb40dbf0a4c9805a121bdddc6b644527dc8aee1447cdb85621263a7a9bbf8c9"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_data.mod",
+        "path_type": "hardlink",
+        "sha256": "f48c6f6f4e25e146f4cf78031c107fe51d030a63adbbfab55887acd97558647c",
+        "size_in_bytes": 2141,
+        "sha256_in_prefix": "f48c6f6f4e25e146f4cf78031c107fe51d030a63adbbfab55887acd97558647c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_data_atomicrad.mod",
+        "path_type": "hardlink",
+        "sha256": "e4f06b5bec172dbad15b65839ac3d43cc9eab03dfba6d809f767bf5923f18349",
+        "size_in_bytes": 2815,
+        "sha256_in_prefix": "e4f06b5bec172dbad15b65839ac3d43cc9eab03dfba6d809f767bf5923f18349"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_data_covrad.mod",
+        "path_type": "hardlink",
+        "sha256": "ef3c4ae16fd434414ae4fd192a95ab750423cfc68ffe0ef59146071e287743f3",
+        "size_in_bytes": 1752,
+        "sha256_in_prefix": "ef3c4ae16fd434414ae4fd192a95ab750423cfc68ffe0ef59146071e287743f3"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_data_paulingen.mod",
+        "path_type": "hardlink",
+        "sha256": "b034d2a447eff24f9f98790ff9322423af53979bc69b56b4e2dcbf72d99562d9",
+        "size_in_bytes": 1899,
+        "sha256_in_prefix": "b034d2a447eff24f9f98790ff9322423af53979bc69b56b4e2dcbf72d99562d9"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_data_spin.mod",
+        "path_type": "hardlink",
+        "sha256": "efc0adde5d0ec4a5beab3c155ee41c53a1d8f05c557b23e50adfc7000a978192",
+        "size_in_bytes": 1416,
+        "sha256_in_prefix": "efc0adde5d0ec4a5beab3c155ee41c53a1d8f05c557b23e50adfc7000a978192"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_disp.mod",
+        "path_type": "hardlink",
+        "sha256": "26953960e0069e91117b01a0d992b54f6858caa09ecd4221669421308af2b5d2",
+        "size_in_bytes": 41667,
+        "sha256_in_prefix": "26953960e0069e91117b01a0d992b54f6858caa09ecd4221669421308af2b5d2"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_disp_cache.mod",
+        "path_type": "hardlink",
+        "sha256": "8e53a705eb87f0d7e23b3f42a235b1734e33e4a9f1e55b2eda17db1cb6b85e0e",
+        "size_in_bytes": 1674,
+        "sha256_in_prefix": "8e53a705eb87f0d7e23b3f42a235b1734e33e4a9f1e55b2eda17db1cb6b85e0e"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_disp_d3.mod",
+        "path_type": "hardlink",
+        "sha256": "75cff2b5b2d50f754a24dfdfd43abe3c47b4bb3bb288d39c092b18a793e6eed0",
+        "size_in_bytes": 35501,
+        "sha256_in_prefix": "75cff2b5b2d50f754a24dfdfd43abe3c47b4bb3bb288d39c092b18a793e6eed0"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_disp_d4.mod",
+        "path_type": "hardlink",
+        "sha256": "de14278a8caf700508fb0975a349a5a63fba08faff0b0d2037d357e000a8567b",
+        "size_in_bytes": 34115,
+        "sha256_in_prefix": "de14278a8caf700508fb0975a349a5a63fba08faff0b0d2037d357e000a8567b"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_disp_type.mod",
+        "path_type": "hardlink",
+        "sha256": "4429eaff7044f8645acf170eea7e63a851dcf97dba380e1321a13e39716aff60",
+        "size_in_bytes": 27390,
+        "sha256_in_prefix": "4429eaff7044f8645acf170eea7e63a851dcf97dba380e1321a13e39716aff60"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_double_dictionary.mod",
+        "path_type": "hardlink",
+        "sha256": "c7e791c2037aaedfe636799e6f12f9424f8d75edfdc85becffe2aa2fb9b9c011",
+        "size_in_bytes": 26477,
+        "sha256_in_prefix": "c7e791c2037aaedfe636799e6f12f9424f8d75edfdc85becffe2aa2fb9b9c011"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_external_field.mod",
+        "path_type": "hardlink",
+        "sha256": "5eae20c5aff667b95f068841027d6676565d5f7d361ed5f276f17fe5f89ce542",
+        "size_in_bytes": 28364,
+        "sha256_in_prefix": "5eae20c5aff667b95f068841027d6676565d5f7d361ed5f276f17fe5f89ce542"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_fit_newuoa.mod",
+        "path_type": "hardlink",
+        "sha256": "f2b71f2eab742f8924dbd19191367845d29c9fd3f4fd08723fcc39930592bef8",
+        "size_in_bytes": 1905,
+        "sha256_in_prefix": "f2b71f2eab742f8924dbd19191367845d29c9fd3f4fd08723fcc39930592bef8"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_fit_settings.mod",
+        "path_type": "hardlink",
+        "sha256": "7fb9f80a672b984841ba88bfaa1fc33f0b96e6251c337d253c0cff64a86a30e4",
+        "size_in_bytes": 68502,
+        "sha256_in_prefix": "7fb9f80a672b984841ba88bfaa1fc33f0b96e6251c337d253c0cff64a86a30e4"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_integral_diat_trafo.mod",
+        "path_type": "hardlink",
+        "sha256": "28e7d264339cab1f48268267355d35b24a1434491033a780cce8742e90cb36c5",
+        "size_in_bytes": 1512,
+        "sha256_in_prefix": "28e7d264339cab1f48268267355d35b24a1434491033a780cce8742e90cb36c5"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_integral_dipole.mod",
+        "path_type": "hardlink",
+        "sha256": "66e7040baac96f3fb87e99a62ea696881d58f302e7daa6bf8e7c8ea88b4a94ad",
+        "size_in_bytes": 24286,
+        "sha256_in_prefix": "66e7040baac96f3fb87e99a62ea696881d58f302e7daa6bf8e7c8ea88b4a94ad"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_integral_multipole.mod",
+        "path_type": "hardlink",
+        "sha256": "b9105634b26198d74dd1575db883df337fa7a1172719e61d5cc1f552dd10b4d0",
+        "size_in_bytes": 24411,
+        "sha256_in_prefix": "b9105634b26198d74dd1575db883df337fa7a1172719e61d5cc1f552dd10b4d0"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_integral_overlap.mod",
+        "path_type": "hardlink",
+        "sha256": "45a6a11a90185b007b7569c01fff7b63b3ecac6917635271fdedd2eb086656a2",
+        "size_in_bytes": 24335,
+        "sha256_in_prefix": "45a6a11a90185b007b7569c01fff7b63b3ecac6917635271fdedd2eb086656a2"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_integral_trafo.mod",
+        "path_type": "hardlink",
+        "sha256": "375fc580e0fab54975b0d2b637f67091cc7cae9879701c49396d0c839b6044ca",
+        "size_in_bytes": 1485,
+        "sha256_in_prefix": "375fc580e0fab54975b0d2b637f67091cc7cae9879701c49396d0c839b6044ca"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_integral_type.mod",
+        "path_type": "hardlink",
+        "sha256": "115bb4942e4339281464f834241f95dee0013022cb73237b1dbec6625295fdb8",
+        "size_in_bytes": 1715,
+        "sha256_in_prefix": "115bb4942e4339281464f834241f95dee0013022cb73237b1dbec6625295fdb8"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_io_tag.mod",
+        "path_type": "hardlink",
+        "sha256": "98f01620eaf54d4c02e47a7b6bb91819f183108ecc8e3d0983d2ae5eac4e25fe",
+        "size_in_bytes": 3559,
+        "sha256_in_prefix": "98f01620eaf54d4c02e47a7b6bb91819f183108ecc8e3d0983d2ae5eac4e25fe"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack.mod",
+        "path_type": "hardlink",
+        "sha256": "7a366a6a90352b4c1ca4d9e2efcdc6f9534b882df74a9c067c6f6c3f2a09cb81",
+        "size_in_bytes": 1727,
+        "sha256_in_prefix": "7a366a6a90352b4c1ca4d9e2efcdc6f9534b882df74a9c067c6f6c3f2a09cb81"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_getrf.mod",
+        "path_type": "hardlink",
+        "sha256": "00a9bf1c7b1d6557b232995b9c117996d98a3ea671e27228612feaae115d858c",
+        "size_in_bytes": 1403,
+        "sha256_in_prefix": "00a9bf1c7b1d6557b232995b9c117996d98a3ea671e27228612feaae115d858c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_getri.mod",
+        "path_type": "hardlink",
+        "sha256": "ba397eae0261616095506d4e8b9fa1799130fcb85fa74b740601a8736ae1c4d8",
+        "size_in_bytes": 1403,
+        "sha256_in_prefix": "ba397eae0261616095506d4e8b9fa1799130fcb85fa74b740601a8736ae1c4d8"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_getrs.mod",
+        "path_type": "hardlink",
+        "sha256": "e456516ee978cb6e910206d3b1b46663acc443f12e31e596b9e7379f3664be07",
+        "size_in_bytes": 1470,
+        "sha256_in_prefix": "e456516ee978cb6e910206d3b1b46663acc443f12e31e596b9e7379f3664be07"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_potrf.mod",
+        "path_type": "hardlink",
+        "sha256": "9c1510226904dcd24357b72b4a5633eb00fd2e49856e279d8207b6233e87e373",
+        "size_in_bytes": 1409,
+        "sha256_in_prefix": "9c1510226904dcd24357b72b4a5633eb00fd2e49856e279d8207b6233e87e373"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_solver.mod",
+        "path_type": "hardlink",
+        "sha256": "d1d44dd6d2799467e8769e3925ef9df77062808b4bfb40bdab043fe032794a4e",
+        "size_in_bytes": 4376,
+        "sha256_in_prefix": "d1d44dd6d2799467e8769e3925ef9df77062808b4bfb40bdab043fe032794a4e"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_sygst.mod",
+        "path_type": "hardlink",
+        "sha256": "502eb4fac97018791c73ade87b055b46f7820f5a814259d0967ae28fb67cda9c",
+        "size_in_bytes": 1451,
+        "sha256_in_prefix": "502eb4fac97018791c73ade87b055b46f7820f5a814259d0967ae28fb67cda9c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_sygvd.mod",
+        "path_type": "hardlink",
+        "sha256": "aad1c978a9986891baa6103232315eac586b35a079ece773b4cebd838a4716e5",
+        "size_in_bytes": 2707,
+        "sha256_in_prefix": "aad1c978a9986891baa6103232315eac586b35a079ece773b4cebd838a4716e5"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_lapack_sygvr.mod",
+        "path_type": "hardlink",
+        "sha256": "e4dbfc0040af52e67ce3ffb2a996af59c0c46119bd8d60f43f74f9ea6ca96cf8",
+        "size_in_bytes": 2774,
+        "sha256_in_prefix": "e4dbfc0040af52e67ce3ffb2a996af59c0c46119bd8d60f43f74f9ea6ca96cf8"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_mesh_lebedev.mod",
+        "path_type": "hardlink",
+        "sha256": "00de722a9c76f70a74b7ff8aa4f9c314c788ddffa29ca73fd76a2352da5ab0b0",
+        "size_in_bytes": 1709,
+        "sha256_in_prefix": "00de722a9c76f70a74b7ff8aa4f9c314c788ddffa29ca73fd76a2352da5ab0b0"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ncoord.mod",
+        "path_type": "hardlink",
+        "sha256": "15d37c46ba16ff3860cecf74931b296d976707dbaf90990bdcc43eb60376daf0",
+        "size_in_bytes": 26099,
+        "sha256_in_prefix": "15d37c46ba16ff3860cecf74931b296d976707dbaf90990bdcc43eb60376daf0"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ncoord_erf.mod",
+        "path_type": "hardlink",
+        "sha256": "588e252f864a73390ba9055884469462f486c0fe7da552a8d54432f5bb04a323",
+        "size_in_bytes": 24406,
+        "sha256_in_prefix": "588e252f864a73390ba9055884469462f486c0fe7da552a8d54432f5bb04a323"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ncoord_erf_en.mod",
+        "path_type": "hardlink",
+        "sha256": "8b50bbb712e47ffcea464f6676393ea7baca7c4838d92a713bbfcec190274616",
+        "size_in_bytes": 24473,
+        "sha256_in_prefix": "8b50bbb712e47ffcea464f6676393ea7baca7c4838d92a713bbfcec190274616"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ncoord_exp.mod",
+        "path_type": "hardlink",
+        "sha256": "daa7be16ebaa40c03dcefcef01c1324e5c6f42f536ba5157ef2ba83bf44dc1a8",
+        "size_in_bytes": 24409,
+        "sha256_in_prefix": "daa7be16ebaa40c03dcefcef01c1324e5c6f42f536ba5157ef2ba83bf44dc1a8"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ncoord_gfn.mod",
+        "path_type": "hardlink",
+        "sha256": "bc9f4a0071aa4f7a3a5db6ce3c4628e8cb46b085d874bae68f1fbbb01ae4cec3",
+        "size_in_bytes": 24382,
+        "sha256_in_prefix": "bc9f4a0071aa4f7a3a5db6ce3c4628e8cb46b085d874bae68f1fbbb01ae4cec3"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_ncoord_type.mod",
+        "path_type": "hardlink",
+        "sha256": "3f880e1e437af87cf1e1c71fb1e2ee2f7c449cbb3bc127aee3debd02a2907855",
+        "size_in_bytes": 23531,
+        "sha256_in_prefix": "3f880e1e437af87cf1e1c71fb1e2ee2f7c449cbb3bc127aee3debd02a2907855"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_os.mod",
+        "path_type": "hardlink",
+        "sha256": "21e6902531ead9a90a0d67e2d980372e1f1c3c21b2701d307052de7d6199e7eb",
+        "size_in_bytes": 436,
+        "sha256_in_prefix": "21e6902531ead9a90a0d67e2d980372e1f1c3c21b2701d307052de7d6199e7eb"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_output_ascii.mod",
+        "path_type": "hardlink",
+        "sha256": "41b5d90f5251b41bdd0d61673efcf453a9ec7d253b4d257d5b1d2a7b4131a145",
+        "size_in_bytes": 23004,
+        "sha256_in_prefix": "41b5d90f5251b41bdd0d61673efcf453a9ec7d253b4d257d5b1d2a7b4131a145"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_output_format.mod",
+        "path_type": "hardlink",
+        "sha256": "9253daaf357897a50b6ddd81e3420b6b6f3f6b901b85af2907931a8a40134ed6",
+        "size_in_bytes": 1368,
+        "sha256_in_prefix": "9253daaf357897a50b6ddd81e3420b6b6f3f6b901b85af2907931a8a40134ed6"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_output_property.mod",
+        "path_type": "hardlink",
+        "sha256": "f65712eadbd01f13bd6dc0ded9c851ad946a4588cc7fceb09d617e719ffd98c1",
+        "size_in_bytes": 1976,
+        "sha256_in_prefix": "f65712eadbd01f13bd6dc0ded9c851ad946a4588cc7fceb09d617e719ffd98c1"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param.mod",
+        "path_type": "hardlink",
+        "sha256": "977fbf643a95d338d1f754ddf7f7e27b601d385f07dd11b4e1d6d87730236cac",
+        "size_in_bytes": 68458,
+        "sha256_in_prefix": "977fbf643a95d338d1f754ddf7f7e27b601d385f07dd11b4e1d6d87730236cac"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_charge.mod",
+        "path_type": "hardlink",
+        "sha256": "09c4243bd6c98cb9a67b59b614d6d848678e0fcb5afebc8386a31937b1eb402c",
+        "size_in_bytes": 56257,
+        "sha256_in_prefix": "09c4243bd6c98cb9a67b59b614d6d848678e0fcb5afebc8386a31937b1eb402c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_dispersion.mod",
+        "path_type": "hardlink",
+        "sha256": "d692e0c5a105e674a4f4ba28aadee16b76eb90309b3d47acf2751f7a4acd011d",
+        "size_in_bytes": 24391,
+        "sha256_in_prefix": "d692e0c5a105e674a4f4ba28aadee16b76eb90309b3d47acf2751f7a4acd011d"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_element.mod",
+        "path_type": "hardlink",
+        "sha256": "15711f630652d400d6be697adcdaa4ebae49912ee692f56c6a6976e3db4474d5",
+        "size_in_bytes": 25067,
+        "sha256_in_prefix": "15711f630652d400d6be697adcdaa4ebae49912ee692f56c6a6976e3db4474d5"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_halogen.mod",
+        "path_type": "hardlink",
+        "sha256": "0f4c4b6713eac323e0379307f078b2287025cd86b77aa0b627cff77d7f7cd3f3",
+        "size_in_bytes": 24275,
+        "sha256_in_prefix": "0f4c4b6713eac323e0379307f078b2287025cd86b77aa0b627cff77d7f7cd3f3"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_hamiltonian.mod",
+        "path_type": "hardlink",
+        "sha256": "df3fd1876dd37dccb7939399e283036910cdfc8a874120984becc7e5e0f37433",
+        "size_in_bytes": 24563,
+        "sha256_in_prefix": "df3fd1876dd37dccb7939399e283036910cdfc8a874120984becc7e5e0f37433"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_mask.mod",
+        "path_type": "hardlink",
+        "sha256": "194179c961cd15df5ed6f63b6e4c15c277c5ae3ad27bd02a8d98b107b1a4919e",
+        "size_in_bytes": 64972,
+        "sha256_in_prefix": "194179c961cd15df5ed6f63b6e4c15c277c5ae3ad27bd02a8d98b107b1a4919e"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_molecular_moments.mod",
+        "path_type": "hardlink",
+        "sha256": "cde462504c4e9e06338b7714f9adfd311cb35a793461958608c28d648aa6af4f",
+        "size_in_bytes": 24472,
+        "sha256_in_prefix": "cde462504c4e9e06338b7714f9adfd311cb35a793461958608c28d648aa6af4f"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_multipole.mod",
+        "path_type": "hardlink",
+        "sha256": "5ed3f7762b1e3397d6c911f2b1cdfdea4443343310775dab91fd31b6f3b621e6",
+        "size_in_bytes": 24341,
+        "sha256_in_prefix": "5ed3f7762b1e3397d6c911f2b1cdfdea4443343310775dab91fd31b6f3b621e6"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_post_processing.mod",
+        "path_type": "hardlink",
+        "sha256": "8447fb198269adc6e6cc7752866c50d8e051859617532214e40ca6c1622dece6",
+        "size_in_bytes": 25553,
+        "sha256_in_prefix": "8447fb198269adc6e6cc7752866c50d8e051859617532214e40ca6c1622dece6"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_repulsion.mod",
+        "path_type": "hardlink",
+        "sha256": "050606653143e5d62c64d2b0c23435836ad2ec710775fd5b43c25f4ac9e912db",
+        "size_in_bytes": 24344,
+        "sha256_in_prefix": "050606653143e5d62c64d2b0c23435836ad2ec710775fd5b43c25f4ac9e912db"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_serde.mod",
+        "path_type": "hardlink",
+        "sha256": "d49ce2ab329294a255e29e849430f71f0b823fc03ffb5a4fc4923542d8c896da",
+        "size_in_bytes": 23018,
+        "sha256_in_prefix": "d49ce2ab329294a255e29e849430f71f0b823fc03ffb5a4fc4923542d8c896da"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_param_thirdorder.mod",
+        "path_type": "hardlink",
+        "sha256": "90ba5b809bf49347c55ce9c2e0552b4db2979fe502ae9a6dff3d462e6a2da08c",
+        "size_in_bytes": 24391,
+        "sha256_in_prefix": "90ba5b809bf49347c55ce9c2e0552b4db2979fe502ae9a6dff3d462e6a2da08c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_post_processing_bond_orders.mod",
+        "path_type": "hardlink",
+        "sha256": "646486a63f59f8630f892fd254b87a9aaa63db7390dcfa926e4c99e2d0afc70a",
+        "size_in_bytes": 105386,
+        "sha256_in_prefix": "646486a63f59f8630f892fd254b87a9aaa63db7390dcfa926e4c99e2d0afc70a"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_post_processing_list.mod",
+        "path_type": "hardlink",
+        "sha256": "db20b734762963b072a34fd861cdc308e1248a75228eede7d43489a581a7065d",
+        "size_in_bytes": 107448,
+        "sha256_in_prefix": "db20b734762963b072a34fd861cdc308e1248a75228eede7d43489a581a7065d"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_post_processing_molecular_moments.mod",
+        "path_type": "hardlink",
+        "sha256": "2ce9cb00366bb6686fdcd9e052aa73e43f659a5e13b03335a2d8ce2887d5e26b",
+        "size_in_bytes": 105361,
+        "sha256_in_prefix": "2ce9cb00366bb6686fdcd9e052aa73e43f659a5e13b03335a2d8ce2887d5e26b"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_post_processing_type.mod",
+        "path_type": "hardlink",
+        "sha256": "b99f09c69b46d61b496cd356590f6fd5b87b39b67d189ac9d0d934dd698c7fe2",
+        "size_in_bytes": 104632,
+        "sha256_in_prefix": "b99f09c69b46d61b496cd356590f6fd5b87b39b67d189ac9d0d934dd698c7fe2"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_repulsion.mod",
+        "path_type": "hardlink",
+        "sha256": "f11270730982249afb6f98e480721088ec7682090d61ebc5a1343a93064dac20",
+        "size_in_bytes": 30316,
+        "sha256_in_prefix": "f11270730982249afb6f98e480721088ec7682090d61ebc5a1343a93064dac20"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_repulsion_effective.mod",
+        "path_type": "hardlink",
+        "sha256": "cace518f469758ae97dbac5418a06579bcb8bd731e956f920a1a1776c39881d8",
+        "size_in_bytes": 30286,
+        "sha256_in_prefix": "cace518f469758ae97dbac5418a06579bcb8bd731e956f920a1a1776c39881d8"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_repulsion_type.mod",
+        "path_type": "hardlink",
+        "sha256": "c3a3ee7046706202f0450747450272ec2daae0e4b333aa99a98a7f50dfaebf39",
+        "size_in_bytes": 27359,
+        "sha256_in_prefix": "c3a3ee7046706202f0450747450272ec2daae0e4b333aa99a98a7f50dfaebf39"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_results.mod",
+        "path_type": "hardlink",
+        "sha256": "a5c85555ae9be65ca69131c26c9272082b2be6e86b85dd6a10088104cce265d2",
+        "size_in_bytes": 26827,
+        "sha256_in_prefix": "a5c85555ae9be65ca69131c26c9272082b2be6e86b85dd6a10088104cce265d2"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf.mod",
+        "path_type": "hardlink",
+        "sha256": "39b9f491504b94ab5ee52a7967337502271a277b2352bf34aad92d274dcb2fca",
+        "size_in_bytes": 57284,
+        "sha256_in_prefix": "39b9f491504b94ab5ee52a7967337502271a277b2352bf34aad92d274dcb2fca"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf_info.mod",
+        "path_type": "hardlink",
+        "sha256": "71ccb6f9b22e6b4381a0c8f2153d3d7ea01953e3ec3756b54e18a4bd45218481",
+        "size_in_bytes": 1738,
+        "sha256_in_prefix": "71ccb6f9b22e6b4381a0c8f2153d3d7ea01953e3ec3756b54e18a4bd45218481"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf_iterator.mod",
+        "path_type": "hardlink",
+        "sha256": "c9609d920277f34232e1f0b07dfc1b85d5728114cb59ea1fa4f0a5da131c04f5",
+        "size_in_bytes": 57063,
+        "sha256_in_prefix": "c9609d920277f34232e1f0b07dfc1b85d5728114cb59ea1fa4f0a5da131c04f5"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf_mixer.mod",
+        "path_type": "hardlink",
+        "sha256": "c152b1b702f9186f52dd3d9330a135b17d085d876d5925d5e331a217651f36cc",
+        "size_in_bytes": 4161,
+        "sha256_in_prefix": "c152b1b702f9186f52dd3d9330a135b17d085d876d5925d5e331a217651f36cc"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf_mixer_broyden.mod",
+        "path_type": "hardlink",
+        "sha256": "bd5d63a430babe19312a60158ff90f1306ab83669f3dfe7b53cd67f89cffc2c6",
+        "size_in_bytes": 3831,
+        "sha256_in_prefix": "bd5d63a430babe19312a60158ff90f1306ab83669f3dfe7b53cd67f89cffc2c6"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf_mixer_type.mod",
+        "path_type": "hardlink",
+        "sha256": "5d4852c6f4ad370addab3961dcb1a82d7c46322807b0347ef715199db46f782f",
+        "size_in_bytes": 2486,
+        "sha256_in_prefix": "5d4852c6f4ad370addab3961dcb1a82d7c46322807b0347ef715199db46f782f"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf_potential.mod",
+        "path_type": "hardlink",
+        "sha256": "458931344d577e8d69b324d9f002fb6386938d2eaecc2d458bce2c12c61e9c8b",
+        "size_in_bytes": 24466,
+        "sha256_in_prefix": "458931344d577e8d69b324d9f002fb6386938d2eaecc2d458bce2c12c61e9c8b"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_scf_solver.mod",
+        "path_type": "hardlink",
+        "sha256": "7dd8e36273bc740783954a3ed694dd3bac4a6b91a1b5119801b4751b60e11fab",
+        "size_in_bytes": 1908,
+        "sha256_in_prefix": "7dd8e36273bc740783954a3ed694dd3bac4a6b91a1b5119801b4751b60e11fab"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation.mod",
+        "path_type": "hardlink",
+        "sha256": "fc8ee1db1423ae051e0d9a0b5986ff72b7aff818604176982cec9b5a92645d55",
+        "size_in_bytes": 34233,
+        "sha256_in_prefix": "fc8ee1db1423ae051e0d9a0b5986ff72b7aff818604176982cec9b5a92645d55"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_alpb.mod",
+        "path_type": "hardlink",
+        "sha256": "87d43952906197d2116a3f5af162fbfad8969bfda4f42551f00421a4f7ae1839",
+        "size_in_bytes": 31055,
+        "sha256_in_prefix": "87d43952906197d2116a3f5af162fbfad8969bfda4f42551f00421a4f7ae1839"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_born.mod",
+        "path_type": "hardlink",
+        "sha256": "76d5c195cfc8669b1af5c0ff0795c642f9153e19462106d6b6a5f8af3fcb21bc",
+        "size_in_bytes": 23667,
+        "sha256_in_prefix": "76d5c195cfc8669b1af5c0ff0795c642f9153e19462106d6b6a5f8af3fcb21bc"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_cds.mod",
+        "path_type": "hardlink",
+        "sha256": "791b238237145cf38a7f2e1ef49236e0cd3017cd8711a9bea229876b8a7946cc",
+        "size_in_bytes": 30770,
+        "sha256_in_prefix": "791b238237145cf38a7f2e1ef49236e0cd3017cd8711a9bea229876b8a7946cc"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_cpcm.mod",
+        "path_type": "hardlink",
+        "sha256": "6e7ea48d3a8a26c3cda88665d570216415f067b810297e347528bfe7b8921243",
+        "size_in_bytes": 31026,
+        "sha256_in_prefix": "6e7ea48d3a8a26c3cda88665d570216415f067b810297e347528bfe7b8921243"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_cpcm_dd.mod",
+        "path_type": "hardlink",
+        "sha256": "abd355a0219d38f29bdd46a2762d414841d9eb5a03e2298e5816f41d70ab08f2",
+        "size_in_bytes": 26051,
+        "sha256_in_prefix": "abd355a0219d38f29bdd46a2762d414841d9eb5a03e2298e5816f41d70ab08f2"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_data.mod",
+        "path_type": "hardlink",
+        "sha256": "2ac5274f95059f4e2dd3edc4531d8c1086469965dc84a2b139ac2c730f090ba2",
+        "size_in_bytes": 23129,
+        "sha256_in_prefix": "2ac5274f95059f4e2dd3edc4531d8c1086469965dc84a2b139ac2c730f090ba2"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_input.mod",
+        "path_type": "hardlink",
+        "sha256": "c8a63d4f0a4ea402770b331b5503678887689bb132f0a30163633572bf2cd121",
+        "size_in_bytes": 33273,
+        "sha256_in_prefix": "c8a63d4f0a4ea402770b331b5503678887689bb132f0a30163633572bf2cd121"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_surface.mod",
+        "path_type": "hardlink",
+        "sha256": "c210c19cfbea8a09472f8f4dd9b900248e4c01b128f8df19d1d227faa246c850",
+        "size_in_bytes": 23739,
+        "sha256_in_prefix": "c210c19cfbea8a09472f8f4dd9b900248e4c01b128f8df19d1d227faa246c850"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_solvation_type.mod",
+        "path_type": "hardlink",
+        "sha256": "a38e9230dc46279aaa519f0c4e71ddf8bae1006d1ea751686c3943021ad9a8b7",
+        "size_in_bytes": 27332,
+        "sha256_in_prefix": "a38e9230dc46279aaa519f0c4e71ddf8bae1006d1ea751686c3943021ad9a8b7"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_spin.mod",
+        "path_type": "hardlink",
+        "sha256": "e98af4155a2801a404c7e4f784b003f395d0ad08eddec1095a7a7e20d374eab7",
+        "size_in_bytes": 28085,
+        "sha256_in_prefix": "e98af4155a2801a404c7e4f784b003f395d0ad08eddec1095a7a7e20d374eab7"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_timer.mod",
+        "path_type": "hardlink",
+        "sha256": "e4b8e4f938a1c8c9d4bb9a7ab43f7cf84d07d37e98cb30f0fab2fad9f9961fd6",
+        "size_in_bytes": 2450,
+        "sha256_in_prefix": "e4b8e4f938a1c8c9d4bb9a7ab43f7cf84d07d37e98cb30f0fab2fad9f9961fd6"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_toml.mod",
+        "path_type": "hardlink",
+        "sha256": "dfcd6e5559235d2bd02c993ce41cdc098c55679371a04910a2a63359aa99ed9f",
+        "size_in_bytes": 32062,
+        "sha256_in_prefix": "dfcd6e5559235d2bd02c993ce41cdc098c55679371a04910a2a63359aa99ed9f"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_version.mod",
+        "path_type": "hardlink",
+        "sha256": "5422bbced69333b48d13abafa133bbfb8854cc148cae93163c87efc16ea0decf",
+        "size_in_bytes": 526,
+        "sha256_in_prefix": "5422bbced69333b48d13abafa133bbfb8854cc148cae93163c87efc16ea0decf"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_wavefunction.mod",
+        "path_type": "hardlink",
+        "sha256": "12a2f98d3ddc08eb66716f5e50892ff4de546ea3c9e6429331f53950c0e03cc1",
+        "size_in_bytes": 98206,
+        "sha256_in_prefix": "12a2f98d3ddc08eb66716f5e50892ff4de546ea3c9e6429331f53950c0e03cc1"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_wavefunction_fermi.mod",
+        "path_type": "hardlink",
+        "sha256": "5b37c4ea604807950d20ca03ba945f3df5b6e030467378c2389f928b447cc031",
+        "size_in_bytes": 1358,
+        "sha256_in_prefix": "5b37c4ea604807950d20ca03ba945f3df5b6e030467378c2389f928b447cc031"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_wavefunction_guess.mod",
+        "path_type": "hardlink",
+        "sha256": "7151e4f6db4b9bc90adc9eb501537d730016ec2e9bf8f8ead56cef3c65b88dee",
+        "size_in_bytes": 95193,
+        "sha256_in_prefix": "7151e4f6db4b9bc90adc9eb501537d730016ec2e9bf8f8ead56cef3c65b88dee"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_wavefunction_mulliken.mod",
+        "path_type": "hardlink",
+        "sha256": "12f3a4c1f23d8106872bb689ffeeea8d6bc86c7228e4f3c66eef8510be0bb35c",
+        "size_in_bytes": 23782,
+        "sha256_in_prefix": "12f3a4c1f23d8106872bb689ffeeea8d6bc86c7228e4f3c66eef8510be0bb35c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_wavefunction_spin.mod",
+        "path_type": "hardlink",
+        "sha256": "77aa9516f5c0afdfa1f4e3862052502e0fa8817b03b94c5c2add102e49ab6408",
+        "size_in_bytes": 1521,
+        "sha256_in_prefix": "77aa9516f5c0afdfa1f4e3862052502e0fa8817b03b94c5c2add102e49ab6408"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_wavefunction_type.mod",
+        "path_type": "hardlink",
+        "sha256": "f423101e69469aea314d09415c1d223f7ea6b809f3e827d4d14373aa528e8421",
+        "size_in_bytes": 2348,
+        "sha256_in_prefix": "f423101e69469aea314d09415c1d223f7ea6b809f3e827d4d14373aa528e8421"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_wignerseitz.mod",
+        "path_type": "hardlink",
+        "sha256": "be8ced66c48bb47683ee24afac091489f2243d7e8e3f46c9684395c6fc18197c",
+        "size_in_bytes": 22896,
+        "sha256_in_prefix": "be8ced66c48bb47683ee24afac091489f2243d7e8e3f46c9684395c6fc18197c"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb.mod",
+        "path_type": "hardlink",
+        "sha256": "b9b6f272487f9c6d9f3d42a77752277f7be36da13da91289eada67f533c4fc69",
+        "size_in_bytes": 116178,
+        "sha256_in_prefix": "b9b6f272487f9c6d9f3d42a77752277f7be36da13da91289eada67f533c4fc69"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_calculator.mod",
+        "path_type": "hardlink",
+        "sha256": "969c141cc9af04db2a5e7b4c1219344d47d4039cee99f84c36e784c949422fd5",
+        "size_in_bytes": 96011,
+        "sha256_in_prefix": "969c141cc9af04db2a5e7b4c1219344d47d4039cee99f84c36e784c949422fd5"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_coulomb.mod",
+        "path_type": "hardlink",
+        "sha256": "f0967202224f1089c4c5e09ae4bda7f2022f0b863a41e8b141372593d6dd1a2d",
+        "size_in_bytes": 40604,
+        "sha256_in_prefix": "f0967202224f1089c4c5e09ae4bda7f2022f0b863a41e8b141372593d6dd1a2d"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_gfn1.mod",
+        "path_type": "hardlink",
+        "sha256": "a56d359af6dcaae2f32fe07a80ed50ab7a3ddd2cc3c127878d680d5cd980c556",
+        "size_in_bytes": 96181,
+        "sha256_in_prefix": "a56d359af6dcaae2f32fe07a80ed50ab7a3ddd2cc3c127878d680d5cd980c556"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_gfn2.mod",
+        "path_type": "hardlink",
+        "sha256": "c7b00aa5cc86598f9bdaeb6a559c058e473de0806d24125624c3fddfc1d17092",
+        "size_in_bytes": 96115,
+        "sha256_in_prefix": "c7b00aa5cc86598f9bdaeb6a559c058e473de0806d24125624c3fddfc1d17092"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_h0.mod",
+        "path_type": "hardlink",
+        "sha256": "dfe35dea6c890c796cc4dd0287fe8b36c8a069b2f0a940eea2b5c51f33a6c070",
+        "size_in_bytes": 27228,
+        "sha256_in_prefix": "dfe35dea6c890c796cc4dd0287fe8b36c8a069b2f0a940eea2b5c51f33a6c070"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_ipea1.mod",
+        "path_type": "hardlink",
+        "sha256": "020940ff90b449167243b1f8079beba9395d1b9ecd3998fd7d3f67a7dcad158a",
+        "size_in_bytes": 96208,
+        "sha256_in_prefix": "020940ff90b449167243b1f8079beba9395d1b9ecd3998fd7d3f67a7dcad158a"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_singlepoint.mod",
+        "path_type": "hardlink",
+        "sha256": "cf3a592306e120549b38567d89c2c957b7a098eb7a365910f737c7feae5878d2",
+        "size_in_bytes": 110320,
+        "sha256_in_prefix": "cf3a592306e120549b38567d89c2c957b7a098eb7a365910f737c7feae5878d2"
+      },
+      {
+        "_path": "include/tblite/gcc-13.3.0/tblite_xtb_spec.mod",
+        "path_type": "hardlink",
+        "sha256": "ecdeba663f06e0d0adc9e033c423619e4b21b113370145ff8f5f9fcb4b2a2fe8",
+        "size_in_bytes": 24405,
+        "sha256_in_prefix": "ecdeba663f06e0d0adc9e033c423619e4b21b113370145ff8f5f9fcb4b2a2fe8"
+      },
+      {
+        "_path": "include/tblite/macros.h",
+        "path_type": "hardlink",
+        "sha256": "e5e3b35f617d2274b11a415fb58e78f4f44baa587c8938fdffdf7862c298d4f2",
+        "size_in_bytes": 1745,
+        "sha256_in_prefix": "e5e3b35f617d2274b11a415fb58e78f4f44baa587c8938fdffdf7862c298d4f2"
+      },
+      {
+        "_path": "include/tblite/param.h",
+        "path_type": "hardlink",
+        "sha256": "5e6b45ef3e2e9bf3f2779c4fa707f993cc48e369e72747299437f52b0abbaa78",
+        "size_in_bytes": 3032,
+        "sha256_in_prefix": "5e6b45ef3e2e9bf3f2779c4fa707f993cc48e369e72747299437f52b0abbaa78"
+      },
+      {
+        "_path": "include/tblite/result.h",
+        "path_type": "hardlink",
+        "sha256": "15b73283071e04097c9622dc530c1c0b400a422398b7adfaa8755e532ed8de29",
+        "size_in_bytes": 9110,
+        "sha256_in_prefix": "15b73283071e04097c9622dc530c1c0b400a422398b7adfaa8755e532ed8de29"
+      },
+      {
+        "_path": "include/tblite/structure.h",
+        "path_type": "hardlink",
+        "sha256": "dc2ab3cf13e0a767742238dfaa54a2e41895fff6cc05aeb418e2a6958512bb59",
+        "size_in_bytes": 4249,
+        "sha256_in_prefix": "dc2ab3cf13e0a767742238dfaa54a2e41895fff6cc05aeb418e2a6958512bb59"
+      },
+      {
+        "_path": "include/tblite/table.h",
+        "path_type": "hardlink",
+        "sha256": "d2566656b2afa91d4cf2a8570f1c822965321aa6a349c7df8cdec4098267064e",
+        "size_in_bytes": 4730,
+        "sha256_in_prefix": "d2566656b2afa91d4cf2a8570f1c822965321aa6a349c7df8cdec4098267064e"
+      },
+      {
+        "_path": "include/tblite/version.h",
+        "path_type": "hardlink",
+        "sha256": "2c0dee066dd8a0cd4d4de8617bd09468f52e7a614fe1dddb02b34f75c5ac5d0b",
+        "size_in_bytes": 1084,
+        "sha256_in_prefix": "2c0dee066dd8a0cd4d4de8617bd09468f52e7a614fe1dddb02b34f75c5ac5d0b"
+      },
+      {
+        "_path": "lib/libtblite.0.dylib",
+        "path_type": "hardlink",
+        "sha256": "986e98738efc90c17bb63418ee052f4e321c721a015c3162d70dca6974f5a494",
+        "size_in_bytes": 1501136,
+        "sha256_in_prefix": "986e98738efc90c17bb63418ee052f4e321c721a015c3162d70dca6974f5a494"
+      },
+      {
+        "_path": "lib/libtblite.a",
+        "path_type": "hardlink",
+        "sha256": "accd54676de6c85b0a96844a6a3112e16f47deddd53d7ffb569b52d03853f8a8",
+        "size_in_bytes": 2052552,
+        "sha256_in_prefix": "accd54676de6c85b0a96844a6a3112e16f47deddd53d7ffb569b52d03853f8a8"
+      },
+      {
+        "_path": "lib/libtblite.dylib",
+        "path_type": "softlink",
+        "sha256": "986e98738efc90c17bb63418ee052f4e321c721a015c3162d70dca6974f5a494",
+        "size_in_bytes": 1501136
+      },
+      {
+        "_path": "lib/pkgconfig/tblite.pc",
+        "prefix_placeholder": "/Users/runner/miniforge3/conda-bld/tblite_1743774268593/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pl",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "72bc48f2405d960287760244078ceb8d80386248358f300b53d4cedf1f33e97d",
+        "size_in_bytes": 614,
+        "sha256_in_prefix": "10db15b06a6db300f25e333b51e4627baf3139bad78bfd18e8b2df4d1764435f"
+      },
+      {
+        "_path": "share/licenses/tblite/COPYING",
+        "path_type": "hardlink",
+        "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+        "size_in_bytes": 35149,
+        "sha256_in_prefix": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+      },
+      {
+        "_path": "share/licenses/tblite/COPYING.LESSER",
+        "path_type": "hardlink",
+        "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+        "size_in_bytes": 7652,
+        "sha256_in_prefix": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+      },
+      {
+        "_path": "share/man/man1/tblite-fit.1",
+        "path_type": "hardlink",
+        "sha256": "67e9db41c3503efda2ef60191c58a6a62b9373b8df94a4f532d1827e4e3cb74f",
+        "size_in_bytes": 5026,
+        "sha256_in_prefix": "67e9db41c3503efda2ef60191c58a6a62b9373b8df94a4f532d1827e4e3cb74f"
+      },
+      {
+        "_path": "share/man/man1/tblite-guess.1",
+        "path_type": "hardlink",
+        "sha256": "0d6355a9dd5be9a4494d5fece35c9d05d233c8553b390ef9a7353f94acfe2f30",
+        "size_in_bytes": 3412,
+        "sha256_in_prefix": "0d6355a9dd5be9a4494d5fece35c9d05d233c8553b390ef9a7353f94acfe2f30"
+      },
+      {
+        "_path": "share/man/man1/tblite-param.1",
+        "path_type": "hardlink",
+        "sha256": "1039ff567b696ac8ec4dae9ded91923821d447af362c3533e3de45d9d44fbf26",
+        "size_in_bytes": 1631,
+        "sha256_in_prefix": "1039ff567b696ac8ec4dae9ded91923821d447af362c3533e3de45d9d44fbf26"
+      },
+      {
+        "_path": "share/man/man1/tblite-run.1",
+        "path_type": "hardlink",
+        "sha256": "063a227e08d7b5919a2cf878e6ed8e34a3bf748b6f212e487e1f04e350ee6f83",
+        "size_in_bytes": 5091,
+        "sha256_in_prefix": "063a227e08d7b5919a2cf878e6ed8e34a3bf748b6f212e487e1f04e350ee6f83"
+      },
+      {
+        "_path": "share/man/man1/tblite-tagdiff.1",
+        "path_type": "hardlink",
+        "sha256": "0c7a46f24c18d322eb86622eefb9e118037fb04adb22788dacd46858a19fd277",
+        "size_in_bytes": 1509,
+        "sha256_in_prefix": "0c7a46f24c18d322eb86622eefb9e118037fb04adb22788dacd46858a19fd277"
+      },
+      {
+        "_path": "share/man/man1/tblite.1",
+        "path_type": "hardlink",
+        "sha256": "514f81e97e56ed4d672361229819e020f4d689426a020ce540e6a788e522b9c8",
+        "size_in_bytes": 1936,
+        "sha256_in_prefix": "514f81e97e56ed4d672361229819e020f4d689426a020ce540e6a788e522b9c8"
+      },
+      {
+        "_path": "share/man/man5/tblite-tag.5",
+        "path_type": "hardlink",
+        "sha256": "64a3b5d619bd12b186d086b975a39f95339882aa80673e01cf5b6972ee92533b",
+        "size_in_bytes": 4011,
+        "sha256_in_prefix": "64a3b5d619bd12b186d086b975a39f95339882aa80673e01cf5b6972ee92533b"
+      },
+      {
+        "_path": "share/man/man7/tblite-solvents.7",
+        "path_type": "hardlink",
+        "sha256": "64c138e5b9c68f2d998ea9f404985eca55a1c922c0ec7af270f7f1c7f7f1ab5e",
+        "size_in_bytes": 12929,
+        "sha256_in_prefix": "64c138e5b9c68f2d998ea9f404985eca55a1c922c0ec7af270f7f1c7f7f1ab5e"
+      }
+    ]
+  },
+  "link": {
+    "source": "/Users/controller/miniconda3/pkgs/tblite-0.4.0-hb3fdf34_2",
+    "type": 1
+  }
+}

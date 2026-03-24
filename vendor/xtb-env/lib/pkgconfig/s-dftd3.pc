@@ -1,0 +1,11 @@
+prefix=/Users/controller/Desktop/Ember-MD/vendor/xtb-env
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: s-dftd3
+Description: Simple reimplementation of the DFT-D3 dispersion model
+Version: 1.2.1
+Requires.private: mctc-lib >= 0.3.0
+Libs: -L${libdir} -ls-dftd3
+Libs.private: -fopenmp
+Cflags: -I${includedir} -I${includedir}/s-dftd3/gcc-13.3.0

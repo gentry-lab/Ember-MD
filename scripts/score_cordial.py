@@ -49,9 +49,153 @@ def prepare_receptor_for_scoring(receptor_pdb: Path, temp_dir: str) -> Path:
             dst.write(line)
     return sanitized_path
 
+
+def find_receptor_for_dock_dir(dock_dir: Path) -> Path:
+    """Find the receptor PDB used for docking/refinement."""
+    receptor_candidates = [
+        dock_dir / 'prep' / 'complex' / 'receptor_refined.pdb',
+        dock_dir / 'prep' / 'canonical_receptor.pdb',
+        dock_dir / 'inputs' / 'receptor.pdb',
+        dock_dir / 'receptor_prepared.pdb',
+    ]
+    receptor_candidates.extend(dock_dir.glob('*_receptor_prepared.pdb'))
+    receptor_candidates.extend(dock_dir.glob('*_receptor*.pdb'))
+    receptor_pdb = next((candidate for candidate in receptor_candidates if candidate.exists()), None)
+    if receptor_pdb is None:
+        raise FileNotFoundError(f"No receptor PDB found in {dock_dir}")
+    return receptor_pdb
+
+
+def extract_pose_entries_from_dock_dir(dock_dir: Path, temp_dir: str):
+    """Extract per-pose SDFs from a docking directory."""
+    from rdkit import Chem
+
+    receptor_pdb = find_receptor_for_dock_dir(dock_dir)
+
+    new_poses_dir = dock_dir / 'results' / 'poses'
+    legacy_poses_dir = dock_dir / 'poses'
+    if new_poses_dir.is_dir():
+        search_dir = new_poses_dir
+    elif legacy_poses_dir.is_dir():
+        search_dir = legacy_poses_dir
+    else:
+        search_dir = dock_dir
+
+    docked_sdfs = list(search_dir.glob('*_docked.sdf.gz')) + list(search_dir.glob('*_docked.sdf'))
+    if not docked_sdfs and search_dir != dock_dir:
+        docked_sdfs = list(dock_dir.glob('*_docked.sdf.gz')) + list(dock_dir.glob('*_docked.sdf'))
+    docked_sdfs = [s for s in docked_sdfs if '_all_docked' not in s.name]
+    if not docked_sdfs:
+        raise FileNotFoundError(f"No docked SDF files found in {dock_dir}")
+
+    print(f"Found receptor: {receptor_pdb}")
+    print(f"Found {len(docked_sdfs)} docked SDF files")
+    print("Extracting poses from docked SDFs...")
+
+    pose_entries = []
+    for sdf_path in docked_sdfs:
+        sdf_name = sdf_path.name.replace('_docked.sdf.gz', '').replace('_docked.sdf', '')
+
+        if str(sdf_path).endswith('.gz'):
+            with gzip.open(sdf_path, 'rt') as f:
+                sdf_content = f.read()
+            temp_sdf = os.path.join(temp_dir, f'{sdf_name}_temp.sdf')
+            with open(temp_sdf, 'w') as f:
+                f.write(sdf_content)
+            supplier = Chem.SDMolSupplier(temp_sdf, removeHs=False, sanitize=False)
+        else:
+            supplier = Chem.SDMolSupplier(str(sdf_path), removeHs=False, sanitize=False)
+
+        for pose_idx, mol in enumerate(supplier):
+            if mol is None:
+                continue
+
+            try:
+                Chem.SanitizeMol(mol)
+            except Exception:
+                try:
+                    Chem.SanitizeMol(
+                        mol,
+                        sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE,
+                    )
+                except Exception:
+                    print(f"  Warning: Could not sanitize pose {pose_idx} from {sdf_name}, skipping")
+                    continue
+
+            pose_sdf_path = os.path.join(temp_dir, f'{sdf_name}_pose{pose_idx}.sdf')
+            writer = Chem.SDWriter(pose_sdf_path)
+            writer.write(mol)
+            writer.close()
+
+            pose_entries.append({
+                'source_sdf': str(sdf_path),
+                'source_name': sdf_name,
+                'pose_index': pose_idx,
+                'pose_sdf': pose_sdf_path,
+                'receptor_pdb': str(receptor_pdb),
+            })
+
+    return pose_entries
+
+
+def load_pair_entries_from_csv(pair_csv: Path):
+    """Load explicit ligand/receptor pairs from CSV."""
+    required_columns = {'source_name', 'ligand_sdf', 'receptor_pdb', 'pose_index'}
+    with pair_csv.open('r', newline='') as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames is None or not required_columns.issubset(reader.fieldnames):
+            missing = sorted(required_columns.difference(reader.fieldnames or []))
+            raise ValueError(f"pair_csv missing required columns: {', '.join(missing)}")
+
+        pose_entries = []
+        for row in reader:
+            ligand_sdf = (row.get('ligand_sdf') or '').strip()
+            receptor_pdb = (row.get('receptor_pdb') or '').strip()
+            source_name = (row.get('source_name') or '').strip()
+            pose_index = int((row.get('pose_index') or '0').strip() or '0')
+            if not ligand_sdf or not receptor_pdb or not source_name:
+                continue
+            pose_entries.append({
+                'source_sdf': ligand_sdf,
+                'source_name': source_name,
+                'pose_index': pose_index,
+                'pose_sdf': ligand_sdf,
+                'receptor_pdb': receptor_pdb,
+            })
+
+    return pose_entries
+
+
+def build_pair_file(pose_entries, temp_dir: str):
+    """Write the ligand;protein pair file used by CORDIAL."""
+    pair_file_path = os.path.join(temp_dir, 'pairs.csv')
+    receptor_cache = {}
+    pose_metadata = []
+
+    with open(pair_file_path, 'w') as pair_file:
+        for entry in pose_entries:
+            pose_sdf = entry['pose_sdf']
+            receptor_source = Path(entry['receptor_pdb'])
+            sanitized_receptor = receptor_cache.get(str(receptor_source))
+            if sanitized_receptor is None:
+                sanitized_receptor = str(prepare_receptor_for_scoring(receptor_source, temp_dir))
+                receptor_cache[str(receptor_source)] = sanitized_receptor
+
+            pair_file.write(f"{pose_sdf};{sanitized_receptor}\n")
+            pose_metadata.append({
+                'source_sdf': entry['source_sdf'],
+                'source_name': entry['source_name'],
+                'pose_index': entry['pose_index'],
+                'pose_sdf': pose_sdf,
+            })
+
+    return pair_file_path, pose_metadata
+
 def main():
     parser = argparse.ArgumentParser(description='Score docked poses with CORDIAL')
-    parser.add_argument('--dock_dir', required=True, help='Docking output directory')
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument('--dock_dir', help='Docking output directory')
+    input_group.add_argument('--pair_csv', help='CSV of explicit ligand/receptor pairs')
     parser.add_argument('--cordial_root', required=True, help='Path to CORDIAL repository')
     parser.add_argument('--output', required=True, help='Output CSV file')
     parser.add_argument('--device', default='cuda', help='Device (cuda or cpu)')
@@ -71,110 +215,28 @@ def main():
     from modules.architectures.model_initializer import ModelInitializer
     from utils.arg_parser_utils import MasterArgumentParser
 
-    dock_dir = Path(args.dock_dir)
-
-    # Prefer the prepared-complex receptor actually used for docking/refinement,
-    # then fall back to the canonical input receptor and older layouts.
-    receptor_candidates = [
-        dock_dir / 'prep' / 'complex' / 'receptor_refined.pdb',
-        dock_dir / 'prep' / 'canonical_receptor.pdb',
-        dock_dir / 'inputs' / 'receptor.pdb',
-        dock_dir / 'receptor_prepared.pdb',
-    ]
-    receptor_candidates.extend(dock_dir.glob('*_receptor_prepared.pdb'))
-    receptor_candidates.extend(dock_dir.glob('*_receptor*.pdb'))
-    receptor_pdb = next((candidate for candidate in receptor_candidates if candidate.exists()), None)
-    if receptor_pdb is None:
-        print(f"Error: No receptor PDB found in {dock_dir}", file=sys.stderr)
-        sys.exit(1)
-
-    # Find docked SDF files: results/poses/ (new) > poses/ (legacy) > top-level
-    new_poses_dir = dock_dir / 'results' / 'poses'
-    legacy_poses_dir = dock_dir / 'poses'
-    if new_poses_dir.is_dir():
-        search_dir = new_poses_dir
-    elif legacy_poses_dir.is_dir():
-        search_dir = legacy_poses_dir
-    else:
-        search_dir = dock_dir
-    docked_sdfs = list(search_dir.glob('*_docked.sdf.gz')) + list(search_dir.glob('*_docked.sdf'))
-    if not docked_sdfs:
-        # Fallback: also check top-level if poses/ was empty
-        if search_dir != dock_dir:
-            docked_sdfs = list(dock_dir.glob('*_docked.sdf.gz')) + list(dock_dir.glob('*_docked.sdf'))
-    # Filter out the pooled _all_docked.sdf file (that's for portability, not scoring)
-    docked_sdfs = [s for s in docked_sdfs if '_all_docked' not in s.name]
-    if not docked_sdfs:
-        print(f"Error: No docked SDF files found in {dock_dir}", file=sys.stderr)
-        sys.exit(1)
-
-    # Extract all poses to temporary SDF files and create pair file
     temp_dir = tempfile.mkdtemp(prefix='cordial_')
-    receptor_pdb = prepare_receptor_for_scoring(receptor_pdb, temp_dir)
+    if args.dock_dir:
+        try:
+            pose_entries = extract_pose_entries_from_dock_dir(Path(args.dock_dir), temp_dir)
+        except Exception as err:
+            print(f"Error: {err}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        try:
+            pose_entries = load_pair_entries_from_csv(Path(args.pair_csv))
+        except Exception as err:
+            print(f"Error: {err}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Loaded {len(pose_entries)} explicit receptor/ligand pairs")
 
-    print(f"Found receptor: {receptor_pdb}")
-    print(f"Found {len(docked_sdfs)} docked SDF files")
-
-    pair_file_path = os.path.join(temp_dir, 'pairs.csv')
-    pose_metadata = []  # Track which pose came from which file
-
-    print("Extracting poses from docked SDFs...")
-    pose_count = 0
-
-    with open(pair_file_path, 'w') as pair_file:
-        for sdf_path in docked_sdfs:
-            sdf_name = sdf_path.name.replace('_docked.sdf.gz', '').replace('_docked.sdf', '')
-
-            # Handle gzipped files
-            if str(sdf_path).endswith('.gz'):
-                with gzip.open(sdf_path, 'rt') as f:
-                    sdf_content = f.read()
-                # Write to temp uncompressed file for RDKit
-                temp_sdf = os.path.join(temp_dir, f'{sdf_name}_temp.sdf')
-                with open(temp_sdf, 'w') as f:
-                    f.write(sdf_content)
-                supplier = Chem.SDMolSupplier(temp_sdf, removeHs=False, sanitize=False)
-            else:
-                supplier = Chem.SDMolSupplier(str(sdf_path), removeHs=False, sanitize=False)
-
-            # Extract each pose as a separate SDF
-            for pose_idx, mol in enumerate(supplier):
-                if mol is None:
-                    continue
-
-                # Try to sanitize
-                try:
-                    Chem.SanitizeMol(mol)
-                except:
-                    try:
-                        Chem.SanitizeMol(mol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL^Chem.SanitizeFlags.SANITIZE_KEKULIZE)
-                    except:
-                        print(f"  Warning: Could not sanitize pose {pose_idx} from {sdf_name}, skipping")
-                        continue
-
-                # Write individual pose SDF
-                pose_sdf_path = os.path.join(temp_dir, f'{sdf_name}_pose{pose_idx}.sdf')
-                writer = Chem.SDWriter(pose_sdf_path)
-                writer.write(mol)
-                writer.close()
-
-                # Add to pair file (ligand;protein format)
-                pair_file.write(f"{pose_sdf_path};{receptor_pdb}\n")
-
-                # Track metadata
-                pose_metadata.append({
-                    'source_sdf': str(sdf_path),
-                    'source_name': sdf_name,
-                    'pose_index': pose_idx,
-                    'pose_sdf': pose_sdf_path
-                })
-                pose_count += 1
-
-    print(f"Extracted {pose_count} poses")
-
+    pose_count = len(pose_entries)
     if pose_count == 0:
         print("Error: No valid poses found", file=sys.stderr)
         sys.exit(1)
+
+    pair_file_path, pose_metadata = build_pair_file(pose_entries, temp_dir)
+    print(f"Prepared {pose_count} poses for CORDIAL")
 
     # Setup CORDIAL model paths
     model_path = os.path.join(args.cordial_root, 'weights',

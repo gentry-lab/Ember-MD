@@ -1,0 +1,9 @@
+prefix=/Users/controller/Desktop/Ember-MD/vendor/xtb-env
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: mctc-lib
+Description: Modular computation tool chain
+Version: 0.4.1
+Libs: -L${libdir} -lmctc-lib
+Cflags: -I${includedir} -I${includedir}/mctc-lib/modules

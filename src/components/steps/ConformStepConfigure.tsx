@@ -8,6 +8,7 @@ const ConformStepConfigure: Component = () => {
     state,
     setConformStep,
     setConformOutputName,
+    setConformProtonationConfig,
     setConformConfig,
   } = workflowStore;
 
@@ -45,6 +46,49 @@ const ConformStepConfigure: Component = () => {
                 Saved to {state().jobName}/conformers/{outputFolder()}
               </p>
             </div>
+
+            <div class="border-t border-base-300 my-2" />
+
+            <h3 class="text-sm font-semibold mb-2">Protonation</h3>
+
+            <label class="label cursor-pointer py-0.5">
+              <span class="label-text text-xs">Calculate protonation states (Molscrub)</span>
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm checkbox-primary"
+                checked={state().conform.protonationConfig.enabled}
+                onChange={(e) => setConformProtonationConfig({ enabled: e.currentTarget.checked })}
+              />
+            </label>
+
+            <Show when={state().conform.protonationConfig.enabled}>
+              <div class="flex gap-3 mt-1">
+                <div class="form-control flex-1">
+                  <label class="label py-0"><span class="label-text text-[10px]">Min pH</span></label>
+                  <input
+                    type="number"
+                    class="input input-bordered input-xs w-full"
+                    value={state().conform.protonationConfig.phMin}
+                    min={0}
+                    max={14}
+                    step={0.1}
+                    onInput={(e) => setConformProtonationConfig({ phMin: Number(e.currentTarget.value) || 6.4 })}
+                  />
+                </div>
+                <div class="form-control flex-1">
+                  <label class="label py-0"><span class="label-text text-[10px]">Max pH</span></label>
+                  <input
+                    type="number"
+                    class="input input-bordered input-xs w-full"
+                    value={state().conform.protonationConfig.phMax}
+                    min={0}
+                    max={14}
+                    step={0.1}
+                    onInput={(e) => setConformProtonationConfig({ phMax: Number(e.currentTarget.value) || 8.4 })}
+                  />
+                </div>
+              </div>
+            </Show>
 
             <div class="border-t border-base-300 my-2" />
 

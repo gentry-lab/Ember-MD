@@ -143,23 +143,10 @@ export function getQupkakePythonPath(): string | null {
     return bundledPython;
   }
 
-  const devBundledPython = getDevExtraResourcesPath('qupkake-python', 'bin', 'python');
-  if (fs.existsSync(devBundledPython)) {
-    return devBundledPython;
-  }
-
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  const condaDirs = [
-    path.join(homeDir, 'miniconda3'),
-    path.join(homeDir, 'anaconda3'),
-    path.join(homeDir, 'miniforge3'),
-    path.join(homeDir, 'mambaforge'),
-  ];
-  for (const condaDir of condaDirs) {
-    const candidate = path.join(condaDir, 'envs', 'qupkake', 'bin', 'python');
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
+  const canonicalLocalPython = path.join(homeDir, 'miniconda3', 'envs', 'qupkake', 'bin', 'python3.9');
+  if (fs.existsSync(canonicalLocalPython)) {
+    return canonicalLocalPython;
   }
 
   return null;
@@ -171,19 +158,14 @@ export function getQupkakeRoot(): string | null {
     return envRoot;
   }
 
+  const repoVendorRoot = path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'QupKake');
+  if (isDevRuntime() && fs.existsSync(path.join(repoVendorRoot, 'qupkake'))) {
+    return repoVendorRoot;
+  }
+
   const bundledRoot = path.join(process.resourcesPath, 'qupkake-fork');
   if (fs.existsSync(path.join(bundledRoot, 'qupkake'))) {
     return bundledRoot;
-  }
-
-  const devBundledRoot = getDevExtraResourcesPath('qupkake-fork');
-  if (fs.existsSync(path.join(devBundledRoot, 'qupkake'))) {
-    return devBundledRoot;
-  }
-
-  const repoVendorRoot = path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'QupKake');
-  if (fs.existsSync(path.join(repoVendorRoot, 'qupkake'))) {
-    return repoVendorRoot;
   }
 
   return null;
@@ -195,33 +177,14 @@ export function getQupkakeXtbPath(): string | null {
     return envXtb;
   }
 
+  const repoXtb = path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-env', 'bin', 'xtb');
+  if (isDevRuntime() && fs.existsSync(repoXtb)) {
+    return repoXtb;
+  }
+
   const bundledXtb = path.join(process.resourcesPath, 'qupkake-xtb', 'bin', 'xtb');
   if (fs.existsSync(bundledXtb)) {
     return bundledXtb;
-  }
-
-  const devBundledXtb = getDevExtraResourcesPath('qupkake-xtb', 'bin', 'xtb');
-  if (fs.existsSync(devBundledXtb)) {
-    return devBundledXtb;
-  }
-
-  const repoXtbCandidates = [
-    path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-env', 'bin', 'xtb'),
-    path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-6.4.1', 'install', 'bin', 'xtb'),
-    path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-6.4.1', 'install-openblas', 'bin', 'xtb'),
-  ];
-  for (const candidate of repoXtbCandidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const qupkakePython = getQupkakePythonPath();
-  if (qupkakePython) {
-    const envXtbCandidate = path.join(path.dirname(qupkakePython), 'xtb');
-    if (fs.existsSync(envXtbCandidate)) {
-      return envXtbCandidate;
-    }
   }
 
   return null;

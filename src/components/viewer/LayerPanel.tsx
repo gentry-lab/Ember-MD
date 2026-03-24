@@ -1,6 +1,7 @@
 import { Component, For, Show, createSignal } from 'solid-js';
 import type { ViewerLayer, ViewerLayerGroup } from '../../stores/workflow';
 import type { ProjectJob } from '../../../shared/types/ipc';
+import ImportInputPanel from '../shared/ImportInputPanel';
 
 interface LayerPanelProps {
   layers: ViewerLayer[];
@@ -12,11 +13,16 @@ interface LayerPanelProps {
   recentJobs: ProjectJob[];
   isLoadingRecentJobs: boolean;
   loadingRecentJobId: string | null;
+  pdbIdInput: string;
+  isLoadingImport: boolean;
+  isLoadingPdbFetch: boolean;
   smilesInput: string;
   isLoadingSmiles: boolean;
   onBrowseFiles: () => void;
   onAlignAll: () => void;
   onClearAll: () => void;
+  onPdbIdInput: (value: string) => void;
+  onFetchPdb: () => void;
   onSmilesInput: (value: string) => void;
   onLoadSmiles: () => void;
   onOpenRecentJob: (jobId: string) => void;
@@ -122,6 +128,7 @@ const LayerPanel: Component<LayerPanelProps> = (props) => {
   };
 
   const [viewTab, setViewTab] = createSignal<'recent' | 'import'>('import');
+  const detectedSmiles = () => props.smilesInput.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
 
   return (
     <div class={`card bg-base-200 p-2 flex flex-col gap-2 ${props.fillHeight ? 'h-full' : ''}`}>
@@ -147,32 +154,25 @@ const LayerPanel: Component<LayerPanelProps> = (props) => {
 
         <Show when={viewTab() === 'import'}>
           <div class="flex flex-col gap-3 flex-1">
-            <button class="btn btn-outline btn-sm w-full" onClick={props.onBrowseFiles}>
-              Import (.pdb, .cif, .sdf, .mol, .dcd)
-            </button>
-
-            <div>
-              <span class="text-[10px] text-base-content/50 mb-1 block">or enter SMILES</span>
-              <div class="flex gap-2">
-                <input
-                  type="text"
-                  class="input input-sm input-bordered flex-1 font-mono text-xs"
-                  placeholder="Enter SMILES string"
-                  value={props.smilesInput}
-                  onInput={(e) => props.onSmilesInput(e.currentTarget.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') props.onLoadSmiles(); }}
-                />
-                <button
-                  class="btn btn-sm btn-primary"
-                  onClick={props.onLoadSmiles}
-                  disabled={!props.smilesInput.trim() || props.isLoadingSmiles}
-                >
-                  <Show when={props.isLoadingSmiles} fallback={'Add'}>
-                    <span class="loading loading-spinner loading-xs" />
-                  </Show>
-                </button>
-              </div>
-            </div>
+            <ImportInputPanel
+              importButtonLabel="Import (.pdb, .cif, .sdf, .mol, .dcd)"
+              onImport={props.onBrowseFiles}
+              importDisabled={props.isLoadingImport || props.isLoadingPdbFetch || props.isLoadingSmiles}
+              importLoading={props.isLoadingImport}
+              showPdbFetch={true}
+              pdbIdValue={props.pdbIdInput}
+              onPdbIdInput={props.onPdbIdInput}
+              onFetchPdb={props.onFetchPdb}
+              fetchDisabled={props.isLoadingImport || props.isLoadingPdbFetch || props.pdbIdInput.trim().length !== 4}
+              fetchLoading={props.isLoadingPdbFetch}
+              showSmiles={true}
+              smilesValue={props.smilesInput}
+              onSmilesInput={props.onSmilesInput}
+              onSubmitSmiles={props.onLoadSmiles}
+              smilesDisabled={props.isLoadingImport || props.isLoadingPdbFetch || props.isLoadingSmiles || detectedSmiles().length === 0}
+              smilesLoading={props.isLoadingSmiles}
+              smilesCount={detectedSmiles().length}
+            />
           </div>
         </Show>
 

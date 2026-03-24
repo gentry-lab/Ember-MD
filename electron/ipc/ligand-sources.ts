@@ -161,7 +161,7 @@ export function register(): void {
     if (!appState.mainWindow) return null;
     const result = await dialog.showOpenDialog(appState.mainWindow, {
       properties: ['openDirectory'],
-      title: 'Select SDF Directory',
+      title: 'Select Folder',
     });
     return result.filePaths[0] || null;
   });
@@ -545,19 +545,10 @@ export function register(): void {
 
         const scriptPath = path.join(appState.fraggenRoot, 'enumerate_protonation.py');
         if (!fs.existsSync(scriptPath)) {
-          // Graceful degradation: if script not found, return original paths
-          event.sender.send(IpcChannels.DOCK_OUTPUT, {
-            type: 'stdout',
-            data: 'Warning: enumerate_protonation.py not found, skipping protonation\n'
-          });
-          const parentMapping: Record<string, string> = {};
-          for (const p of ligandSdfPaths) {
-            const name = path.basename(p, '.sdf');
-            parentMapping[name] = name;
-          }
-          resolve(Ok({
-            protonatedPaths: ligandSdfPaths,
-            parentMapping,
+          resolve(Err({
+            type: 'SCRIPT_NOT_FOUND',
+            path: scriptPath,
+            message: `Protonation script not found: ${scriptPath}`,
           }));
           return;
         }
@@ -612,24 +603,22 @@ export function register(): void {
               const lastLine = lines[lines.length - 1];
               if (lastLine && lastLine.startsWith('{')) {
                 const result = JSON.parse(lastLine);
+                const protonatedPaths = result.protonated_paths || [];
+                if (protonatedPaths.length === 0) {
+                  resolve(Err({
+                    type: 'PROTONATION_FAILED',
+                    message: 'Protonation completed without producing any protonated ligands.',
+                  }));
+                  return;
+                }
                 resolve(Ok({
-                  protonatedPaths: result.protonated_paths || [],
+                  protonatedPaths,
                   parentMapping: result.parent_mapping || {},
                 }));
               } else {
-                // No output - may mean Dimorphite-DL not installed, fallback to original
-                event.sender.send(IpcChannels.DOCK_OUTPUT, {
-                  type: 'stdout',
-                  data: 'Warning: No protonation output, using original molecules\n'
-                });
-                const parentMapping: Record<string, string> = {};
-                for (const p of ligandSdfPaths) {
-                  const name = path.basename(p, '.sdf');
-                  parentMapping[name] = name;
-                }
-                resolve(Ok({
-                  protonatedPaths: ligandSdfPaths,
-                  parentMapping,
+                resolve(Err({
+                  type: 'PROTONATION_FAILED',
+                  message: 'Protonation did not return a result payload.',
                 }));
               }
             } catch (e) {
@@ -639,26 +628,15 @@ export function register(): void {
               }));
             }
           } else {
-            // Non-zero exit - check if it's because Dimorphite-DL not installed
-            if (stderr.includes('dimorphite_dl') || stderr.includes('ModuleNotFoundError')) {
-              event.sender.send(IpcChannels.DOCK_OUTPUT, {
-                type: 'stdout',
-                data: 'Warning: Dimorphite-DL not installed, skipping protonation\n' +
-                      'Install with: pip install dimorphite_dl\n\n'
-              });
-              const parentMapping: Record<string, string> = {};
-              for (const p of ligandSdfPaths) {
-                const name = path.basename(p, '.sdf');
-                parentMapping[name] = name;
-              }
-              resolve(Ok({
-                protonatedPaths: ligandSdfPaths,
-                parentMapping,
+            if (stderr.includes('molscrub') || stderr.includes('Molscrub')) {
+              resolve(Err({
+                type: 'PROTONATION_FAILED',
+                message: 'Ligand protonation requires Molscrub in the active Python environment. Install `molscrub` or disable protonation.',
               }));
             } else {
               resolve(Err({
                 type: 'PROTONATION_FAILED',
-                message: `Protonation failed: ${stderr.slice(0, 200)}`,
+                message: `Protonation failed: ${(stderr || stdout).slice(0, 200)}`,
               }));
             }
           }

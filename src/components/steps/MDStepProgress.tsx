@@ -24,7 +24,7 @@ const STAGES: StageInfo[] = [
   { id: 'equilibration', label: 'Free Equil', description: 'Unrestrained NPT equilibration' },
   { id: 'production', label: 'Production', description: 'Running production MD' },
   { id: 'clustering', label: 'Clustering', description: 'Clustering trajectory into 10 centroids' },
-  { id: 'scoring', label: 'Scoring', description: 'Scoring clusters (xTB + Vina + CORDIAL)' },
+  { id: 'scoring', label: 'Scoring', description: 'Scoring clusters (Vina + CORDIAL)' },
   { id: 'report', label: 'Report', description: 'Generating analysis report' },
 ];
 
@@ -37,7 +37,9 @@ const MDStepProgress: Component = () => {
     setMdStageProgress,
     setMdSystemInfo,
     setMdResult,
+    setMdClusteringResultsFromIpc,
     setMdClusterScores,
+    setMdTorsionAnalysis,
     setIsRunning,
     setIsPaused,
     setCurrentPhase,
@@ -125,7 +127,7 @@ const MDStepProgress: Component = () => {
     }
 
     // Parse post-simulation scoring progress
-    const scoringMatch = data.data.match(/PROGRESS:(clustering|scoring_split|scoring_xtb|scoring_vina|scoring_cordial|scoring):(\d+)/);
+    const scoringMatch = data.data.match(/PROGRESS:(clustering|scoring_split|scoring_vina|scoring_cordial|scoring):(\d+)/);
     if (scoringMatch) {
       const step = scoringMatch[1];
       const pct = parseInt(scoringMatch[2]);
@@ -139,39 +141,86 @@ const MDStepProgress: Component = () => {
   });
 
   const runPostSimulation = async (topologyPath: string, trajectoryPath: string, resultsDir: string) => {
-    const analysisDir = path.join(resultsDir, 'analysis');
     const isLigandOnly = state().md.inputMode === 'ligand_only';
-    // resultsDir = simulations/{run}/results/, simRunRoot = simulations/{run}/
-    const simRunRoot = path.dirname(resultsDir);
-    const inputLigandSdf = path.join(simRunRoot, 'inputs', 'ligand.sdf');
-    const inputReceptorPdb = isLigandOnly ? undefined : path.join(simRunRoot, 'inputs', 'receptor.pdb');
+    const isApo = state().md.inputMode === 'apo';
 
-    // Step 1: Cluster + Score
+    // Determine the run root: if resultsDir ends with /results, parent is run root; otherwise resultsDir IS the run root
+    const simRunRoot = path.basename(resultsDir) === 'results' ? path.dirname(resultsDir) : resultsDir;
+    const analysisDir = path.join(simRunRoot, 'analysis');
+    // Try inputs/ subdir first, fall back to original state paths (MD runner may not create inputs/)
+    const inputsLigandPath = path.join(simRunRoot, 'inputs', 'ligand.sdf');
+    const inputsReceptorPath = path.join(simRunRoot, 'inputs', 'receptor.pdb');
+    const hasInputsDir = await api.fileExists(path.join(simRunRoot, 'inputs'));
+    const inputLigandSdf = hasInputsDir ? inputsLigandPath : (state().md.ligandSdf || inputsLigandPath);
+    const inputReceptorPdb = (isLigandOnly || isApo) ? undefined
+      : (hasInputsDir ? inputsReceptorPath : (state().md.receptorPdb || inputsReceptorPath));
+
+    // Step 1: Cluster every completed simulation. Holo runs attach scores to the canonical clustering output.
     setMdCurrentStage('clustering');
     setMdStageProgress(0);
-    appendLog('\n=== Auto-scoring: clustering + scoring ===\n');
+    setMdClusteringResultsFromIpc(null);
+    setMdClusterScores([]);
+    setMdTorsionAnalysis(null);
 
-    try {
-      const scoreResult = await api.scoreMdClusters({
-        topologyPath,
-        trajectoryPath,
-        outputDir: analysisDir,
-        inputLigandSdf,
-        inputReceptorPdb,
-        numClusters: 10,
-        enableVina: !isLigandOnly,
-        enableXtb: true,
-        enableCordial: !isLigandOnly,
-      });
+    if (!isLigandOnly && !isApo) {
+      setMdCurrentStage('clustering');
+      appendLog('\n=== Auto-scoring: clustering + scoring ===\n');
 
-      if (scoreResult.ok) {
-        setMdClusterScores(scoreResult.value.clusters);
-        appendLog(`\nScored ${scoreResult.value.clusters.length} clusters\n`);
-      } else {
-        appendLog(`\nCluster scoring failed: ${scoreResult.error.message}\n`);
+      try {
+        const scoreResult = await api.scoreMdClusters({
+          topologyPath,
+          trajectoryPath,
+          outputDir: analysisDir,
+          inputLigandSdf,
+          inputReceptorPdb,
+          numClusters: 10,
+          enableVina: !isLigandOnly,
+          enableCordial: !isLigandOnly,
+        });
+
+        if (scoreResult.ok) {
+          setMdClusteringResultsFromIpc(scoreResult.value.clusteringResults);
+          setMdClusterScores(scoreResult.value.clusters);
+          appendLog(`\nScored ${scoreResult.value.clusters.length} clusters\n`);
+        } else {
+          const message = `Cluster scoring failed: ${scoreResult.error.message}`;
+          appendLog(`\n${message}\n`);
+          setError(message);
+          setCurrentPhase('error');
+          setIsRunning(false);
+          return;
+        }
+      } catch (err) {
+        const message = `Cluster scoring error: ${(err as Error).message}`;
+        appendLog(`\n${message}\n`);
+        setError(message);
+        setCurrentPhase('error');
+        setIsRunning(false);
+        return;
       }
-    } catch (err) {
-      appendLog(`\nCluster scoring error: ${(err as Error).message}\n`);
+    } else {
+      appendLog(`\n=== Auto-clustering ${isApo ? 'apo' : 'ligand-only'} simulation ===\n`);
+
+      try {
+        const clusterResult = await api.clusterTrajectory({
+          topologyPath,
+          trajectoryPath,
+          numClusters: 10,
+          method: 'kmeans',
+          rmsdSelection: isApo ? 'backbone' : 'ligand',
+          stripWaters: true,
+          outputDir: path.join(analysisDir, 'clustering'),
+        });
+
+        if (clusterResult.ok) {
+          setMdClusteringResultsFromIpc(clusterResult.value);
+          appendLog(`\nClustered ${clusterResult.value.clusters.length} centroids\n`);
+        } else {
+          appendLog(`\nClustering failed: ${clusterResult.error.message}\n`);
+        }
+      } catch (err) {
+        appendLog(`\nClustering error: ${(err as Error).message}\n`);
+      }
     }
 
     // Step 2: Generate report
@@ -195,8 +244,14 @@ const MDStepProgress: Component = () => {
         topologyPath,
         trajectoryPath,
         outputDir: analysisDir,
+        ligandSdf: inputLigandSdf,
         simInfo,
       });
+
+      const torsionResult = await api.loadMdTorsionAnalysis({ analysisDir });
+      if (torsionResult.ok) {
+        setMdTorsionAnalysis(torsionResult.value);
+      }
     } catch (err) {
       appendLog(`\nReport generation error: ${(err as Error).message}\n`);
     }
@@ -208,12 +263,16 @@ const MDStepProgress: Component = () => {
 
   const runSimulation = async () => {
     const isLigandOnly = state().md.inputMode === 'ligand_only';
-    if (!isLigandOnly && !state().md.receptorPdb) return;
-    if (!state().md.ligandSdf) return;
+    const isApo = state().md.inputMode === 'apo';
+    if (!isLigandOnly && !isApo && !state().md.receptorPdb) return;
+    if (!isApo && !state().md.ligandSdf) return;
 
     setIsRunning(true);
     setCurrentPhase('generation');
     clearLogs();
+    setMdClusteringResultsFromIpc(null);
+    setMdClusterScores([]);
+    setMdTorsionAnalysis(null);
     setMdCurrentStage('building');
     setMdStageProgress(0);
 
@@ -244,10 +303,11 @@ const MDStepProgress: Component = () => {
       console.log(`[MD] Starting simulation: ${state().md.config.forceFieldPreset}, ${state().md.config.productionNs}ns → ${outputDir}`);
       const result = await api.runMdSimulation(
         state().md.receptorPdb,
-        state().md.ligandSdf!,
+        state().md.ligandSdf || '',
         outputDir,
         state().md.config,
-        isLigandOnly
+        isLigandOnly,
+        isApo
       );
 
       if (!result.ok) {

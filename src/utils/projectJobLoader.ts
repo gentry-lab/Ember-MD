@@ -1,7 +1,7 @@
 import type { ElectronAPI } from '../../shared/types/electron-api';
-import type { ProjectJob } from '../../shared/types/ipc';
+import type { ClusteringResult, ProjectJob, ScoredClusterResult } from '../../shared/types/ipc';
 import { workflowStore } from '../stores/workflow';
-import { buildDockingViewerQueue } from './viewerQueue';
+import { buildDockingProjectTable, buildDockingViewerQueue } from './viewerQueue';
 
 export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise<void> {
   const {
@@ -16,7 +16,9 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
     setMdResult,
     setMdOutputDir,
     setMdStep,
+    setMdClusteringResultsFromIpc,
     setMdClusterScores,
+    setMdTorsionAnalysis,
     setConformOutputDir,
     setConformPaths,
     setConformOutputName,
@@ -43,6 +45,40 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
       }
     }
     return [];
+  };
+
+  const loadClusteringResults = async () => {
+    const candidatePaths = [
+      job.clusteringResultsPath,
+      `${job.path}/results/analysis/clustering/clustering_results.json`,
+      `${job.path}/analysis/clustering/clustering_results.json`,
+      `${job.path}/clustering/clustering_results.json`,
+    ].filter((candidate): candidate is string => Boolean(candidate));
+
+    for (const candidatePath of candidatePaths) {
+      const clusteringData = await api.readJsonFile(candidatePath) as {
+        clusters?: unknown[];
+        frameAssignments?: unknown[];
+        requestedClusters?: unknown;
+        actualClusters?: unknown;
+      } | null;
+      if (!clusteringData || !Array.isArray(clusteringData.clusters) || !Array.isArray(clusteringData.frameAssignments)) {
+        continue;
+      }
+      return {
+        clusters: clusteringData.clusters as ClusteringResult['clusters'],
+        frameAssignments: clusteringData.frameAssignments as number[],
+        outputDir: candidatePath.replace(/\/clustering_results\.json$/, ''),
+        requestedClusters: typeof clusteringData.requestedClusters === 'number' ? clusteringData.requestedClusters : undefined,
+        actualClusters: typeof clusteringData.actualClusters === 'number' ? clusteringData.actualClusters : undefined,
+      };
+    }
+
+    return null;
+  };
+
+  const loadMdTorsionAnalysis = async () => {
+    return api.loadMdTorsionAnalysis({ analysisDir: `${job.path}/analysis` });
   };
 
   const loadMapResult = async () => {
@@ -86,12 +122,28 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
     const queue = buildDockingViewerQueue(job.receptorPdb, job.poses);
     const selectedPoseIndex = Math.min(Math.max(job.poseIndex ?? 0, 0), queue.length - 1);
     const selectedPose = job.poses[selectedPoseIndex];
+    const projectTable = buildDockingProjectTable({
+      familyId: job.parentId || `dock:${job.folder}`,
+      title: job.parentLabel || job.folder,
+      receptorPdb: job.receptorPdb,
+      holoPdb: job.holoPdb,
+      preparedLigandPath: job.preparedLigandPath,
+      referenceLigandPath: job.referenceLigandPath,
+      poses: queue.map((item, index) => ({
+        ligandName: job.poses![index].name,
+        outputSdf: item.ligandPath!,
+        vinaAffinity: job.poses![index].affinity ?? null,
+      })) as any,
+      poseQueue: queue,
+      selectedQueueIndex: selectedPoseIndex,
+    });
 
     openViewerSession({
       pdbPath: job.receptorPdb,
       ligandPath: selectedPose?.path || job.ligandPath || null,
       pdbQueue: queue,
       pdbQueueIndex: selectedPoseIndex,
+      projectTable,
     });
     return;
   }
@@ -135,7 +187,14 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
       : trajectoryDcd.replace(/trajectory\.dcd$/, 'energy.csv');
 
     if (systemPdb && trajectoryDcd) {
-      setMdClusterScores(await loadClusterScores());
+      const [clusteringResults, clusterScores, torsionAnalysis] = await Promise.all([
+        loadClusteringResults(),
+        loadClusterScores(),
+        loadMdTorsionAnalysis(),
+      ]);
+      setMdClusteringResultsFromIpc(clusteringResults);
+      setMdClusterScores(clusterScores as ScoredClusterResult[]);
+      setMdTorsionAnalysis(torsionAnalysis.ok ? torsionAnalysis.value : null);
       setMdResult({
         systemPdbPath: systemPdb,
         trajectoryPath: trajectoryDcd,
@@ -183,8 +242,9 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
       try {
         const detected = await api.detectPdbLigands(mapResult.pdbPath);
         if (detected.ok) {
-          setMapDetectedLigands(detected.value);
-          setMapSelectedLigandId(detected.value[0]?.id || null);
+          const ligands = Array.isArray(detected.value) ? detected.value : detected.value.ligands;
+          setMapDetectedLigands(ligands);
+          setMapSelectedLigandId(ligands[0]?.id || null);
         } else {
           setMapDetectedLigands([]);
           setMapSelectedLigandId(null);

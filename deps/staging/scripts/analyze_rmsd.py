@@ -25,6 +25,7 @@ def main() -> None:
 
     try:
         import MDAnalysis as mda
+        from MDAnalysis import transformations as trans
         from MDAnalysis.analysis.rms import RMSD as RMSD_Analysis
         from MDAnalysis.analysis.rms import rmsd
         import numpy as np

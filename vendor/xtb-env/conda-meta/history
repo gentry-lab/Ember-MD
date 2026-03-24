@@ -1,0 +1,19 @@
+==> 2026-03-21 01:08:44 <==
+# cmd: /Users/controller/miniconda3/bin/conda create -p /Users/controller/Desktop/Ember-MD/vendor/xtb-env -c conda-forge xtb=6.7.1 --yes
+# conda version: 25.9.1
++conda-forge/osx-arm64::_openmp_mutex-4.5-7_kmp_llvm
++conda-forge/osx-arm64::dftd4-3.7.0-hb3fdf34_4
++conda-forge/osx-arm64::libblas-3.11.0-5_h51639a9_openblas
++conda-forge/osx-arm64::libgcc-15.2.0-hcbb3090_18
++conda-forge/osx-arm64::libgfortran-15.2.0-h07b0088_18
++conda-forge/osx-arm64::libgfortran5-15.2.0-hdae7583_18
++conda-forge/osx-arm64::liblapack-3.11.0-5_hd9741b5_openblas
++conda-forge/osx-arm64::libopenblas-0.3.30-openmp_ha158390_4
++conda-forge/osx-arm64::llvm-openmp-22.1.0-hc7d1edf_0
++conda-forge/osx-arm64::mctc-lib-0.4.1-hdbc710d_0
++conda-forge/osx-arm64::multicharge-0.3.0-hb3fdf34_2
++conda-forge/osx-arm64::simple-dftd3-1.2.1-hb42fc24_1
++conda-forge/osx-arm64::tblite-0.4.0-hb3fdf34_2
++conda-forge/osx-arm64::toml-f-0.4.3-h4b6e51f_0
++conda-forge/osx-arm64::xtb-6.7.1-h1aae681_4
+# update specs: ['xtb=6.7.1']

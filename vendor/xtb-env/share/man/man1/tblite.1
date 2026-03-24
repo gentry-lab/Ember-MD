@@ -1,0 +1,92 @@
+'\" t
+.\"     Title: tblite
+.\"    Author: Sebastian Ehlert (@awvwgk)
+.\" Generator: Asciidoctor 2.0.23
+.\"      Date: 2024-11-17
+.\"    Manual: \ \&
+.\"    Source: \ \&
+.\"  Language: English
+.\"
+.TH "TBLITE" "1" "2024-11-17" "\ \&" "\ \&"
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.ss \n[.ss] 0
+.nh
+.ad l
+.de URL
+\fI\\$2\fP <\\$1>\\$3
+..
+.als MTO URL
+.if \n[.g] \{\
+.  mso www.tmac
+.  am URL
+.    ad l
+.  .
+.  am MTO
+.    ad l
+.  .
+.  LINKSTYLE blue R < >
+.\}
+.SH "NAME"
+tblite \- Light\-weight tight\-binding framework
+.SH "SYNOPSIS"
+.sp
+\fBtblite\fP [\fIcommand\fP] [\fIoptions\fP] \fIinput\fP
+.SH "DESCRIPTION"
+.sp
+Main driver for tight\-binding framework.
+.SH "COMMANDS"
+.sp
+\fBtblite\-fit\fP(1)
+.RS 4
+Optimize tight\-binding parameters.
+.RE
+.sp
+\fBtblite\-param\fP(1)
+.RS 4
+Inspect and manipulate tight\-binding parametrization data.
+.RE
+.sp
+\fBtblite\-run\fP(1)
+.RS 4
+Evaluate tight\-binding method on the provided input structure.
+If no command is specified run is selected by default.
+.RE
+.sp
+\fBtblite\-guess\fP(1)
+.RS 4
+Evaluate a guess charge model on the provided input structure.
+.RE
+.sp
+\fBtblite\-tagdiff\fP(1)
+.RS 4
+Auxilary tool to compute differences between data outputs.
+.RE
+.SH "OPTIONS"
+.sp
+\fB\-\-color\fP \fIstring\fP
+.RS 4
+Support colorful terminal output,
+possible values are \fInever\fP (default), \fIalways\fP, and \fIauto\fP.
+.RE
+.sp
+\fB\-\-version\fP
+.RS 4
+Prints version number and citation
+.RE
+.sp
+\fB\-\-help\fP
+.RS 4
+Show this message
+.RE
+.sp
+Command line arguments can be read from an indirect file / response file by specifying the file with @\fIname\fP in the command line.
+Each line in the file is interpreted as command line argument, shell like escape sequences are not available.
+The file can contain further @\fIname\fP inputs.
+If the file cannot be found the argument is used literally.
+.SH "SEE ALSO"
+.sp
+.URL "https://tblite.readthedocs.io" "" ""
+.SH "AUTHOR"
+.sp
+Sebastian Ehlert (@awvwgk)

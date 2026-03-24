@@ -93,6 +93,62 @@ function spawnPythonScript(
 // Helpers
 // ---------------------------------------------------------------------------
 
+function truncateQupkakeLogText(text: string | undefined, maxLength = 12000): string | undefined {
+  if (!text) return undefined;
+  return text.length > maxLength
+    ? `${text.slice(0, maxLength)}\n... [truncated ${text.length - maxLength} chars]`
+    : text;
+}
+
+function logQupkakeCapabilityDiagnostics(
+  context: string,
+  capability: QupkakeCapabilityResult,
+  stdout?: string,
+  stderr?: string
+): void {
+  console.warn(`[QupKake] ${context}`, {
+    available: capability.available,
+    validated: capability.validated,
+    message: capability.message,
+    warning: capability.warning,
+    failureStage: capability.failureStage,
+    runtimeFingerprint: capability.runtimeFingerprint,
+    runtimeProbe: capability.runtimeProbe ? {
+      ...capability.runtimeProbe,
+      rawStdout: truncateQupkakeLogText(capability.runtimeProbe.rawStdout),
+      rawStderr: truncateQupkakeLogText(capability.runtimeProbe.rawStderr),
+    } : undefined,
+    validationLigand: capability.validationLigand,
+    validationCase: capability.validationCase ? {
+      ...capability.validationCase,
+      rawStdout: truncateQupkakeLogText(capability.validationCase.rawStdout),
+      rawStderr: truncateQupkakeLogText(capability.validationCase.rawStderr),
+    } : undefined,
+    validationReport: capability.validationReport,
+    rawStdout: truncateQupkakeLogText(stdout),
+    rawStderr: truncateQupkakeLogText(stderr),
+  });
+}
+
+function logQupkakePredictionFailure(
+  context: string,
+  details: {
+    ligandPath: string,
+    code?: number | null,
+    stdout?: string,
+    stderr?: string,
+    error?: string,
+  }
+): void {
+  console.error(`[QupKake] ${context}`, {
+    ligandPath: details.ligandPath,
+    code: details.code,
+    error: details.error,
+    rawStdout: truncateQupkakeLogText(details.stdout),
+    rawStderr: truncateQupkakeLogText(details.stderr),
+  });
+}
+
 function rebuildDockingPool(resultsDir: string, posesDir: string): void {
   if (!fs.existsSync(posesDir)) return;
   const poseFiles = fs.readdirSync(posesDir)
@@ -1533,7 +1589,7 @@ export function register(): void {
   });
 
   // Check if QupKake is installed
-  ipcMain.handle(IpcChannels.CHECK_QUPKAKE_INSTALLED, async (): Promise<QupkakeCapabilityResult> => {
+  async function runQupkakeCapabilityCheck(): Promise<QupkakeCapabilityResult> {
     if (appState.qupkakeCapabilityCache) {
       return appState.qupkakeCapabilityCache;
     }
@@ -1574,43 +1630,71 @@ export function register(): void {
       proc.on('close', (code: number | null) => {
         childProcesses.delete(proc);
         if (code !== 0) {
-          resolve({
+          const result = {
             available: false,
             validated: false,
             message: stderr || `QupKake capability check failed with exit code ${code}`,
-          });
+          };
+          logQupkakeCapabilityDiagnostics('capability check process failed', result, stdout, stderr);
+          resolve(result);
           return;
         }
 
         try {
           const result = JSON.parse(stdout.trim()) as QupkakeCapabilityResult;
+          if (!result.validated) {
+            logQupkakeCapabilityDiagnostics('capability check reported unavailable or unvalidated runtime', result, stdout, stderr);
+          }
           appState.setQupkakeCapabilityCache(result);
           resolve(result);
         } catch {
           console.warn('[QupKake] Failed to parse availability output:', stderr || stdout);
-          resolve({
+          const result = {
             available: false,
             validated: false,
             message: stderr || stdout || 'Failed to parse QupKake capability output.',
-          });
+          };
+          logQupkakeCapabilityDiagnostics('capability check output parse failed', result, stdout, stderr);
+          resolve(result);
         }
       });
 
       proc.on('error', (error: Error) => {
         childProcesses.delete(proc);
-        resolve({
+        const result = {
           available: false,
           validated: false,
           message: `Failed to start QupKake capability check: ${error.message}`,
-        });
+        };
+        logQupkakeCapabilityDiagnostics('capability check process launch failed', result, stdout, stderr);
+        resolve(result);
       });
     });
+  }
+
+  ipcMain.handle(IpcChannels.CHECK_QUPKAKE_INSTALLED, async (): Promise<QupkakeCapabilityResult> => {
+    return await runQupkakeCapabilityCheck();
   });
 
   // Predict ligand pKa via QupKake
   ipcMain.handle(
     IpcChannels.PREDICT_LIGAND_PKA,
     async (_event, ligandPath: string): Promise<Result<LigandPkaResult, AppError>> => {
+      const capability = await runQupkakeCapabilityCheck();
+      if (!capability.available) {
+        return Err({
+          type: 'QUPKAKE_FAILED',
+          message: capability.message || 'QupKake is unavailable.',
+        });
+      }
+      if (!capability.validated) {
+        logQupkakeCapabilityDiagnostics('prediction blocked because runtime validation failed', capability);
+        return Err({
+          type: 'QUPKAKE_FAILED',
+          message: capability.warning || 'QupKake runtime failed validation and is blocked.',
+        });
+      }
+
       const pythonPath = appState.condaPythonPath;
       if (!pythonPath || !fs.existsSync(pythonPath)) {
         return Err({
@@ -1647,6 +1731,12 @@ export function register(): void {
           childProcesses.delete(proc);
 
           if (code !== 0) {
+            logQupkakePredictionFailure('ligand pKa prediction failed', {
+              ligandPath,
+              code,
+              stdout,
+              stderr,
+            });
             resolve(Err({
               type: 'QUPKAKE_FAILED',
               message: stderr || `QupKake prediction failed with exit code ${code}`,
@@ -1657,6 +1747,13 @@ export function register(): void {
           try {
             const result = JSON.parse(stdout.trim()) as LigandPkaResult & { error?: string };
             if (result?.error) {
+              logQupkakePredictionFailure('ligand pKa prediction returned an error payload', {
+                ligandPath,
+                code,
+                stdout,
+                stderr,
+                error: result.error,
+              });
               resolve(Err({
                 type: 'QUPKAKE_FAILED',
                 message: result.error,
@@ -1665,6 +1762,12 @@ export function register(): void {
             }
             resolve(Ok(result));
           } catch {
+            logQupkakePredictionFailure('ligand pKa prediction output parse failed', {
+              ligandPath,
+              code,
+              stdout,
+              stderr,
+            });
             resolve(Err({
               type: 'PARSE_FAILED',
               message: `Failed to parse QupKake output: ${stderr || stdout}`,
@@ -1674,6 +1777,12 @@ export function register(): void {
 
         proc.on('error', (err: Error) => {
           childProcesses.delete(proc);
+          logQupkakePredictionFailure('ligand pKa prediction process launch failed', {
+            ligandPath,
+            stdout,
+            stderr,
+            error: err.message,
+          });
           resolve(Err({
             type: 'QUPKAKE_FAILED',
             message: `Failed to start QupKake prediction: ${err.message}`,
@@ -1984,425 +2093,4 @@ export function register(): void {
     }
   );
 
-  // Score MD clusters (cluster + Vina + xTB + CORDIAL pipeline)
-  ipcMain.handle(
-    IpcChannels.SCORE_MD_CLUSTERS,
-    async (
-      event,
-      options: {
-        topologyPath: string;
-        trajectoryPath: string;
-        outputDir: string;
-        inputLigandSdf: string;
-        inputReceptorPdb?: string;
-        numClusters: number;
-        enableVina: boolean;
-        enableCordial: boolean;
-      }
-    ): Promise<Result<{
-      clusters: ScoredClusterResult[];
-      outputDir: string;
-      clusteringResults: ClusteringResult;
-    }, AppError>> => {
-      if (!appState.condaPythonPath || !fs.existsSync(appState.condaPythonPath)) {
-        return Err({
-          type: 'PYTHON_NOT_FOUND',
-          message: 'Python not found. Please install miniconda and create the openmm-metal environment.',
-        });
-      }
-
-      const analysisDir = options.outputDir;
-      const clusteringDir = path.join(analysisDir, 'clustering');
-      const scoredClustersDir = path.join(analysisDir, 'scored_clusters');
-      fs.mkdirSync(clusteringDir, { recursive: true });
-      fs.mkdirSync(scoredClustersDir, { recursive: true });
-
-      // --- Step 1: Create or reuse canonical clustering output ---
-      let clusteringResults = readClusteringResult(clusteringDir);
-      if (!clusteringResults || clusteringResults.clusters.length === 0) {
-        const clusterScript = path.join(appState.fraggenRoot, 'cluster_trajectory.py');
-        if (!fs.existsSync(clusterScript)) {
-          return Err({
-            type: 'SCRIPT_NOT_FOUND',
-            path: clusterScript,
-            message: `Clustering script not found: ${clusterScript}`,
-          });
-        }
-
-        event.sender.send(IpcChannels.MD_OUTPUT, {
-          type: 'stdout',
-          data: `=== Clustering into ${options.numClusters} centroids ===\n`,
-        });
-
-        const clusterResult = await new Promise<Result<void, AppError>>((resolve) => {
-          const args = [
-            clusterScript,
-            '--topology', options.topologyPath,
-            '--trajectory', options.trajectoryPath,
-            '--n_clusters', String(options.numClusters),
-            '--method', 'kmeans',
-            '--selection', 'ligand',
-            '--strip_waters',
-            '--output_dir', clusteringDir,
-          ];
-
-          const proc = spawn(appState.condaPythonPath!, args, { env: getSpawnEnv() });
-          childProcesses.add(proc);
-
-          proc.stdout?.on('data', (data: Buffer) => {
-            const text = data.toString();
-            event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
-            const match = text.match(/Calculated (\d+)\/(\d+)/);
-            if (match) {
-              const pct = Math.round(100 * parseInt(match[1], 10) / parseInt(match[2], 10));
-              event.sender.send(IpcChannels.MD_OUTPUT, {
-                type: 'stdout', data: `PROGRESS:clustering:${pct}\n`,
-              });
-            }
-          });
-
-          proc.stderr?.on('data', (data: Buffer) => {
-            event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: data.toString() });
-          });
-
-          proc.on('close', (code: number | null) => {
-            childProcesses.delete(proc);
-            if (code === 0) {
-              resolve(Ok(undefined));
-            } else {
-              resolve(Err({ type: 'CLUSTERING_FAILED', message: `Clustering failed with exit code ${code}` }));
-            }
-          });
-
-          proc.on('error', (err: Error) => {
-            childProcesses.delete(proc);
-            resolve(Err({ type: 'CLUSTERING_FAILED', message: err.message }));
-          });
-        });
-
-        if (!clusterResult.ok) {
-          return Err(clusterResult.error);
-        }
-
-        clusteringResults = readClusteringResult(clusteringDir);
-      } else {
-        event.sender.send(IpcChannels.MD_OUTPUT, {
-          type: 'stdout',
-          data: `=== Reusing existing clustering (${clusteringResults.clusters.length} centroids) ===\nPROGRESS:clustering:100\n`,
-        });
-      }
-
-      if (!clusteringResults || clusteringResults.clusters.length === 0) {
-        return Err({
-          type: 'CLUSTERING_FAILED',
-          message: 'Canonical clustering results were not found after clustering completed',
-        });
-      }
-
-      // --- Step 2: Prepare centroid receptor/ligand pairs ---
-      const scoreScript = path.join(appState.fraggenRoot, 'score_cluster_centroids.py');
-      if (!fs.existsSync(scoreScript)) {
-        return Err({
-          type: 'SCRIPT_NOT_FOUND',
-          path: scoreScript,
-          message: `Cluster preparation script not found: ${scoreScript}`,
-        });
-      }
-
-      event.sender.send(IpcChannels.MD_OUTPUT, {
-        type: 'stdout',
-        data: '=== Preparing cluster centroids for rescoring ===\n',
-      });
-
-      const prepareResult = await new Promise<Result<void, AppError>>((resolve) => {
-        const args = [
-          scoreScript,
-          '--clustering_dir', clusteringDir,
-          '--input_ligand_sdf', options.inputLigandSdf,
-          '--output_dir', scoredClustersDir,
-        ];
-
-        const proc = spawn(appState.condaPythonPath!, args, { env: getSpawnEnv() });
-        childProcesses.add(proc);
-
-        proc.stdout?.on('data', (data: Buffer) => {
-          event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: data.toString() });
-        });
-
-        proc.stderr?.on('data', (data: Buffer) => {
-          event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: data.toString() });
-        });
-
-        proc.on('close', (code: number | null) => {
-          childProcesses.delete(proc);
-          if (code === 0) {
-            resolve(Ok(undefined));
-          } else {
-            resolve(Err({
-              type: 'CLUSTER_SCORING_FAILED',
-              message: `Cluster preparation failed with exit code ${code}`,
-            }));
-          }
-        });
-
-        proc.on('error', (err: Error) => {
-          childProcesses.delete(proc);
-          resolve(Err({ type: 'CLUSTER_SCORING_FAILED', message: err.message }));
-        });
-      });
-
-      if (!prepareResult.ok) {
-        return Err(prepareResult.error);
-      }
-
-      let scoredClusters = readClusterScoreRows(scoredClustersDir);
-      if (scoredClusters.length !== clusteringResults.clusters.length) {
-        return Err({
-          type: 'CLUSTER_SCORING_FAILED',
-          message: `Expected ${clusteringResults.clusters.length} prepared clusters, found ${scoredClusters.length}`,
-        });
-      }
-
-      for (const cluster of scoredClusters) {
-        if (!cluster.receptorPdbPath || !cluster.ligandSdfPath) {
-          return Err({
-            type: 'CLUSTER_SCORING_FAILED',
-            message: `Cluster ${cluster.clusterId + 1} is missing prepared receptor/ligand files`,
-          });
-        }
-      }
-
-      // --- Step 3: Vina fixed-pose rescoring ---
-      if (options.enableVina) {
-        event.sender.send(IpcChannels.MD_OUTPUT, {
-          type: 'stdout',
-          data: '=== Vina rescoring cluster centroids ===\n',
-        });
-
-        for (let i = 0; i < scoredClusters.length; i++) {
-          const cluster = scoredClusters[i];
-          const vinaResult = await runVinaScoreOnly(
-            cluster.receptorPdbPath!,
-            cluster.ligandSdfPath!,
-            cluster.ligandSdfPath!,
-            {
-              autoboxAdd: 4,
-              cpu: 1,
-              onStdout: (text) => {
-                event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
-              },
-              onStderr: (text) => {
-                event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: text });
-              },
-            },
-          );
-          if (!vinaResult.ok) {
-            return Err({
-              type: 'CLUSTER_SCORING_FAILED',
-              message: `Vina rescoring failed for cluster ${cluster.clusterId + 1}: ${vinaResult.error.message}`,
-            });
-          }
-          cluster.vinaRescore = Math.round(vinaResult.value * 100) / 100;
-          const pct = Math.round(100 * (i + 1) / scoredClusters.length);
-          event.sender.send(IpcChannels.MD_OUTPUT, {
-            type: 'stdout',
-            data: `PROGRESS:scoring_vina:${pct}\n`,
-          });
-        }
-        writeClusterScoreRows(scoredClustersDir, scoredClusters);
-      } else {
-        return Err({
-          type: 'CLUSTER_SCORING_FAILED',
-          message: 'Holo MD rescoring requires Vina, but Vina rescoring is disabled',
-        });
-      }
-
-      // --- Step 3.5: xTB relative energy scoring ---
-      const xtbPath = getQupkakeXtbPath();
-      if (xtbPath) {
-        event.sender.send(IpcChannels.MD_OUTPUT, {
-          type: 'stdout',
-          data: '=== xTB energy scoring cluster centroids ===\n',
-        });
-
-        const xtbScript = path.join(appState.fraggenRoot, 'score_xtb_strain.py');
-        if (fs.existsSync(xtbScript)) {
-          // Collect ligand SDF paths from prepared clusters
-          const ligandSdfs = scoredClusters
-            .filter((c) => c.ligandSdfPath && fs.existsSync(c.ligandSdfPath!))
-            .map((c) => c.ligandSdfPath!);
-
-          if (ligandSdfs.length > 0) {
-            // Write temp ligand list for batch processing
-            const xtbLigandDir = path.join(scoredClustersDir, '_xtb_ligands');
-            fs.mkdirSync(xtbLigandDir, { recursive: true });
-            for (const sdf of ligandSdfs) {
-              const dest = path.join(xtbLigandDir, path.basename(sdf));
-              if (!fs.existsSync(dest)) fs.copyFileSync(sdf, dest);
-            }
-
-            const xtbOutputJson = path.join(scoredClustersDir, 'xtb_energy.json');
-            try {
-              const { stdout, code } = await spawnPythonScript([
-                xtbScript,
-                '--xtb_binary', xtbPath,
-                '--mode', 'batch_energy',
-                '--ligand_dir', xtbLigandDir,
-                '--output_json', xtbOutputJson,
-              ]);
-              if (code === 0 && fs.existsSync(xtbOutputJson)) {
-                const xtbData = JSON.parse(fs.readFileSync(xtbOutputJson, 'utf-8'));
-                for (const cluster of scoredClusters) {
-                  if (!cluster.ligandSdfPath) continue;
-                  const baseName = path.basename(cluster.ligandSdfPath).replace(/\.sdf(\.gz)?$/, '');
-                  const key = `${baseName}_0`;
-                  if (key in xtbData) {
-                    cluster.xtbStrainKcal = xtbData[key];
-                  }
-                }
-                writeClusterScoreRows(scoredClustersDir, scoredClusters);
-                event.sender.send(IpcChannels.MD_OUTPUT, {
-                  type: 'stdout',
-                  data: `xTB energy scoring complete: ${Object.keys(xtbData).length} centroids\nPROGRESS:scoring_xtb:100\n`,
-                });
-              }
-            } catch (e) {
-              event.sender.send(IpcChannels.MD_OUTPUT, {
-                type: 'stderr',
-                data: `xTB scoring warning: ${(e as Error).message}\n`,
-              });
-            }
-            // Clean up temp dir
-            try { fs.rmSync(xtbLigandDir, { recursive: true }); } catch { /* */ }
-          }
-        }
-      }
-
-      // --- Step 4: CORDIAL rescoring ---
-      if (options.enableCordial) {
-        event.sender.send(IpcChannels.MD_OUTPUT, {
-          type: 'stdout',
-          data: '=== CORDIAL rescoring cluster centroids ===\n',
-        });
-
-        const pairCsvPath = path.join(scoredClustersDir, 'pairs.csv');
-        const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
-        const pairCsvRows = [
-          'source_name,ligand_sdf,receptor_pdb,pose_index',
-          ...scoredClusters.map((cluster) => [
-            csvCell(`cluster_${cluster.clusterId}`),
-            csvCell(cluster.ligandSdfPath!),
-            csvCell(cluster.receptorPdbPath!),
-            csvCell('0'),
-          ].join(',')),
-        ];
-        fs.writeFileSync(pairCsvPath, `${pairCsvRows.join('\n')}\n`);
-
-        const cordialResult = await runCordialScoringJob(
-          { pairCsv: pairCsvPath },
-          path.join(scoredClustersDir, 'cordial_scores.csv'),
-          32,
-          {
-            onStdout: (text) => {
-              event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
-            },
-            onStderr: (text) => {
-              event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: text });
-            },
-          },
-        );
-        if (!cordialResult.ok) {
-          return Err({
-            type: 'CORDIAL_FAILED',
-            message: cordialResult.error.message,
-          });
-        }
-
-        event.sender.send(IpcChannels.MD_OUTPUT, {
-          type: 'stdout',
-          data: 'PROGRESS:scoring_cordial:100\n',
-        });
-      } else {
-        return Err({
-          type: 'CORDIAL_FAILED',
-          message: 'Holo MD rescoring requires CORDIAL, but CORDIAL rescoring is disabled',
-        });
-      }
-
-      // --- Step 5: Read and validate all results ---
-      const cordialJsonPath = path.join(scoredClustersDir, 'cordial_scores.json');
-      if (!fs.existsSync(cordialJsonPath)) {
-        return Err({
-          type: 'CORDIAL_FAILED',
-          message: `CORDIAL output JSON not found: ${cordialJsonPath}`,
-        });
-      }
-
-      try {
-        const cordialData = JSON.parse(fs.readFileSync(cordialJsonPath, 'utf-8'));
-        const cordialByName = new Map<string, {
-          expectedPkd: number;
-          pHighAffinity: number;
-          pVeryHighAffinity: number;
-        }>();
-
-        for (const entry of cordialData) {
-          const name = entry.source_name;
-          cordialByName.set(name, {
-            expectedPkd: entry.cordial_expected_pkd,
-            pHighAffinity: entry.cordial_p_high_affinity,
-            pVeryHighAffinity: entry.cordial_p_very_high ?? entry.cordial_p_very_high_affinity ?? 0,
-          });
-        }
-
-        for (const cluster of scoredClusters) {
-          const cordialKey = `cluster_${cluster.clusterId}`;
-          const scores = cordialByName.get(cordialKey);
-          if (!scores) {
-            return Err({
-              type: 'CORDIAL_FAILED',
-              message: `Missing CORDIAL scores for cluster ${cluster.clusterId + 1}`,
-            });
-          }
-          cluster.cordialExpectedPkd = scores.expectedPkd;
-          cluster.cordialPHighAffinity = scores.pHighAffinity;
-          cluster.cordialPVeryHighAffinity = scores.pVeryHighAffinity;
-        }
-      } catch (err) {
-        return Err({
-          type: 'CORDIAL_FAILED',
-          message: `Failed to parse CORDIAL output: ${err}`,
-        });
-      }
-
-      for (const cluster of scoredClusters) {
-        if (
-          !cluster.receptorPdbPath ||
-          !cluster.ligandSdfPath ||
-          cluster.vinaRescore == null ||
-          cluster.cordialExpectedPkd == null ||
-          cluster.cordialPHighAffinity == null ||
-          cluster.cordialPVeryHighAffinity == null
-        ) {
-          return Err({
-            type: 'CLUSTER_SCORING_FAILED',
-            message: `Cluster ${cluster.clusterId + 1} is missing required rescoring fields`,
-          });
-        }
-      }
-
-      writeClusterScoreRows(scoredClustersDir, scoredClusters);
-
-      event.sender.send(IpcChannels.MD_OUTPUT, {
-        type: 'stdout',
-        data: `PROGRESS:scoring:100\n=== Cluster scoring complete ===\n`,
-      });
-
-      return Ok({
-        clusters: mergeClusterScoresWithCanonical(clusteringResults, scoredClusters),
-        outputDir: analysisDir,
-        clusteringResults,
-      });
-    }
-  );
 }

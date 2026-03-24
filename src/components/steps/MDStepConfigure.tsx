@@ -114,6 +114,7 @@ const MDStepConfigure: Component = () => {
     setMdIsBenchmarking(true);
     setMdBenchmarkResult(null);
     setBenchmarkStatus('Initializing...');
+    let benchmarkSucceeded = false;
 
     try {
       // Create temp output dir for benchmark using working directory
@@ -152,6 +153,7 @@ const MDStepConfigure: Component = () => {
         });
         setMdSystemInfo(result.value.systemInfo);
         setLastBenchmarkInputs(currentInputs);
+        benchmarkSucceeded = true;
       } else {
         setBenchmarkStatus(`Error: ${result.error.message}`);
         // Keep status visible for 5 seconds on error
@@ -160,7 +162,9 @@ const MDStepConfigure: Component = () => {
       }
     } finally {
       setMdIsBenchmarking(false);
-      setBenchmarkStatus(null);
+      if (benchmarkSucceeded) {
+        setBenchmarkStatus(null);
+      }
     }
   };
 
@@ -278,7 +282,7 @@ const MDStepConfigure: Component = () => {
                   </button>
                 </Show>
                 <Show when={benchmarkStatus()}>
-                  <p class="text-[10px] text-base-content/60">
+                  <p class="text-[10px] text-base-content/60" data-testid="benchmark-status">
                     {benchmarkStatus()}
                   </p>
                 </Show>
@@ -286,7 +290,7 @@ const MDStepConfigure: Component = () => {
 
               {/* Benchmark Results */}
               <Show when={state().md.benchmarkResult}>
-                <div class="bg-success/10 border border-success rounded-lg p-3 w-full mt-2">
+                <div class="bg-success/10 border border-success rounded-lg p-3 w-full mt-2" data-testid="benchmark-results">
                   <h4 class="font-semibold text-success text-xs mb-2">Benchmark Results</h4>
                   <div class="grid grid-cols-2 gap-2 text-xs">
                     <span class="text-base-content/85">Throughput:</span>

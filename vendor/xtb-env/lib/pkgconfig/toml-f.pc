@@ -1,0 +1,9 @@
+prefix=/Users/controller/Desktop/Ember-MD/vendor/xtb-env
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: toml-f
+Description: A TOML parser implementation for data serialization and deserialization in Fortran
+Version: 0.4.3
+Libs: -L${libdir} -ltoml-f
+Cflags: -I${includedir} -I${includedir}/toml-f/modules

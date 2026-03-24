@@ -3,6 +3,7 @@ import { workflowStore } from '../../stores/workflow';
 import { DEFAULT_RECEPTOR_WATER_DISTANCE, DockMolecule, LigandSource } from '../../../shared/types/dock';
 import { projectPaths, DockingPaths } from '../../utils/projectPaths';
 import { buildDockFolderName } from '../../utils/jobName';
+import ImportInputPanel from '../shared/ImportInputPanel';
 import path from 'path';
 
 const DockStepLoad: Component = () => {
@@ -295,61 +296,43 @@ const DockStepLoad: Component = () => {
               <Show
                 when={receptorPrepared()}
                 fallback={
-                  <div class="flex-1 flex flex-col items-center justify-center text-center">
-                    <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-                      <svg class="w-7 h-7 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                      </svg>
+                  <div class="text-center">
+                    <div class="w-full">
+                      <ImportInputPanel
+                        importButtonLabel="Import (.pdb, .cif)"
+                        onImport={handleLoadReceptor}
+                        importDisabled={isLoading()}
+                        importLoading={isLoading()}
+                        showPdbFetch={true}
+                        pdbIdValue={pdbIdText()}
+                        onPdbIdInput={setPdbIdText}
+                        onFetchPdb={handleFetchPdb}
+                        fetchDisabled={isLoading() || pdbIdText().trim().length !== 4}
+                        fetchLoading={isLoading()}
+                        statusText={!detectedLigands().length || statusText() ? statusText() : null}
+                        beforeInputs={
+                          <Show when={detectedLigands().length > 1}>
+                            <select
+                              class="select select-bordered select-xs w-full"
+                              onChange={(e) => handleSelectReferenceLigand(e.currentTarget.value)}
+                              value={referenceLigandId() || ''}
+                            >
+                              <option value="" disabled>Select reference ligand...</option>
+                              <For each={detectedLigands()}>
+                                {(lig) => (
+                                  <option value={lig.id}>{lig.resname} ({lig.chain}:{lig.resnum}) - {lig.num_atoms} atoms</option>
+                                )}
+                              </For>
+                            </select>
+                          </Show>
+                        }
+                        afterInputs={
+                          <p class="text-[10px] text-base-content/70">
+                            Accepted receptor formats: `.pdb`, `.cif`. Use a bound complex; the bound ligand defines the docking box.
+                          </p>
+                        }
+                      />
                     </div>
-
-                    <Show when={detectedLigands().length > 1}>
-                      <div class="w-full mb-3">
-                        <select
-                          class="select select-bordered select-xs w-full"
-                          onChange={(e) => handleSelectReferenceLigand(e.currentTarget.value)}
-                          value={referenceLigandId() || ''}
-                        >
-                          <option value="" disabled>Select reference ligand...</option>
-                          <For each={detectedLigands()}>
-                            {(lig) => (
-                              <option value={lig.id}>{lig.resname} ({lig.chain}:{lig.resnum}) - {lig.num_atoms} atoms</option>
-                            )}
-                          </For>
-                        </select>
-                      </div>
-                    </Show>
-
-                    <Show when={statusText()}>
-                      <p class="text-[10px] text-base-content/70 mb-2">{statusText()}</p>
-                    </Show>
-
-                    <Show when={!detectedLigands().length || statusText()}>
-                      <button class="btn btn-primary btn-sm w-full" onClick={handleLoadReceptor} disabled={isLoading()}>
-                        {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Select Structure'}
-                      </button>
-
-                      <div class="mt-2">
-                        <span class="text-[10px] text-base-content/50">or enter PDB ID</span>
-                        <div class="flex gap-1 mt-1">
-                          <input
-                            type="text"
-                            class="input input-bordered input-sm flex-1 font-mono uppercase"
-                            placeholder="e.g. 8TCE"
-                            value={pdbIdText()}
-                            onInput={(e) => setPdbIdText(e.currentTarget.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleFetchPdb()}
-                            maxLength={4}
-                          />
-                          <button class="btn btn-primary btn-sm" onClick={handleFetchPdb} disabled={isLoading() || pdbIdText().trim().length !== 4}>
-                            {isLoading() ? <span class="loading loading-spinner loading-xs" /> : 'Fetch'}
-                          </button>
-                        </div>
-                      </div>
-                    </Show>
-
-                    <p class="text-[10px] text-base-content/70 mt-3">
-                      Accepted receptor formats: `.pdb`, `.cif`. Use a bound complex; the bound ligand defines the docking box.
-                    </p>
                   </div>
                 }
               >

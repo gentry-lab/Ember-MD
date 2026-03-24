@@ -638,34 +638,3 @@ def prepare_receptor_with_propka(
     return metadata
 
 
-def protonate_existing_prepared_receptor(
-    topology: Any,
-    positions: Any,
-    protonation_ph: float,
-    prep_metadata: Optional[Dict[str, Any]],
-) -> Tuple[Any, Any, Dict[str, Any]]:
-    resolved_variant_overrides = None
-    if prep_metadata is not None:
-        resolved_variant_overrides = prep_metadata.get("resolved_variants")
-
-    variant_plan = build_variant_plan(
-        topology,
-        positions,
-        protonation_ph,
-        resolved_variant_overrides=resolved_variant_overrides,
-    )
-    protonated_topology, protonated_positions, actual_variants = add_hydrogens_with_variants(
-        topology,
-        positions,
-        protonation_ph,
-        variant_plan["variants"],
-    )
-    metadata = {
-        "receptor_protonation_ph": protonation_ph,
-        "propka_available": bool(prep_metadata and prep_metadata.get("propka_available")),
-        "applied_overrides": variant_plan["applied_overrides"],
-        "ignored_shifted_residues": variant_plan["ignored_shifted_residues"],
-        "resolved_variants": variant_plan["resolved_variants"],
-        "actual_variants": actual_variants,
-    }
-    return protonated_topology, protonated_positions, metadata

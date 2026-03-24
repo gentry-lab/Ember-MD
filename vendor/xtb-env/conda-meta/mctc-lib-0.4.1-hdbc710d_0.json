@@ -1,0 +1,525 @@
+{
+  "name": "mctc-lib",
+  "version": "0.4.1",
+  "build": "hdbc710d_0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/conda-forge/osx-arm64",
+  "subdir": "osx-arm64",
+  "fn": "mctc-lib-0.4.1-hdbc710d_0.conda",
+  "md5": "62791c653beed7341f8e7a19be03f528",
+  "url": "https://conda.anaconda.org/conda-forge/osx-arm64/mctc-lib-0.4.1-hdbc710d_0.conda",
+  "sha256": "f942cc8fc5f9f2ed9cd3ed8381e6dd6adf1f3f512fe186bed814c5557c281a76",
+  "depends": [
+    "__osx >=11.0",
+    "libgfortran >=5",
+    "libgfortran5 >=13.3.0",
+    "llvm-openmp >=18.1.8"
+  ],
+  "constrains": [],
+  "license": "Apache-2.0",
+  "timestamp": 1743726170000,
+  "size": 686533,
+  "requested_spec": "None",
+  "package_tarball_full_path": "/Users/controller/miniconda3/pkgs/mctc-lib-0.4.1-hdbc710d_0.conda",
+  "extracted_package_dir": "/Users/controller/miniconda3/pkgs/mctc-lib-0.4.1-hdbc710d_0",
+  "files": [
+    "bin/mctc-convert",
+    "include/mctc-lib/modules/mctc_cutoff.mod",
+    "include/mctc-lib/modules/mctc_data.mod",
+    "include/mctc-lib/modules/mctc_data_atomicrad.mod",
+    "include/mctc-lib/modules/mctc_data_covrad.mod",
+    "include/mctc-lib/modules/mctc_data_paulingen.mod",
+    "include/mctc-lib/modules/mctc_data_vdwrad.mod",
+    "include/mctc-lib/modules/mctc_env.mod",
+    "include/mctc-lib/modules/mctc_env_accuracy.mod",
+    "include/mctc-lib/modules/mctc_env_error.mod",
+    "include/mctc-lib/modules/mctc_env_system.mod",
+    "include/mctc-lib/modules/mctc_env_testing.mod",
+    "include/mctc-lib/modules/mctc_io.mod",
+    "include/mctc-lib/modules/mctc_io_codata2018.mod",
+    "include/mctc-lib/modules/mctc_io_constants.mod",
+    "include/mctc-lib/modules/mctc_io_convert.mod",
+    "include/mctc-lib/modules/mctc_io_filetype.mod",
+    "include/mctc-lib/modules/mctc_io_math.mod",
+    "include/mctc-lib/modules/mctc_io_read.mod",
+    "include/mctc-lib/modules/mctc_io_read_aims.mod",
+    "include/mctc-lib/modules/mctc_io_read_cjson.mod",
+    "include/mctc-lib/modules/mctc_io_read_ctfile.mod",
+    "include/mctc-lib/modules/mctc_io_read_gaussian.mod",
+    "include/mctc-lib/modules/mctc_io_read_genformat.mod",
+    "include/mctc-lib/modules/mctc_io_read_pdb.mod",
+    "include/mctc-lib/modules/mctc_io_read_qchem.mod",
+    "include/mctc-lib/modules/mctc_io_read_qcschema.mod",
+    "include/mctc-lib/modules/mctc_io_read_turbomole.mod",
+    "include/mctc-lib/modules/mctc_io_read_vasp.mod",
+    "include/mctc-lib/modules/mctc_io_read_xyz.mod",
+    "include/mctc-lib/modules/mctc_io_resize.mod",
+    "include/mctc-lib/modules/mctc_io_structure.mod",
+    "include/mctc-lib/modules/mctc_io_structure_info.mod",
+    "include/mctc-lib/modules/mctc_io_symbols.mod",
+    "include/mctc-lib/modules/mctc_io_utils.mod",
+    "include/mctc-lib/modules/mctc_io_write.mod",
+    "include/mctc-lib/modules/mctc_io_write_aims.mod",
+    "include/mctc-lib/modules/mctc_io_write_cjson.mod",
+    "include/mctc-lib/modules/mctc_io_write_ctfile.mod",
+    "include/mctc-lib/modules/mctc_io_write_gaussian.mod",
+    "include/mctc-lib/modules/mctc_io_write_genformat.mod",
+    "include/mctc-lib/modules/mctc_io_write_pdb.mod",
+    "include/mctc-lib/modules/mctc_io_write_qchem.mod",
+    "include/mctc-lib/modules/mctc_io_write_qcschema.mod",
+    "include/mctc-lib/modules/mctc_io_write_turbomole.mod",
+    "include/mctc-lib/modules/mctc_io_write_vasp.mod",
+    "include/mctc-lib/modules/mctc_io_write_xyz.mod",
+    "include/mctc-lib/modules/mctc_ncoord.mod",
+    "include/mctc-lib/modules/mctc_ncoord_dexp.mod",
+    "include/mctc-lib/modules/mctc_ncoord_erf.mod",
+    "include/mctc-lib/modules/mctc_ncoord_erf_dftd4.mod",
+    "include/mctc-lib/modules/mctc_ncoord_erf_en.mod",
+    "include/mctc-lib/modules/mctc_ncoord_exp.mod",
+    "include/mctc-lib/modules/mctc_ncoord_type.mod",
+    "include/mctc-lib/modules/mctc_version.mod",
+    "lib/libmctc-lib.0.dylib",
+    "lib/libmctc-lib.a",
+    "lib/libmctc-lib.dylib",
+    "lib/pkgconfig/mctc-lib.pc",
+    "share/licenses/mctc-lib/LICENSE",
+    "share/licenses/mctc-lib/jsonfortran/LICENSE"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/mctc-convert",
+        "path_type": "hardlink",
+        "sha256": "349d1cd8fe0b4cf7bba54ab6d9d57f0fb692619816e7bc5f35e3696db7512f7e",
+        "size_in_bytes": 54864,
+        "sha256_in_prefix": "349d1cd8fe0b4cf7bba54ab6d9d57f0fb692619816e7bc5f35e3696db7512f7e"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_cutoff.mod",
+        "path_type": "hardlink",
+        "sha256": "aec8df50ebb0d8d1d4506b9378cd6a2f2ecf78f26bd4cf328d7e00e3ea17fc5a",
+        "size_in_bytes": 1926,
+        "sha256_in_prefix": "aec8df50ebb0d8d1d4506b9378cd6a2f2ecf78f26bd4cf328d7e00e3ea17fc5a"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_data.mod",
+        "path_type": "hardlink",
+        "sha256": "abe93bb8d4511701337f793b9035b6ea356ad2e7bff2bfd0a53d11c8e0538c97",
+        "size_in_bytes": 2202,
+        "sha256_in_prefix": "abe93bb8d4511701337f793b9035b6ea356ad2e7bff2bfd0a53d11c8e0538c97"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_data_atomicrad.mod",
+        "path_type": "hardlink",
+        "sha256": "d8b023fbae773a759f488557ff9ff0067257d98d1a3b1bb4696bed59d1d7df51",
+        "size_in_bytes": 2811,
+        "sha256_in_prefix": "d8b023fbae773a759f488557ff9ff0067257d98d1a3b1bb4696bed59d1d7df51"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_data_covrad.mod",
+        "path_type": "hardlink",
+        "sha256": "74053e098bde76f5a536176ebe7a349a60327b42dbbf7d86f1ef7e336bdb171c",
+        "size_in_bytes": 1749,
+        "sha256_in_prefix": "74053e098bde76f5a536176ebe7a349a60327b42dbbf7d86f1ef7e336bdb171c"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_data_paulingen.mod",
+        "path_type": "hardlink",
+        "sha256": "570d0688b04b044b9d6185f1a891c47ecb488aa79e11a02712362fc9e770aaef",
+        "size_in_bytes": 1916,
+        "sha256_in_prefix": "570d0688b04b044b9d6185f1a891c47ecb488aa79e11a02712362fc9e770aaef"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_data_vdwrad.mod",
+        "path_type": "hardlink",
+        "sha256": "8b16251835687ad4e02e4ea6b0ffd19f9cf8c9a55db354320556e03486f9b711",
+        "size_in_bytes": 1858,
+        "sha256_in_prefix": "8b16251835687ad4e02e4ea6b0ffd19f9cf8c9a55db354320556e03486f9b711"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_env.mod",
+        "path_type": "hardlink",
+        "sha256": "720a82f20c3b2d9f74ecca12a5d25d0a973395ae8a95e92720bcf9c11bc5059e",
+        "size_in_bytes": 1784,
+        "sha256_in_prefix": "720a82f20c3b2d9f74ecca12a5d25d0a973395ae8a95e92720bcf9c11bc5059e"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_env_accuracy.mod",
+        "path_type": "hardlink",
+        "sha256": "83292c8dce75e0cb46ec399c5c4d1d5492192ba4589a53b51db508af11e9bc82",
+        "size_in_bytes": 425,
+        "sha256_in_prefix": "83292c8dce75e0cb46ec399c5c4d1d5492192ba4589a53b51db508af11e9bc82"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_env_error.mod",
+        "path_type": "hardlink",
+        "sha256": "858be96e360caee7511407a5c35249b14fc9b72ba69af0270803a07072fe0d53",
+        "size_in_bytes": 1449,
+        "sha256_in_prefix": "858be96e360caee7511407a5c35249b14fc9b72ba69af0270803a07072fe0d53"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_env_system.mod",
+        "path_type": "hardlink",
+        "sha256": "faacc3c224add9a37c921b8a62bb02335475d8da7dfe4449fc946a60218ed1a7",
+        "size_in_bytes": 452,
+        "sha256_in_prefix": "faacc3c224add9a37c921b8a62bb02335475d8da7dfe4449fc946a60218ed1a7"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_env_testing.mod",
+        "path_type": "hardlink",
+        "sha256": "d058b5ff98a7b045ac5377e9328975a02df7b24bbac3bcab63157bd570269520",
+        "size_in_bytes": 3515,
+        "sha256_in_prefix": "d058b5ff98a7b045ac5377e9328975a02df7b24bbac3bcab63157bd570269520"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io.mod",
+        "path_type": "hardlink",
+        "sha256": "cccb9e7b41b83485a3f90e6c574ef18f38f6cac2157392f37efb5a2c2ea41b36",
+        "size_in_bytes": 23658,
+        "sha256_in_prefix": "cccb9e7b41b83485a3f90e6c574ef18f38f6cac2157392f37efb5a2c2ea41b36"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_codata2018.mod",
+        "path_type": "hardlink",
+        "sha256": "2a11347126177433dbcc0b86bc5fb80236fdf11d3a6cefd7140820b73a039c02",
+        "size_in_bytes": 12376,
+        "sha256_in_prefix": "2a11347126177433dbcc0b86bc5fb80236fdf11d3a6cefd7140820b73a039c02"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_constants.mod",
+        "path_type": "hardlink",
+        "sha256": "c3546a56006060b81480ef24ff9bbbca7acb35ae3b0b18e86abd5abc745bff3a",
+        "size_in_bytes": 1737,
+        "sha256_in_prefix": "c3546a56006060b81480ef24ff9bbbca7acb35ae3b0b18e86abd5abc745bff3a"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_convert.mod",
+        "path_type": "hardlink",
+        "sha256": "7f3b4244bd4fa20d15640b7cd6b4bde0a3cdeda8e51b573a9fc5f9fea5944279",
+        "size_in_bytes": 2188,
+        "sha256_in_prefix": "7f3b4244bd4fa20d15640b7cd6b4bde0a3cdeda8e51b573a9fc5f9fea5944279"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_filetype.mod",
+        "path_type": "hardlink",
+        "sha256": "ee46c746384fd686fa90cdd1bb66ed1d54ca2fc847c676db3ae38f93c0023fd6",
+        "size_in_bytes": 1996,
+        "sha256_in_prefix": "ee46c746384fd686fa90cdd1bb66ed1d54ca2fc847c676db3ae38f93c0023fd6"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_math.mod",
+        "path_type": "hardlink",
+        "sha256": "ad2a166af4a73a8985df831fb8d1ff0402e5ceb921751cd01ad2ae1c7c47ae70",
+        "size_in_bytes": 2006,
+        "sha256_in_prefix": "ad2a166af4a73a8985df831fb8d1ff0402e5ceb921751cd01ad2ae1c7c47ae70"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read.mod",
+        "path_type": "hardlink",
+        "sha256": "28b1813d0936e1a039536bd689ec38da42052e3a6c7a53ce4c64959cbf3e720a",
+        "size_in_bytes": 22661,
+        "sha256_in_prefix": "28b1813d0936e1a039536bd689ec38da42052e3a6c7a53ce4c64959cbf3e720a"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_aims.mod",
+        "path_type": "hardlink",
+        "sha256": "bd26bef6dd3c90757157ea544ba0a22ccb91e9e9f111a864a58742540459a0a0",
+        "size_in_bytes": 3518,
+        "sha256_in_prefix": "bd26bef6dd3c90757157ea544ba0a22ccb91e9e9f111a864a58742540459a0a0"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_cjson.mod",
+        "path_type": "hardlink",
+        "sha256": "ac646c1e8679c036df7734289046eb600859e7cd0a97ae3c0d4373f32082c3c1",
+        "size_in_bytes": 22049,
+        "sha256_in_prefix": "ac646c1e8679c036df7734289046eb600859e7cd0a97ae3c0d4373f32082c3c1"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_ctfile.mod",
+        "path_type": "hardlink",
+        "sha256": "5e46f010b5978d1ae372314cd0373648a3a3d1cd6891975ca959ef323d1a0522",
+        "size_in_bytes": 3569,
+        "sha256_in_prefix": "5e46f010b5978d1ae372314cd0373648a3a3d1cd6891975ca959ef323d1a0522"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_gaussian.mod",
+        "path_type": "hardlink",
+        "sha256": "ed49e4226d19c0cd8a23b2967cfbd3d1f314c1ae5cb424fb8d91afc882ec9f7e",
+        "size_in_bytes": 3189,
+        "sha256_in_prefix": "ed49e4226d19c0cd8a23b2967cfbd3d1f314c1ae5cb424fb8d91afc882ec9f7e"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_genformat.mod",
+        "path_type": "hardlink",
+        "sha256": "c48c423ab0b7c1fe7cc5129c557c99bab9018fa9761493d281c35e21788b3d54",
+        "size_in_bytes": 3521,
+        "sha256_in_prefix": "c48c423ab0b7c1fe7cc5129c557c99bab9018fa9761493d281c35e21788b3d54"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_pdb.mod",
+        "path_type": "hardlink",
+        "sha256": "c3a5209eaa9edd436094374f6fa940c38c32b93d40f6703d4f0ededb70882a84",
+        "size_in_bytes": 3517,
+        "sha256_in_prefix": "c3a5209eaa9edd436094374f6fa940c38c32b93d40f6703d4f0ededb70882a84"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_qchem.mod",
+        "path_type": "hardlink",
+        "sha256": "d2dce108b0fd5cb12ed88c981d162e99fbaffa3d5c055034687d6ede69403de5",
+        "size_in_bytes": 3520,
+        "sha256_in_prefix": "d2dce108b0fd5cb12ed88c981d162e99fbaffa3d5c055034687d6ede69403de5"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_qcschema.mod",
+        "path_type": "hardlink",
+        "sha256": "c68ee4126768159dd0dd07b94fecc4727cba78a2935342f96bad1f6950ac9394",
+        "size_in_bytes": 21662,
+        "sha256_in_prefix": "c68ee4126768159dd0dd07b94fecc4727cba78a2935342f96bad1f6950ac9394"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_turbomole.mod",
+        "path_type": "hardlink",
+        "sha256": "d8bc236aff95b551f9a0aa3556ae0b61d87f30e135a3b48ca7ab2269133bef7a",
+        "size_in_bytes": 3525,
+        "sha256_in_prefix": "d8bc236aff95b551f9a0aa3556ae0b61d87f30e135a3b48ca7ab2269133bef7a"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_vasp.mod",
+        "path_type": "hardlink",
+        "sha256": "ec399243aa35f3b656740295bf56e4a9b746f4f18f16be1688a07a1b0d2f4abc",
+        "size_in_bytes": 3518,
+        "sha256_in_prefix": "ec399243aa35f3b656740295bf56e4a9b746f4f18f16be1688a07a1b0d2f4abc"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_read_xyz.mod",
+        "path_type": "hardlink",
+        "sha256": "b72705dbde034d38a9921ff9642e7fa0c3e294a37a923260abc0867418780a41",
+        "size_in_bytes": 3517,
+        "sha256_in_prefix": "b72705dbde034d38a9921ff9642e7fa0c3e294a37a923260abc0867418780a41"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_resize.mod",
+        "path_type": "hardlink",
+        "sha256": "61d455a155439a5e1e58d764eec2d2024c7e3609ae88a69b0f62a9947a6efd84",
+        "size_in_bytes": 536,
+        "sha256_in_prefix": "61d455a155439a5e1e58d764eec2d2024c7e3609ae88a69b0f62a9947a6efd84"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_structure.mod",
+        "path_type": "hardlink",
+        "sha256": "f63761ba175de4590aca30ba62e42c92450173bdde0edf69963a69586dd420c1",
+        "size_in_bytes": 2961,
+        "sha256_in_prefix": "f63761ba175de4590aca30ba62e42c92450173bdde0edf69963a69586dd420c1"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_structure_info.mod",
+        "path_type": "hardlink",
+        "sha256": "a37c3d1881f45ee821e8e5b49031c1b44322717bbd912db4370b0989c094edcb",
+        "size_in_bytes": 1854,
+        "sha256_in_prefix": "a37c3d1881f45ee821e8e5b49031c1b44322717bbd912db4370b0989c094edcb"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_symbols.mod",
+        "path_type": "hardlink",
+        "sha256": "f8369282dcb6bec0b7815fd821e7a8d57133011fb1c5d8b77e3714e3a3602596",
+        "size_in_bytes": 898,
+        "sha256_in_prefix": "f8369282dcb6bec0b7815fd821e7a8d57133011fb1c5d8b77e3714e3a3602596"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_utils.mod",
+        "path_type": "hardlink",
+        "sha256": "917bd0fcbc043a592524c7e0b625da6721cc1b5dd671c6104e971ce2124b33d0",
+        "size_in_bytes": 2732,
+        "sha256_in_prefix": "917bd0fcbc043a592524c7e0b625da6721cc1b5dd671c6104e971ce2124b33d0"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write.mod",
+        "path_type": "hardlink",
+        "sha256": "d0ed9256668d8ca9b41ac98bb5c7dc2c61232b2d360a6643900cc751b161e720",
+        "size_in_bytes": 4033,
+        "sha256_in_prefix": "d0ed9256668d8ca9b41ac98bb5c7dc2c61232b2d360a6643900cc751b161e720"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_aims.mod",
+        "path_type": "hardlink",
+        "sha256": "316de5e78789c470ea04277f2aae134cca06fadcf79f30c8bebc4547be251c77",
+        "size_in_bytes": 3374,
+        "sha256_in_prefix": "316de5e78789c470ea04277f2aae134cca06fadcf79f30c8bebc4547be251c77"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_cjson.mod",
+        "path_type": "hardlink",
+        "sha256": "d00caa10a2b30427a6cefee5cfdd0b4424f7371bc9152d9fb22534f3dc4e35f2",
+        "size_in_bytes": 3291,
+        "sha256_in_prefix": "d00caa10a2b30427a6cefee5cfdd0b4424f7371bc9152d9fb22534f3dc4e35f2"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_ctfile.mod",
+        "path_type": "hardlink",
+        "sha256": "86f1224796f4b999a4b2393be7e27975e6dcd8c855dee66b1b9f602b3754c11a",
+        "size_in_bytes": 3491,
+        "sha256_in_prefix": "86f1224796f4b999a4b2393be7e27975e6dcd8c855dee66b1b9f602b3754c11a"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_gaussian.mod",
+        "path_type": "hardlink",
+        "sha256": "73eb50138b79ae78388a687f3aa7cecc1c11230161b97a5f89d52c24296d0dec",
+        "size_in_bytes": 2389,
+        "sha256_in_prefix": "73eb50138b79ae78388a687f3aa7cecc1c11230161b97a5f89d52c24296d0dec"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_genformat.mod",
+        "path_type": "hardlink",
+        "sha256": "1e6584e283e4141ba9c18809afce02f85ec20dee25927cedccfd27f227b2c870",
+        "size_in_bytes": 3382,
+        "sha256_in_prefix": "1e6584e283e4141ba9c18809afce02f85ec20dee25927cedccfd27f227b2c870"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_pdb.mod",
+        "path_type": "hardlink",
+        "sha256": "0d2446d6d24ab1e4be1deaef3af34ac5f8e6f6fa01255975dfef51bd8c001f09",
+        "size_in_bytes": 3315,
+        "sha256_in_prefix": "0d2446d6d24ab1e4be1deaef3af34ac5f8e6f6fa01255975dfef51bd8c001f09"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_qchem.mod",
+        "path_type": "hardlink",
+        "sha256": "2da8f7ba558190d144b599f49436c19e97bdcc973851185fa37abcd797cf4cd2",
+        "size_in_bytes": 3375,
+        "sha256_in_prefix": "2da8f7ba558190d144b599f49436c19e97bdcc973851185fa37abcd797cf4cd2"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_qcschema.mod",
+        "path_type": "hardlink",
+        "sha256": "69128f51606b74e3f97f8d281ccdd68822dc83b9502df548eed8935695e96d01",
+        "size_in_bytes": 2381,
+        "sha256_in_prefix": "69128f51606b74e3f97f8d281ccdd68822dc83b9502df548eed8935695e96d01"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_turbomole.mod",
+        "path_type": "hardlink",
+        "sha256": "4cdb8d30a2441ddfc8d58f57d4345abc63e4bc10281bd358baa4b125b3242336",
+        "size_in_bytes": 3387,
+        "sha256_in_prefix": "4cdb8d30a2441ddfc8d58f57d4345abc63e4bc10281bd358baa4b125b3242336"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_vasp.mod",
+        "path_type": "hardlink",
+        "sha256": "4536b010ec1ee62d4563533917a5557a4c082482a49b0f88f5c1a52a49aaceb8",
+        "size_in_bytes": 3410,
+        "sha256_in_prefix": "4536b010ec1ee62d4563533917a5557a4c082482a49b0f88f5c1a52a49aaceb8"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_io_write_xyz.mod",
+        "path_type": "hardlink",
+        "sha256": "e7fe81327cce251b0109bcee5964ccd89289a1baf5c7fec5c966ad9c11b0660b",
+        "size_in_bytes": 3409,
+        "sha256_in_prefix": "e7fe81327cce251b0109bcee5964ccd89289a1baf5c7fec5c966ad9c11b0660b"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_ncoord.mod",
+        "path_type": "hardlink",
+        "sha256": "e0f655e103d653f6bcc41d86385e289dc1c1c4afb3bc55cf711ea1e2ea8a046d",
+        "size_in_bytes": 27335,
+        "sha256_in_prefix": "e0f655e103d653f6bcc41d86385e289dc1c1c4afb3bc55cf711ea1e2ea8a046d"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_ncoord_dexp.mod",
+        "path_type": "hardlink",
+        "sha256": "6b8fd8dd7af3328be248c436d3f9d5a3b384fe6ba9e45600354ca266991d7948",
+        "size_in_bytes": 24636,
+        "sha256_in_prefix": "6b8fd8dd7af3328be248c436d3f9d5a3b384fe6ba9e45600354ca266991d7948"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_ncoord_erf.mod",
+        "path_type": "hardlink",
+        "sha256": "22b89ffb6c786105ab45c5817cec9c535129db6b521752606134f2ffc4a66e57",
+        "size_in_bytes": 24694,
+        "sha256_in_prefix": "22b89ffb6c786105ab45c5817cec9c535129db6b521752606134f2ffc4a66e57"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_ncoord_erf_dftd4.mod",
+        "path_type": "hardlink",
+        "sha256": "fe68e3661bd5a4ec2ae8308f0dc21d95d128a5c51f20ed594125f5b90f12f733",
+        "size_in_bytes": 25329,
+        "sha256_in_prefix": "fe68e3661bd5a4ec2ae8308f0dc21d95d128a5c51f20ed594125f5b90f12f733"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_ncoord_erf_en.mod",
+        "path_type": "hardlink",
+        "sha256": "e3ec45b2fbc4823e8d1a0a67101a779c8126d8ceebc2d4e95bacf8ef5e69e0dc",
+        "size_in_bytes": 25259,
+        "sha256_in_prefix": "e3ec45b2fbc4823e8d1a0a67101a779c8126d8ceebc2d4e95bacf8ef5e69e0dc"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_ncoord_exp.mod",
+        "path_type": "hardlink",
+        "sha256": "5a61a593f77c93707995bd3017ca19182321609b1f7b41e135fb9bd63141abb9",
+        "size_in_bytes": 24614,
+        "sha256_in_prefix": "5a61a593f77c93707995bd3017ca19182321609b1f7b41e135fb9bd63141abb9"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_ncoord_type.mod",
+        "path_type": "hardlink",
+        "sha256": "2487272853b4d3b733ea286e7dbfaedc2af3a3cc73869695b74638825d72c1bb",
+        "size_in_bytes": 23670,
+        "sha256_in_prefix": "2487272853b4d3b733ea286e7dbfaedc2af3a3cc73869695b74638825d72c1bb"
+      },
+      {
+        "_path": "include/mctc-lib/modules/mctc_version.mod",
+        "path_type": "hardlink",
+        "sha256": "3fef1c594ce2458cad6ebb2f82049a297a8d176b363921c8e81d24f7d24f8d88",
+        "size_in_bytes": 625,
+        "sha256_in_prefix": "3fef1c594ce2458cad6ebb2f82049a297a8d176b363921c8e81d24f7d24f8d88"
+      },
+      {
+        "_path": "lib/libmctc-lib.0.dylib",
+        "path_type": "hardlink",
+        "sha256": "11010bb50ec4e475c0c1a5edc5ae407e44fcecbe5192638f7c44ab52966d338a",
+        "size_in_bytes": 545040,
+        "sha256_in_prefix": "11010bb50ec4e475c0c1a5edc5ae407e44fcecbe5192638f7c44ab52966d338a"
+      },
+      {
+        "_path": "lib/libmctc-lib.a",
+        "path_type": "hardlink",
+        "sha256": "4cac5ded17c787c90432697e0a4f63706b115707851d9ef266cbd7e8a041da60",
+        "size_in_bytes": 745256,
+        "sha256_in_prefix": "4cac5ded17c787c90432697e0a4f63706b115707851d9ef266cbd7e8a041da60"
+      },
+      {
+        "_path": "lib/libmctc-lib.dylib",
+        "path_type": "softlink",
+        "sha256": "11010bb50ec4e475c0c1a5edc5ae407e44fcecbe5192638f7c44ab52966d338a",
+        "size_in_bytes": 545040
+      },
+      {
+        "_path": "lib/pkgconfig/mctc-lib.pc",
+        "prefix_placeholder": "/Users/runner/miniforge3/conda-bld/mctc-lib_1743725972338/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "d7135b1bb65bcdc272a07f4a27e23c469838bb5aeab1b04f49438ea7fdb411b0",
+        "size_in_bytes": 474,
+        "sha256_in_prefix": "0aee1e3a03e81b0a1aabfb1be596a03a649b9337ccafbd7a4b3e4723aa0e8d4f"
+      },
+      {
+        "_path": "share/licenses/mctc-lib/LICENSE",
+        "path_type": "hardlink",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "size_in_bytes": 11358,
+        "sha256_in_prefix": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      {
+        "_path": "share/licenses/mctc-lib/jsonfortran/LICENSE",
+        "path_type": "hardlink",
+        "sha256": "93ea4d9f66cf7f4598292a8f4e3f9797f10465bd37fc4d49d07c6c03c2f63d88",
+        "size_in_bytes": 2849,
+        "sha256_in_prefix": "93ea4d9f66cf7f4598292a8f4e3f9797f10465bd37fc4d49d07c6c03c2f63d88"
+      }
+    ]
+  },
+  "link": {
+    "source": "/Users/controller/miniconda3/pkgs/mctc-lib-0.4.1-hdbc710d_0",
+    "type": 1
+  }
+}

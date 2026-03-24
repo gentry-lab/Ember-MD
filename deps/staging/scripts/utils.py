@@ -411,6 +411,88 @@ def load_sdf(path: str, remove_hs: bool = False) -> Any:
     return suppl[0] if len(suppl) > 0 else None
 
 
+def add_gbsa_obc2_force(
+    system: Any,
+    topology: Any,
+    *,
+    rdmol: Any = None,
+) -> None:
+    """Add a GBSA-OBC2 implicit solvent force to an OpenMM system.
+
+    Uses mbondi3 Born radii and OBC2 screening factors. Extracts charges
+    from the existing NonbondedForce. Works for both ligand-only systems
+    (pass rdmol for H-N radius lookup) and protein-ligand complexes
+    (uses topology bonds when rdmol is None).
+
+    Args:
+        system: OpenMM System with a NonbondedForce already present.
+        topology: OpenMM Topology for the system.
+        rdmol: Optional RDKit Mol for H-N neighbor lookup (ligand-only).
+               If None, uses topology bonds instead.
+    """
+    import openmm
+    import openmm.unit as unit
+
+    RADII_NM = {
+        'H': 0.12, 'C': 0.17, 'N': 0.155, 'O': 0.15, 'F': 0.15,
+        'S': 0.18, 'P': 0.185, 'Cl': 0.17, 'Br': 0.185, 'I': 0.198,
+        'Na': 0.102, 'K': 0.138, 'Mg': 0.072, 'Ca': 0.10, 'Zn': 0.074,
+        'Fe': 0.064, 'Mn': 0.067,
+    }
+    SCREEN = {
+        'H': 0.85, 'C': 0.72, 'N': 0.79, 'O': 0.85, 'F': 0.88,
+        'S': 0.96, 'P': 0.86, 'Cl': 0.80, 'Br': 0.80, 'I': 0.80,
+        'Na': 0.80, 'K': 0.80, 'Mg': 0.80, 'Ca': 0.80, 'Zn': 0.80,
+        'Fe': 0.80, 'Mn': 0.80,
+    }
+
+    nb_force = None
+    for force in system.getForces():
+        if isinstance(force, openmm.NonbondedForce):
+            nb_force = force
+            break
+    if nb_force is None:
+        return
+
+    # Build bond neighbor map from topology for H-N detection
+    bonds = list(topology.bonds())
+    h_bonded_to_n: set = set()
+    for a1, a2 in bonds:
+        sym1 = a1.element.symbol if a1.element else ''
+        sym2 = a2.element.symbol if a2.element else ''
+        if sym1 == 'H' and sym2 == 'N':
+            h_bonded_to_n.add(a1.index)
+        elif sym2 == 'H' and sym1 == 'N':
+            h_bonded_to_n.add(a2.index)
+
+    # If rdmol provided, also check RDKit neighbors (more reliable for ligand-only)
+    if rdmol is not None:
+        for i in range(rdmol.GetNumAtoms()):
+            atom = rdmol.GetAtomWithIdx(i)
+            if atom.GetSymbol() == 'H':
+                for nbr in atom.GetNeighbors():
+                    if nbr.GetSymbol() == 'N':
+                        h_bonded_to_n.add(i)
+                        break
+
+    gbsa = openmm.GBSAOBCForce()
+    gbsa.setSolventDielectric(78.5)
+    gbsa.setSoluteDielectric(1.0)
+    gbsa.setNonbondedMethod(openmm.GBSAOBCForce.NoCutoff)
+
+    for idx, atom in enumerate(topology.atoms()):
+        charge, _sigma, _epsilon = nb_force.getParticleParameters(idx)
+        q = charge.value_in_unit(unit.elementary_charge)
+        symbol = atom.element.symbol if atom.element else 'C'
+        radius = RADII_NM.get(symbol, 0.15)
+        screen = SCREEN.get(symbol, 0.80)
+        if symbol == 'H' and idx in h_bonded_to_n:
+            radius = 0.13
+        gbsa.addParticle(q, radius, screen)
+
+    system.addForce(gbsa)
+
+
 def calculate_sa_score(mol: Any, default: float = 3.0) -> float:
     """Calculate synthetic accessibility score using RDKit's SA_Score contrib.
 

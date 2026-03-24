@@ -215,6 +215,7 @@ export const IpcChannels = {
   EXPORT_TRAJECTORY_FRAME: 'export-trajectory-frame',
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
+  RUN_XRAY_ANALYSIS: 'xray:run-analysis',
   SCORE_MD_CLUSTERS: 'md:score-clusters',
   LOAD_MD_TORSION_ANALYSIS: 'md:load-torsion-analysis',
   SCORE_COMPLEX: 'score-complex',
@@ -233,6 +234,7 @@ export const IpcChannels = {
   SCAN_PROJECTS: 'scan-projects',
   SCAN_RUN_FILES: 'scan-run-files',
   IMPORT_STRUCTURE: 'import-structure',
+  FETCH_PDB: 'fetch-pdb',
   RENAME_PROJECT: 'rename-project',
   DELETE_PROJECT: 'delete-project',
   GET_PROJECT_FILE_COUNT: 'get-project-file-count',
@@ -249,6 +251,7 @@ export const IpcChannels = {
   DOCK_OUTPUT: 'dock:output',
   MD_OUTPUT: 'md:output',
   CONFORM_OUTPUT: 'conform:output',
+  XRAY_OUTPUT: 'xray:output',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
@@ -370,6 +373,12 @@ export interface AnalysisResult {
   plotPath: string;
   csvPath?: string;
   data: RmsdAnalysisResult | RmsfAnalysisResult | HbondAnalysisResult;
+}
+
+export interface XrayAnalysisResult {
+  inputDir: string;
+  outputDir: string;
+  pdfPaths: string[];
 }
 
 export interface MdReportOptions {
@@ -548,6 +557,9 @@ export interface ProjectJob {
   poses?: ProjectJobPose[];
   ligandPath?: string;
   poseIndex?: number;
+  preparedLigandPath?: string;
+  referenceLigandPath?: string;
+  holoPdb?: string;
 
   // Simulation-specific
   systemPdb?: string;
@@ -645,15 +657,101 @@ export interface LigandPkaResult {
   entries: LigandPkaEntry[];
 }
 
+export type QupkakeFailureStage =
+  | 'runtime_setup'
+  | 'xtb_execution'
+  | 'xtb_parse'
+  | 'feature_generation'
+  | 'dataset_build'
+  | 'site_inference'
+  | 'pair_dataset_generation'
+  | 'pka_inference'
+  | 'no_sites'
+  | 'prediction_failed';
+
+export interface QupkakeRuntimeFingerprint {
+  pythonPath?: string;
+  pythonVersion?: string;
+  rdkitVersion?: string;
+  qupkakeVersion?: string;
+  runtimeProbeOk?: boolean;
+  runtimeProbeModuleErrors?: Record<string, string>;
+  xtbPath?: string;
+  xtbVersion?: string;
+  fukuiCompatibilityMode?: string;
+  fukuiCompatibilitySource?: string;
+  qupkakeRoot?: string;
+}
+
+export interface QupkakeRuntimeProbe {
+  ok: boolean;
+  returnCode?: number;
+  signal?: string;
+  message?: string;
+  failureStage?: QupkakeFailureStage;
+  pythonVersion?: string;
+  moduleVersions?: Record<string, string | null>;
+  moduleErrors?: Record<string, string>;
+  xtbVersion?: string;
+  xtbRawVersion?: string;
+  fukuiCompatibilityMode?: string;
+  fukuiCompatibilitySource?: string;
+  rawStdout?: string;
+  rawStderr?: string;
+}
+
+export interface QupkakeValidationControlResult {
+  name: string;
+  required: boolean;
+  smiles?: string;
+  expectedTypeCounts?: Record<string, number>;
+  forbiddenTypes?: string[];
+  observedTypeCounts?: Record<string, number>;
+  entries?: LigandPkaEntry[];
+  entryCount: number;
+  passed: boolean;
+  reasons?: string[];
+  failureStage?: QupkakeFailureStage;
+}
+
+export interface QupkakeValidationReport {
+  controls: QupkakeValidationControlResult[];
+  requiredControlNames: string[];
+  informationalControlNames: string[];
+  validated: boolean;
+  summary?: string;
+  overallFailureStage?: QupkakeFailureStage;
+  runtimeFingerprint?: QupkakeRuntimeFingerprint;
+}
+
+export interface QupkakeValidationCase {
+  name: string;
+  inputPath?: string;
+  smiles?: string;
+  outputCreated: boolean;
+  entryCount: number;
+  entries?: LigandPkaEntry[];
+  runtimeMs?: number;
+  returnCode?: number;
+  rawStdout?: string;
+  rawStderr?: string;
+  failureStage?: QupkakeFailureStage;
+}
+
 export interface QupkakeCapabilityResult {
   available: boolean;
   validated: boolean;
   warning?: string;
   message?: string;
+  failureStage?: QupkakeFailureStage;
   pythonPath?: string;
   xtbPath?: string;
   qupkakeRoot?: string;
   validationLigand?: string;
+  runtimeFingerprint?: QupkakeRuntimeFingerprint;
+  runtimeProbe?: QupkakeRuntimeProbe;
+  validationCase?: QupkakeValidationCase;
+  validationReport?: QupkakeValidationReport;
 }
 
 // === FEP scoring types ===

@@ -1,7 +1,11 @@
 #!/bin/bash
 set -e
 
-# Bundle OpenSBDD for macOS as a self-contained .dmg
+# Bundle OpenSBDD for macOS as a self-contained .dmg.
+# Source of truth:
+# - QupKake source lives in vendor/QupKake
+# - xTB source runtime lives in vendor/xtb-env (preferred)
+# - bundle-mac/ is a disposable build artifact and must not be used as a dev source tree
 # Usage: bash scripts/bundle-mac.sh
 #   or:  npm run dist:mac
 
@@ -211,8 +215,8 @@ if command -v create-dmg &>/dev/null && [ -f "$BG_FILE" ]; then
     --icon "${PRODUCT}.app" 180 180 \
     --hide-extension "${PRODUCT}.app" \
     --app-drop-link 480 180 \
-    --skip-jenkins \
     --no-internet-enable \
+    --skip-jenkins \
     "$DMG_FILE" \
     "$PROJECT_DIR/dist/mac-arm64/${PRODUCT}.app" || {
       echo "  Styled DMG failed, falling back to plain DMG..."

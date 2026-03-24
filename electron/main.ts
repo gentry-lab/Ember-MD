@@ -43,6 +43,7 @@ import * as ipcProjects from './ipc/projects';
 import * as ipcViewer from './ipc/viewer';
 import * as ipcMaps from './ipc/maps';
 import * as ipcFep from './ipc/fep';
+import * as ipcXray from './ipc/xray';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -102,6 +103,7 @@ app.on('ready', () => {
   ipcViewer.register();
   ipcMaps.register();
   ipcFep.register();
+  ipcXray.register();
 });
 
 app.on('window-all-closed', () => {

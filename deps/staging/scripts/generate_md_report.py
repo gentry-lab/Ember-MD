@@ -284,6 +284,7 @@ def main() -> None:
     parser.add_argument('--trajectory', required=True, help='Trajectory file (DCD)')
     parser.add_argument('--output_dir', required=True, help='Output directory')
     parser.add_argument('--ligand_selection', default=None, help='Ligand selection string')
+    parser.add_argument('--ligand_sdf', default=None, help='Canonical ligand template SDF')
     parser.add_argument('--sim_info', default=None, help='JSON string with simulation metadata')
     args = parser.parse_args()
 
@@ -408,8 +409,11 @@ def main() -> None:
     print("PROGRESS:analyze_torsions:72")
     torsions_dir = os.path.join(args.output_dir, 'torsions')
     os.makedirs(torsions_dir, exist_ok=True)
+    torsion_args = common_args + ['--output_dir', torsions_dir] + lig_args
+    if args.ligand_sdf:
+        torsion_args += ['--ligand_sdf', args.ligand_sdf]
     if run_analysis(python_exe, script_dir, 'analyze_torsions.py',
-                    common_args + ['--output_dir', torsions_dir] + lig_args,
+                    torsion_args,
                     'Torsion Analysis'):
         pdf_path = os.path.join(torsions_dir, 'torsions.pdf')
         if os.path.exists(pdf_path):
@@ -419,21 +423,38 @@ def main() -> None:
     print("PROGRESS:clustering:84")
     clustering_dir = os.path.join(args.output_dir, 'clustering')
     os.makedirs(clustering_dir, exist_ok=True)
-    cluster_args = [
-        '--topology', args.topology,
-        '--trajectory', args.trajectory,
-        '--output_dir', clustering_dir,
-        '--n_clusters', '5',
-        '--method', 'kmeans',
-        '--strip_waters',
-    ]
-    # Use ligand RMSD for protein-ligand, backbone for ligand-only
-    if args.ligand_selection:
-        cluster_args += ['--selection', 'ligand']
+    clustering_results_path = os.path.join(clustering_dir, 'clustering_results.json')
+    if os.path.exists(clustering_results_path):
+        print(f"Reusing existing clustering: {clustering_results_path}")
     else:
-        cluster_args += ['--selection', 'ligand']
-    run_analysis(python_exe, script_dir, 'cluster_trajectory.py',
-                 cluster_args, 'Clustering')
+        cluster_args = [
+            '--topology', args.topology,
+            '--trajectory', args.trajectory,
+            '--output_dir', clustering_dir,
+            '--n_clusters', '10',
+            '--method', 'kmeans',
+            '--selection', 'ligand',
+            '--strip_waters',
+        ]
+        run_analysis(python_exe, script_dir, 'cluster_trajectory.py',
+                     cluster_args, 'Clustering')
+
+    if args.ligand_sdf and os.path.exists(clustering_results_path):
+        cluster_torsion_args = [
+            '--torsions_json', os.path.join(torsions_dir, 'torsions_results.json'),
+            '--clustering_dir', clustering_dir,
+            '--ligand_sdf', args.ligand_sdf,
+        ]
+        scored_clusters_dir = os.path.join(args.output_dir, 'scored_clusters')
+        if os.path.exists(scored_clusters_dir):
+            cluster_torsion_args += ['--scored_clusters_dir', scored_clusters_dir]
+        run_analysis(
+            python_exe,
+            script_dir,
+            'analyze_cluster_torsions.py',
+            cluster_torsion_args,
+            'Cluster Torsion Analysis',
+        )
 
     # ── 9. Compile PDF ──
     print("PROGRESS:compile_pdf:92")

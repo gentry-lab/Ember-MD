@@ -1,48 +1,16 @@
 #!/usr/bin/env python
-"""
-Generate 2D structure thumbnail from SDF file.
-Outputs base64-encoded PNG data URL to stdout.
-"""
+"""Generate a 2D structure thumbnail from SDF using shared depiction helpers."""
 import argparse
-import base64
-import io
 import sys
 
-from rdkit import Chem
-from rdkit.Chem import Draw
+from ligand_torsion_utils import load_canonical_ligand_mol, render_png_data_url
 
 
 def generate_thumbnail(sdf_path, size=300):
     """Generate a 2D thumbnail image from an SDF file."""
     try:
-        # Handle gzipped SDF files
-        if sdf_path.endswith('.gz'):
-            import gzip
-            with gzip.open(sdf_path, 'rb') as f:
-                suppl = Chem.ForwardSDMolSupplier(f, sanitize=True)
-                mol = next(suppl, None)
-        else:
-            suppl = Chem.SDMolSupplier(sdf_path, sanitize=True)
-            mol = next(iter(suppl))
-        if mol is None:
-            return None
-
-        # Always compute clean 2D coordinates for proper layout
-        # This ensures no overlapping atoms regardless of 3D conformer state
-        from rdkit.Chem import AllChem
-        AllChem.Compute2DCoords(mol)
-
-        # Draw molecule
-        img = Draw.MolToImage(mol, size=(size, size))
-
-        # Convert to base64 PNG
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG')
-        buffer.seek(0)
-
-        b64_data = base64.b64encode(buffer.read()).decode('utf-8')
-        return f"data:image/png;base64,{b64_data}"
-
+        mol = load_canonical_ligand_mol(sdf_path)
+        return render_png_data_url(mol, size=size)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return None

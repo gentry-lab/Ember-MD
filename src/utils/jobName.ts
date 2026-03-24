@@ -120,6 +120,11 @@ export function sanitizeConformOutputName(name: string): string {
   return sanitizeForFilesystem(name, 40);
 }
 
+export function buildXrayRunFolderName(inputFolderName: string): string {
+  const descriptor = sanitizeForFilesystem(inputFolderName, 40) || 'xray';
+  return `${descriptor}_xray_pose`;
+}
+
 /**
  * Estimate AM1-BCC charge computation time from ligand atom count
  */

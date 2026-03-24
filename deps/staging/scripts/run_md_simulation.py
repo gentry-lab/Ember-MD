@@ -25,6 +25,7 @@ at 300K causes pressure instability.
 
 import argparse
 import builtins
+import functools
 import json
 import os
 import re
@@ -34,6 +35,7 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from prepare_receptor import ensure_pdb_format, prepare_receptor
+from utils import load_sdf
 
 try:
     from openmm import *
@@ -232,7 +234,36 @@ def _patch_forcefield_for_chain_breaks(ff: Any) -> None:
     """
     original_createSystem = ff.createSystem
 
-    def _patched_createSystem(topology, **kwargs):
+    @functools.wraps(original_createSystem)
+    def _patched_createSystem(
+        topology,
+        nonbondedMethod=NoCutoff,
+        nonbondedCutoff=1.0*nanometers,
+        constraints=None,
+        rigidWater=None,
+        removeCMMotion=True,
+        hydrogenMass=None,
+        residueTemplates=None,
+        ignoreExternalBonds=False,
+        switchDistance=None,
+        flexibleConstraints=False,
+        drudeMass=0.4*amu,
+        **args,
+    ):
+        kwargs = dict(
+            nonbondedMethod=nonbondedMethod,
+            nonbondedCutoff=nonbondedCutoff,
+            constraints=constraints,
+            rigidWater=rigidWater,
+            removeCMMotion=removeCMMotion,
+            hydrogenMass=hydrogenMass,
+            residueTemplates={} if residueTemplates is None else dict(residueTemplates),
+            ignoreExternalBonds=ignoreExternalBonds,
+            switchDistance=switchDistance,
+            flexibleConstraints=flexibleConstraints,
+            drudeMass=drudeMass,
+            **args,
+        )
         try:
             return original_createSystem(topology, **kwargs)
         except Exception:
@@ -243,7 +274,7 @@ def _patch_forcefield_for_chain_breaks(ff: Any) -> None:
                 if res.name in ('CYS', 'CYX', 'CYM'):
                     atom_names = {a.name for a in res.atoms()}
                     cys_templates[res] = 'CYS' if 'HG' in atom_names else 'CYX'
-            rt = kwargs.pop('residueTemplates', {})
+            rt = dict(kwargs.pop('residueTemplates', {}))
             rt.update(cys_templates)
             return original_createSystem(
                 topology, ignoreExternalBonds=True, residueTemplates=rt, **kwargs
@@ -379,20 +410,11 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
 
     # 1. Load ligand
     print(f'[{time.time()-t_start:.1f}s] Loading ligand SDF...', file=sys.stderr)
-
-    if ligand_sdf.endswith('.gz'):
-        import gzip
-        with gzip.open(ligand_sdf, 'rt') as f:
-            sdf_content = f.read()
-        mol = Chem.MolFromMolBlock(sdf_content, removeHs=False)
-    else:
-        supplier = Chem.SDMolSupplier(ligand_sdf, removeHs=False)
-        mol = supplier[0]
-
+    mol = load_sdf(ligand_sdf)
     if mol is None:
         raise ValueError(f"Failed to load ligand from {ligand_sdf}")
 
-    ligand = Molecule.from_rdkit(mol)
+    ligand = Molecule.from_rdkit(mol, allow_undefined_stereo=True)
     n_atoms = mol.GetNumAtoms()
     print('PROGRESS:building:20', flush=True)
 
@@ -483,6 +505,88 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
     return system, modeller, ff, job_name
 
 
+def build_apo_system(receptor_pdb: str, output_dir: str, force_field_preset: str = 'ff19sb-opc',
+                     temperature_k: float = 300, salt_concentration_m: float = 0.15, padding_nm: float = 1.2,
+                     project_name: Optional[str] = None) -> Tuple[Any, Any, Any, str]:
+    """Build solvated apo (protein-only) system — no ligand.
+
+    Returns system, modeller, force field, and job_name.
+    """
+    print('PROGRESS:building:0', flush=True)
+
+    receptor_pdb = ensure_pdb_format(receptor_pdb)
+    job_name = project_name if project_name else ''
+
+    # 1. Load and prepare receptor
+    print('Loading and fixing receptor PDB...', file=sys.stderr)
+    prepared_topology, prepared_positions, prep_report = _prepare_receptor_topology(receptor_pdb)
+
+    preset = PRESETS[force_field_preset]
+    print('  Running protein-only topology preflight...', file=sys.stderr)
+    _preflight_receptor_topology(prepared_topology, prepared_positions, preset)
+    print('PROGRESS:building:30', flush=True)
+
+    modeller = Modeller(prepared_topology, prepared_positions)
+
+    # 2. Setup force field (protein + water, no ligand FF needed)
+    water_model = preset['water_model']
+    water_label = preset['water_label']
+    print(f'Setting up force fields ({", ".join(preset["protein_ff"])} + {water_label})...', file=sys.stderr)
+    ff = ForceField(*preset['protein_ff'], *preset['water_ff'])
+    _patch_forcefield_for_chain_breaks(ff)
+    print('PROGRESS:building:50', flush=True)
+
+    # 3. Add extra particles (OPC virtual sites) and solvent
+    try:
+        modeller.addExtraParticles(ff)
+    except Exception:
+        print('  Warning: addExtraParticles failed — skipping', file=sys.stderr)
+
+    print(f'Adding solvent ({water_label} water, dodecahedron, {salt_concentration_m*1000:.0f} mM NaCl)...', file=sys.stderr)
+    modeller.addSolvent(
+        ff,
+        model=water_model,
+        boxShape='dodecahedron',
+        padding=padding_nm*nanometers,
+        ionicStrength=salt_concentration_m*molar,
+        positiveIon='Na+',
+        negativeIon='Cl-',
+        neutralize=True
+    )
+    print('PROGRESS:building:80', flush=True)
+
+    # 4. Save solvated system
+    system_pdb = os.path.join(output_dir, _prefixed(job_name, 'system.pdb'))
+    with open(system_pdb, 'w') as f:
+        PDBFile.writeFile(modeller.topology, modeller.positions, f)
+
+    box_vectors = modeller.topology.getPeriodicBoxVectors()
+    a, b, c = box_vectors[0], box_vectors[1], box_vectors[2]
+    cross = Vec3(b[1]*c[2] - b[2]*c[1], b[2]*c[0] - b[0]*c[2], b[0]*c[1] - b[1]*c[0])
+    volume_nm3 = abs(a[0]*cross[0] + a[1]*cross[1] + a[2]*cross[2]) / (nanometers**3)
+    volume_A3 = volume_nm3 * 1000
+    atom_count = modeller.topology.getNumAtoms()
+
+    print(f'SYSTEM_INFO:{atom_count}:{volume_A3:.0f}', flush=True)
+    print('PROGRESS:building:90', flush=True)
+
+    # 5. Create system with HMR
+    print('Creating OpenMM system with HMR...', file=sys.stderr)
+    system = ff.createSystem(
+        modeller.topology,
+        nonbondedMethod=PME,
+        nonbondedCutoff=1.0*nanometers,
+        ewaldErrorTolerance=0.0005,
+        constraints=HBonds,
+        hydrogenMass=1.5*amu
+    )
+
+    print('PROGRESS:building:100', flush=True)
+    print(f'System built: {atom_count} atoms, {volume_A3:.0f} A^3 (apo)', file=sys.stderr)
+
+    return system, modeller, ff, job_name
+
+
 def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_field_preset: str = 'ff19sb-opc',
                  temperature_k: float = 300, salt_concentration_m: float = 0.15, padding_nm: float = 1.2,
                  project_name: Optional[str] = None) -> Tuple[Any, Any, Any, str]:
@@ -562,21 +666,12 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
     # 2. Load ligand from SDF for parameterization, but use PDB coordinates for positioning
     print('Loading ligand SDF...', file=sys.stderr)
 
-    # Handle gzipped SDF files
-    if ligand_sdf.endswith('.gz'):
-        import gzip
-        with gzip.open(ligand_sdf, 'rt') as f:
-            sdf_content = f.read()
-        mol = Chem.MolFromMolBlock(sdf_content, removeHs=False)
-    else:
-        supplier = Chem.SDMolSupplier(ligand_sdf, removeHs=False)
-        mol = supplier[0]
-
+    mol = load_sdf(ligand_sdf)
     if mol is None:
         raise ValueError(f"Failed to load ligand from {ligand_sdf}")
 
     # Create OpenFF molecule for parameterization
-    ligand = Molecule.from_rdkit(mol)
+    ligand = Molecule.from_rdkit(mol, allow_undefined_stereo=True)
     n_atoms = mol.GetNumAtoms()
     print('PROGRESS:building:30', flush=True)
 
@@ -640,7 +735,7 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
                 print(f'  Applied translation: [{translation[0]:.1f}, {translation[1]:.1f}, {translation[2]:.1f}] A', file=sys.stderr)
 
                 # Recreate OpenFF molecule with corrected coordinates
-                ligand = Molecule.from_rdkit(mol)
+                ligand = Molecule.from_rdkit(mol, allow_undefined_stereo=True)
 
                 # Verify
                 new_com = np.mean([[sdf_conf.GetAtomPosition(i).x,
@@ -1260,7 +1355,7 @@ def run_benchmark(system: Any, modeller: Any, output_dir: str, temperature_k: fl
 def main() -> None:
     parser = argparse.ArgumentParser(description='OpenMM MD simulation for FragGen')
     parser.add_argument('--receptor', help='Receptor PDB file (not required for ligand-only mode)')
-    parser.add_argument('--ligand', required=True, help='Ligand SDF file')
+    parser.add_argument('--ligand', help='Ligand SDF file (not required for apo mode)')
     parser.add_argument('--output_dir', required=True, help='Output directory')
     parser.add_argument('--production_ns', type=float, default=10, help='Production duration in ns')
     parser.add_argument('--force_field_preset',
@@ -1269,6 +1364,8 @@ def main() -> None:
                         help='Force field preset (default: ff19sb-opc)')
     parser.add_argument('--ligand_only', action='store_true',
                         help='Ligand-only mode (no protein, small molecule in solvent)')
+    parser.add_argument('--apo', action='store_true',
+                        help='Apo mode (protein-only, no ligand)')
     parser.add_argument('--benchmark_only', action='store_true', help='Only run benchmark')
     parser.add_argument('--temperature', type=float, default=300, help='Production temperature in K (default: 300)')
     parser.add_argument('--salt_concentration', type=float, default=0.15, help='Salt concentration in M (default: 0.15)')
@@ -1284,8 +1381,10 @@ def main() -> None:
     # Map legacy preset names
     args.force_field_preset = _PRESET_ALIASES.get(args.force_field_preset, args.force_field_preset)
 
-    if not args.ligand_only and not args.receptor:
-        parser.error('--receptor is required unless --ligand_only is specified')
+    if not args.ligand_only and not args.apo and not args.receptor:
+        parser.error('--receptor is required unless --ligand_only or --apo is specified')
+    if not args.apo and not args.ligand:
+        parser.error('--ligand is required unless --apo is specified')
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -1319,7 +1418,14 @@ def main() -> None:
 
     sys.stderr = TeeStderr(sys.stderr, log_file)
 
-    if args.ligand_only:
+    if args.apo:
+        print(f'Building apo system (preset: {args.force_field_preset}, {args.temperature}K, {args.salt_concentration*1000:.0f}mM)...', file=sys.stderr)
+        system, modeller, ff, job_name = build_apo_system(
+            args.receptor, args.output_dir, args.force_field_preset,
+            args.temperature, args.salt_concentration, args.padding,
+            project_name=args.project_name
+        )
+    elif args.ligand_only:
         print(f'Building ligand-only system (preset: {args.force_field_preset}, {args.temperature}K, {args.salt_concentration*1000:.0f}mM)...', file=sys.stderr)
         system, modeller, ff, job_name = build_ligand_only_system(
             args.ligand, args.output_dir, args.force_field_preset,

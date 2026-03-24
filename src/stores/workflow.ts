@@ -35,6 +35,7 @@ export type WorkflowMode = 'dock' | 'md' | 'score' | 'viewer' | 'map' | 'conform
 export type DockStep = 'dock-load' | 'dock-configure' | 'dock-progress' | 'dock-results';
 export type MDStep = 'md-home' | 'md-load' | 'md-configure' | 'md-progress' | 'md-results';
 export type ConformStep = 'conform-load' | 'conform-configure' | 'conform-progress' | 'conform-results';
+export type ScoreStep = 'score-load' | 'score-progress' | 'score-results';
 export type MapStep = 'map-load' | 'map-configure' | 'map-progress' | 'map-results';
 
 // Map mode types — mirrors PocketMapMethod in shared/types/ipc.ts
@@ -43,6 +44,7 @@ import type {
   PocketMapMethod,
   ScoredClusterResult,
   MdTorsionAnalysis,
+  XrayAnalysisResult,
 } from '../../shared/types/ipc';
 export type MapMethod = PocketMapMethod;
 
@@ -126,6 +128,60 @@ export interface ViewerLayerGroup {
   visible: boolean;
 }
 
+export type ViewerProjectJobType = 'import' | 'docking' | 'conformer' | 'simulation';
+export type ViewerProjectRowKind =
+  | 'apo'
+  | 'holo'
+  | 'ligand'
+  | 'prepared-ligand'
+  | 'pose'
+  | 'input'
+  | 'conformer'
+  | 'initial-complex'
+  | 'cluster';
+export type ViewerProjectSortDirection = 'asc' | 'desc';
+
+export interface ViewerProjectColumn {
+  key: string;
+  label: string;
+  kind?: 'text' | 'number' | 'percent';
+  priority: number;
+  minPanelWidth?: number;
+}
+
+export interface ViewerProjectRow {
+  id: string;
+  familyId: string;
+  label: string;
+  rowKind: ViewerProjectRowKind;
+  jobType: ViewerProjectJobType;
+  item: ViewerQueueItem;
+  loadKind: 'structure' | 'standalone-ligand' | 'queue';
+  queueIndex?: number;
+  metrics: Record<string, string | number | null | undefined>;
+  trajectoryPath?: string | null;
+  pocketLigandPath?: string | null;
+  pocketSourcePdbPath?: string | null;
+}
+
+export interface ViewerProjectFamily {
+  id: string;
+  title: string;
+  jobType: ViewerProjectJobType;
+  collapsed: boolean;
+  rowIds: string[];
+  columns: ViewerProjectColumn[];
+  sortKey?: string | null;
+  sortDirection?: ViewerProjectSortDirection;
+  trajectoryPath?: string | null;
+}
+
+export interface ViewerProjectTableState {
+  families: ViewerProjectFamily[];
+  rows: ViewerProjectRow[];
+  activeRowId: string | null;
+}
+
 export interface BindingSiteMapChannel {
   visible: boolean;
   isolevel: number;
@@ -191,6 +247,7 @@ export interface ViewerState {
   layers: ViewerLayer[];
   layerGroups: ViewerLayerGroup[];
   selectedLayerId: string | null;
+  projectTable: ViewerProjectTableState | null;
 }
 
 interface OpenViewerSessionOptions {
@@ -201,6 +258,7 @@ interface OpenViewerSessionOptions {
   pdbQueue?: ViewerQueueItem[];
   pdbQueueIndex?: number;
   bindingSiteMap?: BindingSiteMapState | null;
+  projectTable?: ViewerProjectTableState | null;
 }
 
 export interface MapState {
@@ -223,10 +281,19 @@ export interface ConformState {
   ligandSdfPath: string | null;
   ligandName: string | null;
   outputName: string;
+  protonationConfig: ProtonationConfig;
   config: ConformerConfig;
   outputDir: string | null;
   conformerPaths: string[];
   conformerEnergies: Record<string, number>;
+  isRunning: boolean;
+}
+
+export interface ScoreState {
+  inputDir: string | null;
+  outputDir: string | null;
+  pdfPaths: string[];
+  lastResult: XrayAnalysisResult | null;
   isRunning: boolean;
 }
 
@@ -294,6 +361,7 @@ export interface WorkflowState {
   dockStep: DockStep;
   mdStep: MDStep;
   conformStep: ConformStep;
+  scoreStep: ScoreStep;
   pdbFile: PdbFile | null;
   customOutputDir: string | null;
   jobName: string;
@@ -307,6 +375,7 @@ export interface WorkflowState {
   viewer: ViewerState;
   map: MapState;
   conform: ConformState;
+  score: ScoreState;
 }
 
 const defaultDockState: DockState = {
@@ -379,10 +448,19 @@ const defaultConformState: ConformState = {
   ligandSdfPath: null,
   ligandName: null,
   outputName: '',
+  protonationConfig: { ...DEFAULT_PROTONATION_CONFIG },
   config: { ...DEFAULT_CONFORMER_CONFIG },
   outputDir: null,
   conformerPaths: [],
   conformerEnergies: {},
+  isRunning: false,
+};
+
+const defaultScoreState: ScoreState = {
+  inputDir: null,
+  outputDir: null,
+  pdfPaths: [],
+  lastResult: null,
   isRunning: false,
 };
 
@@ -435,6 +513,7 @@ const defaultViewerState: ViewerState = {
   layers: [],
   layerGroups: [],
   selectedLayerId: null,
+  projectTable: null,
 };
 
 function createWorkflowStore() {
@@ -447,6 +526,7 @@ function createWorkflowStore() {
     dockStep: 'dock-load',
     mdStep: 'md-load',
     conformStep: 'conform-load',
+    scoreStep: 'score-load',
     pdbFile: null,
     customOutputDir: null,
     jobName: initialJobName,
@@ -460,6 +540,7 @@ function createWorkflowStore() {
     viewer: { ...defaultViewerState },
     map: { ...defaultMapState },
     conform: { ...defaultConformState },
+    score: { ...defaultScoreState },
   });
 
   // Mode selection
@@ -481,6 +562,11 @@ function createWorkflowStore() {
   const setConformStep = (conformStep: ConformStep) => {
     console.log(`[Store] setConformStep: ${state().conformStep} → ${conformStep}`);
     setState((s) => ({ ...s, conformStep }));
+  };
+
+  const setScoreStep = (scoreStep: ScoreStep) => {
+    console.log(`[Store] setScoreStep: ${state().scoreStep} → ${scoreStep}`);
+    setState((s) => ({ ...s, scoreStep }));
   };
 
   const setPdbFile = (pdbFile: PdbFile | null) =>
@@ -678,6 +764,9 @@ function createWorkflowStore() {
   const setViewerPdbQueueIndex = (pdbQueueIndex: number) =>
     setState((s) => {
       const item = s.viewer.pdbQueue[pdbQueueIndex];
+      const activeProjectRowId = s.viewer.projectTable?.rows.find((row) => row.queueIndex === pdbQueueIndex)?.id
+        ?? s.viewer.projectTable?.activeRowId
+        ?? null;
       return {
         ...s,
         viewer: {
@@ -685,6 +774,9 @@ function createWorkflowStore() {
           pdbQueueIndex,
           pdbPath: item?.pdbPath || s.viewer.pdbPath,
           ligandPath: item?.ligandPath ?? s.viewer.ligandPath,
+          projectTable: s.viewer.projectTable
+            ? { ...s.viewer.projectTable, activeRowId: activeProjectRowId }
+            : null,
         },
       };
     });
@@ -852,6 +944,54 @@ function createWorkflowStore() {
   const setViewerLayerSelected = (id: string | null) =>
     setState((s) => ({ ...s, viewer: { ...s.viewer, selectedLayerId: id } }));
 
+  const setViewerProjectTable = (projectTable: ViewerProjectTableState | null) =>
+    setState((s) => ({ ...s, viewer: { ...s.viewer, projectTable } }));
+
+  const setViewerProjectActiveRow = (id: string | null) =>
+    setState((s) => ({
+      ...s,
+      viewer: {
+        ...s.viewer,
+        projectTable: s.viewer.projectTable ? { ...s.viewer.projectTable, activeRowId: id } : null,
+      },
+    }));
+
+  const toggleViewerProjectFamilyCollapsed = (familyId: string) =>
+    setState((s) => ({
+      ...s,
+      viewer: {
+        ...s.viewer,
+        projectTable: s.viewer.projectTable
+          ? {
+              ...s.viewer.projectTable,
+              families: s.viewer.projectTable.families.map((family) =>
+                family.id === familyId ? { ...family, collapsed: !family.collapsed } : family
+              ),
+            }
+          : null,
+      },
+    }));
+
+  const setViewerProjectFamilySort = (
+    familyId: string,
+    sortKey: string | null,
+    sortDirection: ViewerProjectSortDirection
+  ) =>
+    setState((s) => ({
+      ...s,
+      viewer: {
+        ...s.viewer,
+        projectTable: s.viewer.projectTable
+          ? {
+              ...s.viewer.projectTable,
+              families: s.viewer.projectTable.families.map((family) =>
+                family.id === familyId ? { ...family, sortKey, sortDirection } : family
+              ),
+            }
+          : null,
+      },
+    }));
+
   const addViewerLayerGroup = (group: ViewerLayerGroup) =>
     setState((s) => ({
       ...s,
@@ -966,6 +1106,9 @@ function createWorkflowStore() {
   const setConformOutputName = (outputName: string) =>
     setState((s) => ({ ...s, conform: { ...s.conform, outputName } }));
 
+  const setConformProtonationConfig = (protonationConfig: Partial<ProtonationConfig>) =>
+    setState((s) => ({ ...s, conform: { ...s.conform, protonationConfig: { ...s.conform.protonationConfig, ...protonationConfig } } }));
+
   const setConformConfig = (config: Partial<ConformerConfig>) =>
     setState((s) => ({ ...s, conform: { ...s.conform, config: { ...s.conform.config, ...config } } }));
 
@@ -980,6 +1123,21 @@ function createWorkflowStore() {
 
   const setConformRunning = (isRunning: boolean) =>
     setState((s) => ({ ...s, conform: { ...s.conform, isRunning } }));
+
+  const setScoreInputDir = (inputDir: string | null) =>
+    setState((s) => ({ ...s, score: { ...s.score, inputDir } }));
+
+  const setScoreOutputDir = (outputDir: string | null) =>
+    setState((s) => ({ ...s, score: { ...s.score, outputDir } }));
+
+  const setScorePdfPaths = (pdfPaths: string[]) =>
+    setState((s) => ({ ...s, score: { ...s.score, pdfPaths } }));
+
+  const setScoreLastResult = (lastResult: XrayAnalysisResult | null) =>
+    setState((s) => ({ ...s, score: { ...s.score, lastResult } }));
+
+  const setScoreRunning = (isRunning: boolean) =>
+    setState((s) => ({ ...s, score: { ...s.score, isRunning } }));
 
   const clearViewerSession = () =>
     setState((s) => ({
@@ -1008,6 +1166,7 @@ function createWorkflowStore() {
           trajectoryPath: options.trajectoryPath ?? null,
           trajectoryInfo: options.trajectoryInfo ?? null,
           bindingSiteMap: options.bindingSiteMap ?? null,
+          projectTable: options.projectTable ?? null,
         },
       };
     });
@@ -1020,6 +1179,17 @@ function createWorkflowStore() {
       logs: '',
       errorMessage: null,
       conform: { ...defaultConformState },
+    }));
+
+  const resetScore = () =>
+    setState((s) => ({
+      ...s,
+      scoreStep: 'score-load' as ScoreStep,
+      currentPhase: 'idle',
+      logs: '',
+      errorMessage: null,
+      isRunning: false,
+      score: { ...defaultScoreState },
     }));
 
   const resetViewer = () => {
@@ -1049,6 +1219,7 @@ function createWorkflowStore() {
       dockStep: 'dock-load' as DockStep,
       mdStep: 'md-home',
       conformStep: 'conform-load' as ConformStep,
+      scoreStep: 'score-load' as ScoreStep,
       pdbFile: null,
       customOutputDir: null,
       jobName: '',
@@ -1062,6 +1233,7 @@ function createWorkflowStore() {
       viewer: { ...defaultViewerState },
       map: { ...defaultMapState },
       conform: { ...defaultConformState },
+      score: { ...defaultScoreState },
     }));
 
   return {
@@ -1072,6 +1244,7 @@ function createWorkflowStore() {
     setDockStep,
     setMdStep,
     setConformStep,
+    setScoreStep,
     setPdbFile,
     setCustomOutputDir,
     setJobName,
@@ -1174,10 +1347,14 @@ function createWorkflowStore() {
     removeViewerLayer,
     updateViewerLayer,
     setViewerLayerSelected,
+    setViewerProjectTable,
+    setViewerProjectActiveRow,
     addViewerLayerGroup,
     removeViewerLayerGroup,
     toggleViewerLayerGroupExpanded,
     toggleViewerLayerGroupVisible,
+    toggleViewerProjectFamilyCollapsed,
+    setViewerProjectFamilySort,
     clearViewerLayers,
     // Map state
     setMapMethod,
@@ -1196,12 +1373,20 @@ function createWorkflowStore() {
     setConformLigandSdf,
     setConformLigandName,
     setConformOutputName,
+    setConformProtonationConfig,
     setConformConfig,
     setConformOutputDir,
     setConformPaths,
     setConformEnergies,
     setConformRunning,
+    // Score state
+    setScoreInputDir,
+    setScoreOutputDir,
+    setScorePdfPaths,
+    setScoreLastResult,
+    setScoreRunning,
     resetConform,
+    resetScore,
     clearViewerSession,
     openViewerSession,
     // Utilities

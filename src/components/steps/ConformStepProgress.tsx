@@ -53,6 +53,28 @@ const ConformStepProgress: Component = () => {
     try {
       await api.createDirectory(outputDir);
 
+      let ligandPath = conform.ligandSdfPath;
+
+      if (conform.protonationConfig.enabled) {
+        appendLog('--- Enumerating protonation states... ---\n');
+        const protonDir = `${outputDir}/protonated`;
+        const protonResult = await api.enumerateProtonation(
+          [ligandPath],
+          protonDir,
+          conform.protonationConfig.phMin,
+          conform.protonationConfig.phMax
+        );
+
+        if (!protonResult.ok) {
+          setError(protonResult.error.message);
+          setCurrentPhase('error');
+          return;
+        }
+
+        ligandPath = protonResult.value.protonatedPaths[0];
+        appendLog(`  ${protonResult.value.protonatedPaths.length} protonation variants generated\n\n`);
+      }
+
       const mcmmOpts = conform.config.method === 'mcmm' ? {
         steps: conform.config.mcmmSteps,
         temperature: conform.config.mcmmTemperature,
@@ -60,7 +82,7 @@ const ConformStepProgress: Component = () => {
       } : undefined;
 
       const result = await api.runConformGeneration(
-        conform.ligandSdfPath,
+        ligandPath,
         outputDir,
         conform.config.maxConformers,
         conform.config.rmsdCutoff,

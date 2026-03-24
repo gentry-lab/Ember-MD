@@ -1,6 +1,6 @@
 import { Component, Show, For, createSignal, createMemo, createEffect, onMount, onCleanup, batch } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { buildDockingViewerQueue } from '../../utils/viewerQueue';
+import { buildDockingProjectTable, buildDockingViewerQueue } from '../../utils/viewerQueue';
 import path from 'path';
 
 type SortField = 'ligandName' | 'vinaAffinity' | 'xtbEnergyKcal' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity' | 'qed' | 'coreRmsd';
@@ -183,10 +183,11 @@ const DockStepResults: Component = () => {
     const pose = selectedPose();
     if (!pose) return;
     const receptor = receptorPdb();
+    const viewerReceptor = state().dock.receptorPrepared || receptor;
 
     const allResults = sortedResults();
     const queue = buildDockingViewerQueue(
-      receptor,
+      viewerReceptor,
       allResults.map((r) => ({
         name: r.ligandName,
         path: r.outputSdf,
@@ -195,11 +196,23 @@ const DockStepResults: Component = () => {
     );
 
     const selIdx = selectedIndex();
+    const projectTable = buildDockingProjectTable({
+      familyId: `dock:${state().jobName || 'current'}`,
+      title: outputDir()?.split('/').pop() || 'Docking job',
+      receptorPdb: viewerReceptor,
+      holoPdb: state().dock.receptorPdbPath,
+      preparedLigandPath: state().dock.cachedConformerPaths[0] || state().dock.ligandSdfPaths[0] || null,
+      referenceLigandPath: state().dock.referenceLigandPath,
+      poses: allResults,
+      poseQueue: queue,
+      selectedQueueIndex: selIdx !== null && selIdx >= 0 ? selIdx : 0,
+    });
     openViewerSession({
-      pdbPath: receptor,
+      pdbPath: viewerReceptor,
       ligandPath: pose.outputSdf,
       pdbQueue: queue,
       pdbQueueIndex: selIdx !== null && selIdx >= 0 ? selIdx : 0,
+      projectTable,
     });
   };
 

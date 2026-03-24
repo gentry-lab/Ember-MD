@@ -1,0 +1,307 @@
+{
+  "name": "dftd4",
+  "version": "3.7.0",
+  "build": "hb3fdf34_4",
+  "build_number": 4,
+  "channel": "https://conda.anaconda.org/conda-forge/osx-arm64",
+  "subdir": "osx-arm64",
+  "fn": "dftd4-3.7.0-hb3fdf34_4.conda",
+  "md5": "e7e9063f48c0834850c49824153e3c44",
+  "url": "https://conda.anaconda.org/conda-forge/osx-arm64/dftd4-3.7.0-hb3fdf34_4.conda",
+  "sha256": "2004a633a4cd43e4d6e6bf04d51cdeb3891dbcab6957b9ef18a4cca816a342dc",
+  "depends": [
+    "__osx >=11.0",
+    "libblas >=3.9.0,<4.0a0",
+    "libgfortran >=5",
+    "libgfortran5 >=13.3.0",
+    "libgfortran5 >=14.2.0",
+    "liblapack >=3.9.0,<4.0a0",
+    "llvm-openmp >=18.1.8",
+    "llvm-openmp >=20.1.2",
+    "mctc-lib >=0.4.1,<0.5.0a0",
+    "multicharge >=0.3.0,<0.4.0a0"
+  ],
+  "constrains": [],
+  "license": "LGPL-3.0-or-later",
+  "timestamp": 1743767421000,
+  "size": 580945,
+  "requested_spec": "None",
+  "package_tarball_full_path": "/Users/controller/miniconda3/pkgs/dftd4-3.7.0-hb3fdf34_4.conda",
+  "extracted_package_dir": "/Users/controller/miniconda3/pkgs/dftd4-3.7.0-hb3fdf34_4",
+  "files": [
+    "bin/dftd4",
+    "include/dftd4.h",
+    "include/dftd4/gcc-13.3.0/dftd4.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_api.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_blas.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_charge.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_cutoff.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_damping.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_damping_atm.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_damping_rational.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_data.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_data_covrad.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_data_en.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_data_hardness.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_data_r4r2.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_data_zeff.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_disp.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_model.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_ncoord.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_numdiff.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_output.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_param.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_reference.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_utils.mod",
+    "include/dftd4/gcc-13.3.0/dftd4_version.mod",
+    "lib/libdftd4.3.dylib",
+    "lib/libdftd4.a",
+    "lib/libdftd4.dylib",
+    "lib/pkgconfig/dftd4.pc",
+    "share/dftd4/parameters.toml",
+    "share/licenses/dftd4/COPYING",
+    "share/licenses/dftd4/COPYING.LESSER",
+    "share/man/man1/dftd4.1"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/dftd4",
+        "path_type": "hardlink",
+        "sha256": "bc6ca62d1bbca6b12fe0d61ae6e4b057ce01d9f63ef7190269d66e9590eee974",
+        "size_in_bytes": 93536,
+        "sha256_in_prefix": "bc6ca62d1bbca6b12fe0d61ae6e4b057ce01d9f63ef7190269d66e9590eee974"
+      },
+      {
+        "_path": "include/dftd4.h",
+        "path_type": "hardlink",
+        "sha256": "b27f9b5f50254cae243c017b4af5a076dffce383a36c65bdd5b0ab22b043745b",
+        "size_in_bytes": 6965,
+        "sha256_in_prefix": "b27f9b5f50254cae243c017b4af5a076dffce383a36c65bdd5b0ab22b043745b"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4.mod",
+        "path_type": "hardlink",
+        "sha256": "77302ddc19ee5698a087903761ecf76f2abeb04c8b2808c4fa37510e9a995997",
+        "size_in_bytes": 29739,
+        "sha256_in_prefix": "77302ddc19ee5698a087903761ecf76f2abeb04c8b2808c4fa37510e9a995997"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_api.mod",
+        "path_type": "hardlink",
+        "sha256": "a50ea0d98b1ab5b11a3ed651182dd1e6380f99d38bb95a3525535688e17d0b39",
+        "size_in_bytes": 31063,
+        "sha256_in_prefix": "a50ea0d98b1ab5b11a3ed651182dd1e6380f99d38bb95a3525535688e17d0b39"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_blas.mod",
+        "path_type": "hardlink",
+        "sha256": "25adf78dc47cd3aec989a0ca5471bfd2916677458c84fc277344ef17e3626f0e",
+        "size_in_bytes": 2225,
+        "sha256_in_prefix": "25adf78dc47cd3aec989a0ca5471bfd2916677458c84fc277344ef17e3626f0e"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_charge.mod",
+        "path_type": "hardlink",
+        "sha256": "b9f1ae8f5cf6b15ddd58822562067b37058ae6bfa64d40e4a03dd5effc6523b9",
+        "size_in_bytes": 23556,
+        "sha256_in_prefix": "b9f1ae8f5cf6b15ddd58822562067b37058ae6bfa64d40e4a03dd5effc6523b9"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_cutoff.mod",
+        "path_type": "hardlink",
+        "sha256": "7f2a5997452caccfabbfb49cb1d7f2d03a814982809715db8814fdcd8a81c9d1",
+        "size_in_bytes": 1798,
+        "sha256_in_prefix": "7f2a5997452caccfabbfb49cb1d7f2d03a814982809715db8814fdcd8a81c9d1"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_damping.mod",
+        "path_type": "hardlink",
+        "sha256": "60b23b8ef023af090d09850204b3ff6573a4a8875a8e6b3d4ea37e76cba293be",
+        "size_in_bytes": 23605,
+        "sha256_in_prefix": "60b23b8ef023af090d09850204b3ff6573a4a8875a8e6b3d4ea37e76cba293be"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_damping_atm.mod",
+        "path_type": "hardlink",
+        "sha256": "9264cf6771ad23c70885a2e05d28a4b93864764910e28dc103eb143a564046fa",
+        "size_in_bytes": 23555,
+        "sha256_in_prefix": "9264cf6771ad23c70885a2e05d28a4b93864764910e28dc103eb143a564046fa"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_damping_rational.mod",
+        "path_type": "hardlink",
+        "sha256": "9dd6e5240832da97dff9eff520c3d48790cdf1800bf1019d83005dbbf2e40895",
+        "size_in_bytes": 24380,
+        "sha256_in_prefix": "9dd6e5240832da97dff9eff520c3d48790cdf1800bf1019d83005dbbf2e40895"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_data.mod",
+        "path_type": "hardlink",
+        "sha256": "b029bf8fc1bc1d91555492ab62c19ce434cc555f1c06bb8ba94bdcec84492034",
+        "size_in_bytes": 2188,
+        "sha256_in_prefix": "b029bf8fc1bc1d91555492ab62c19ce434cc555f1c06bb8ba94bdcec84492034"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_data_covrad.mod",
+        "path_type": "hardlink",
+        "sha256": "1a8628a8e493ca0cb5f22aee6546aba32705c6fca4e9306cbbf2143bfe9d4167",
+        "size_in_bytes": 1751,
+        "sha256_in_prefix": "1a8628a8e493ca0cb5f22aee6546aba32705c6fca4e9306cbbf2143bfe9d4167"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_data_en.mod",
+        "path_type": "hardlink",
+        "sha256": "a8e568dfe8373ce69e242a97829fa084710d5f667fec6e56799e7cc2846caad1",
+        "size_in_bytes": 1368,
+        "sha256_in_prefix": "a8e568dfe8373ce69e242a97829fa084710d5f667fec6e56799e7cc2846caad1"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_data_hardness.mod",
+        "path_type": "hardlink",
+        "sha256": "3ab43f672e94264948246a09cfbca26b02b4a27926cd5421eeb35cfdfa4fe0c4",
+        "size_in_bytes": 1359,
+        "sha256_in_prefix": "3ab43f672e94264948246a09cfbca26b02b4a27926cd5421eeb35cfdfa4fe0c4"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_data_r4r2.mod",
+        "path_type": "hardlink",
+        "sha256": "7d7ab6854ba10ce90f715f0d64dd9a044d2cd4f7425c409a3cc05aa311afbc23",
+        "size_in_bytes": 1748,
+        "sha256_in_prefix": "7d7ab6854ba10ce90f715f0d64dd9a044d2cd4f7425c409a3cc05aa311afbc23"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_data_zeff.mod",
+        "path_type": "hardlink",
+        "sha256": "43c8de7b13c121ac0619eb904c4c17d200ca47ee5821c1e39920f1f5e4be0596",
+        "size_in_bytes": 1369,
+        "sha256_in_prefix": "43c8de7b13c121ac0619eb904c4c17d200ca47ee5821c1e39920f1f5e4be0596"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_disp.mod",
+        "path_type": "hardlink",
+        "sha256": "60d0d64fe7a0300800e86015f8b6db5a87cb51f541c005d8769181ad94bf9e58",
+        "size_in_bytes": 26310,
+        "sha256_in_prefix": "60d0d64fe7a0300800e86015f8b6db5a87cb51f541c005d8769181ad94bf9e58"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_model.mod",
+        "path_type": "hardlink",
+        "sha256": "2257db07d86fa24a98597f45463973e099f948f93ccd27bcdc3a8e7c3901ec85",
+        "size_in_bytes": 24078,
+        "sha256_in_prefix": "2257db07d86fa24a98597f45463973e099f948f93ccd27bcdc3a8e7c3901ec85"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_ncoord.mod",
+        "path_type": "hardlink",
+        "sha256": "969f38225454fd18e8551f2455eeab05548508672e830f0cbc2e996ca4a9352d",
+        "size_in_bytes": 22507,
+        "sha256_in_prefix": "969f38225454fd18e8551f2455eeab05548508672e830f0cbc2e996ca4a9352d"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_numdiff.mod",
+        "path_type": "hardlink",
+        "sha256": "29b82cb8e4844f555dc29525bde267c84badac24559c32600d85b33532f5cb4d",
+        "size_in_bytes": 26135,
+        "sha256_in_prefix": "29b82cb8e4844f555dc29525bde267c84badac24559c32600d85b33532f5cb4d"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_output.mod",
+        "path_type": "hardlink",
+        "sha256": "fdc9af8fb135af66f96000370a44a2f629d813bd7667b8d35ed9fdbd86348897",
+        "size_in_bytes": 26832,
+        "sha256_in_prefix": "fdc9af8fb135af66f96000370a44a2f629d813bd7667b8d35ed9fdbd86348897"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_param.mod",
+        "path_type": "hardlink",
+        "sha256": "ded7b0715ae4f74509ed858b2d6bbfec79c90bfe56c4c0826daf3954299fb94c",
+        "size_in_bytes": 25236,
+        "sha256_in_prefix": "ded7b0715ae4f74509ed858b2d6bbfec79c90bfe56c4c0826daf3954299fb94c"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_reference.mod",
+        "path_type": "hardlink",
+        "sha256": "086935e22669aea6820963c9ebf6f95a6b569160f42c2c0d9239cc9a407f03ba",
+        "size_in_bytes": 2374,
+        "sha256_in_prefix": "086935e22669aea6820963c9ebf6f95a6b569160f42c2c0d9239cc9a407f03ba"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_utils.mod",
+        "path_type": "hardlink",
+        "sha256": "2b601a80498b0eca9e0cb31c162801fe366149135634cf3dd3a12aca8afdfdc6",
+        "size_in_bytes": 2252,
+        "sha256_in_prefix": "2b601a80498b0eca9e0cb31c162801fe366149135634cf3dd3a12aca8afdfdc6"
+      },
+      {
+        "_path": "include/dftd4/gcc-13.3.0/dftd4_version.mod",
+        "path_type": "hardlink",
+        "sha256": "a9f7662ebf9a9833ea04fe976ec1a5534d515499b7ed2c22a783eac409a5ca66",
+        "size_in_bytes": 529,
+        "sha256_in_prefix": "a9f7662ebf9a9833ea04fe976ec1a5534d515499b7ed2c22a783eac409a5ca66"
+      },
+      {
+        "_path": "lib/libdftd4.3.dylib",
+        "path_type": "hardlink",
+        "sha256": "00b9a0be7ceda287764233b60bb02f99641e9b571c2d88c11c3d22ccfa4a475e",
+        "size_in_bytes": 534416,
+        "sha256_in_prefix": "00b9a0be7ceda287764233b60bb02f99641e9b571c2d88c11c3d22ccfa4a475e"
+      },
+      {
+        "_path": "lib/libdftd4.a",
+        "path_type": "hardlink",
+        "sha256": "4f62fc4da302cd8aaf6e2a38a3b045f698c4ab2ea7b8c0cfdc8b33acefacfd79",
+        "size_in_bytes": 605096,
+        "sha256_in_prefix": "4f62fc4da302cd8aaf6e2a38a3b045f698c4ab2ea7b8c0cfdc8b33acefacfd79"
+      },
+      {
+        "_path": "lib/libdftd4.dylib",
+        "path_type": "softlink",
+        "sha256": "00b9a0be7ceda287764233b60bb02f99641e9b571c2d88c11c3d22ccfa4a475e",
+        "size_in_bytes": 534416
+      },
+      {
+        "_path": "lib/pkgconfig/dftd4.pc",
+        "prefix_placeholder": "/Users/runner/miniforge3/conda-bld/dftd4_1743766890190/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pla",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "180dec053bcd67c938e4f6148f6183f32f63a2dfc885f2b97097edd2432b8959",
+        "size_in_bytes": 599,
+        "sha256_in_prefix": "8c057ceeaac31c662141424e08f42e4e2c239256e6402c22000606aed4b4821e"
+      },
+      {
+        "_path": "share/dftd4/parameters.toml",
+        "path_type": "hardlink",
+        "sha256": "8e44a7fed51e511c9e2ab0938a94f0a21bacc4c70f470a915224239937c1d61f",
+        "size_in_bytes": 23639,
+        "sha256_in_prefix": "8e44a7fed51e511c9e2ab0938a94f0a21bacc4c70f470a915224239937c1d61f"
+      },
+      {
+        "_path": "share/licenses/dftd4/COPYING",
+        "path_type": "hardlink",
+        "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+        "size_in_bytes": 35149,
+        "sha256_in_prefix": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+      },
+      {
+        "_path": "share/licenses/dftd4/COPYING.LESSER",
+        "path_type": "hardlink",
+        "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+        "size_in_bytes": 7652,
+        "sha256_in_prefix": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+      },
+      {
+        "_path": "share/man/man1/dftd4.1",
+        "path_type": "hardlink",
+        "sha256": "4e0851948e5e472c51e9a12543ced1a88a148b4597772a2470e2dd12f36e836d",
+        "size_in_bytes": 2968,
+        "sha256_in_prefix": "4e0851948e5e472c51e9a12543ced1a88a148b4597772a2470e2dd12f36e836d"
+      }
+    ]
+  },
+  "link": {
+    "source": "/Users/controller/miniconda3/pkgs/dftd4-3.7.0-hb3fdf34_4",
+    "type": 1
+  }
+}

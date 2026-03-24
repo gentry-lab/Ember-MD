@@ -1,0 +1,210 @@
+{
+  "name": "multicharge",
+  "version": "0.3.0",
+  "build": "hb3fdf34_2",
+  "build_number": 2,
+  "channel": "https://conda.anaconda.org/conda-forge/osx-arm64",
+  "subdir": "osx-arm64",
+  "fn": "multicharge-0.3.0-hb3fdf34_2.conda",
+  "md5": "bbd3b4ec94e240568b45c226bb090f95",
+  "url": "https://conda.anaconda.org/conda-forge/osx-arm64/multicharge-0.3.0-hb3fdf34_2.conda",
+  "sha256": "cd9fa1268cfbddfc5d6af682b3d4a0680b9ea3c62b33e58d108be30a7e960121",
+  "depends": [
+    "__osx >=11.0",
+    "libblas >=3.9.0,<4.0a0",
+    "libgfortran >=5",
+    "libgfortran5 >=13.3.0",
+    "libgfortran5 >=14.2.0",
+    "liblapack >=3.9.0,<4.0a0",
+    "llvm-openmp >=18.1.8",
+    "llvm-openmp >=20.1.2",
+    "mctc-lib >=0.4.1,<0.5.0a0"
+  ],
+  "constrains": [],
+  "license": "Apache-2.0",
+  "timestamp": 1743730988000,
+  "size": 235802,
+  "requested_spec": "None",
+  "package_tarball_full_path": "/Users/controller/miniconda3/pkgs/multicharge-0.3.0-hb3fdf34_2.conda",
+  "extracted_package_dir": "/Users/controller/miniconda3/pkgs/multicharge-0.3.0-hb3fdf34_2",
+  "files": [
+    "bin/multicharge",
+    "include/multicharge/gcc-13.3.0/multicharge.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_blas.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_cutoff.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_data.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_data_covrad.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_ewald.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_lapack.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_model.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_ncoord.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_output.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_param.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_param_eeq2019.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_version.mod",
+    "include/multicharge/gcc-13.3.0/multicharge_wignerseitz.mod",
+    "lib/libmulticharge.0.dylib",
+    "lib/libmulticharge.a",
+    "lib/libmulticharge.dylib",
+    "lib/pkgconfig/multicharge.pc",
+    "share/licenses/multicharge/LICENSE",
+    "share/man/man1/multicharge.1"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/multicharge",
+        "path_type": "hardlink",
+        "sha256": "4e422679fab21a64da39415a0bb1366f3745c7c68cb3d3d62e492dde745197af",
+        "size_in_bytes": 55344,
+        "sha256_in_prefix": "4e422679fab21a64da39415a0bb1366f3745c7c68cb3d3d62e492dde745197af"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge.mod",
+        "path_type": "hardlink",
+        "sha256": "0d181f756fcc63d81d1965aa08942b37a59073db5acae7ee2ae963e22f1503b2",
+        "size_in_bytes": 24589,
+        "sha256_in_prefix": "0d181f756fcc63d81d1965aa08942b37a59073db5acae7ee2ae963e22f1503b2"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_blas.mod",
+        "path_type": "hardlink",
+        "sha256": "980834ed08891f436dbaafc69d3c442dca583fbfb89256908f3f5f617526cbd1",
+        "size_in_bytes": 2776,
+        "sha256_in_prefix": "980834ed08891f436dbaafc69d3c442dca583fbfb89256908f3f5f617526cbd1"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_cutoff.mod",
+        "path_type": "hardlink",
+        "sha256": "73c0586d03846acbd97ac8a74e0572aa8a6a2272a2d6e347ceb0ec5dc9302d41",
+        "size_in_bytes": 1480,
+        "sha256_in_prefix": "73c0586d03846acbd97ac8a74e0572aa8a6a2272a2d6e347ceb0ec5dc9302d41"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_data.mod",
+        "path_type": "hardlink",
+        "sha256": "f839e108819b82a324aeab97cefe47109e2ef89d3b3e413e0d480683cf06574c",
+        "size_in_bytes": 1788,
+        "sha256_in_prefix": "f839e108819b82a324aeab97cefe47109e2ef89d3b3e413e0d480683cf06574c"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_data_covrad.mod",
+        "path_type": "hardlink",
+        "sha256": "38b0e8394ff12a95dc6f171692e014b4712c1f9525dcd336ffea6a6924c32cab",
+        "size_in_bytes": 1758,
+        "sha256_in_prefix": "38b0e8394ff12a95dc6f171692e014b4712c1f9525dcd336ffea6a6924c32cab"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_ewald.mod",
+        "path_type": "hardlink",
+        "sha256": "31ebf6136eb84f1e3529850df8461d60d0a69bf22462127291a84e04388798b7",
+        "size_in_bytes": 1699,
+        "sha256_in_prefix": "31ebf6136eb84f1e3529850df8461d60d0a69bf22462127291a84e04388798b7"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_lapack.mod",
+        "path_type": "hardlink",
+        "sha256": "d07d5faf5a32c76f5c3221a37f21cd94cc51288b0e2e3ac423174c3fdc8cdf38",
+        "size_in_bytes": 2021,
+        "sha256_in_prefix": "d07d5faf5a32c76f5c3221a37f21cd94cc51288b0e2e3ac423174c3fdc8cdf38"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_model.mod",
+        "path_type": "hardlink",
+        "sha256": "271c0564aeb8ec59b649e2a03961e088f5c095319adb4b5b75a315e91b8e8559",
+        "size_in_bytes": 23648,
+        "sha256_in_prefix": "271c0564aeb8ec59b649e2a03961e088f5c095319adb4b5b75a315e91b8e8559"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_ncoord.mod",
+        "path_type": "hardlink",
+        "sha256": "59ea222e912feee69cf654b0e2b80b15ced2ae46a5f46c1b65cec1eeca7d4f92",
+        "size_in_bytes": 22594,
+        "sha256_in_prefix": "59ea222e912feee69cf654b0e2b80b15ced2ae46a5f46c1b65cec1eeca7d4f92"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_output.mod",
+        "path_type": "hardlink",
+        "sha256": "c3ab9d542cbe2a08b35ae057cbec36045c0387a2ff9a021908a49b77aab55d8f",
+        "size_in_bytes": 23943,
+        "sha256_in_prefix": "c3ab9d542cbe2a08b35ae057cbec36045c0387a2ff9a021908a49b77aab55d8f"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_param.mod",
+        "path_type": "hardlink",
+        "sha256": "0c00e8bb4fe00d70af7ab91bbb125a8bbe194755a29a152f2028be2cbb139baf",
+        "size_in_bytes": 23491,
+        "sha256_in_prefix": "0c00e8bb4fe00d70af7ab91bbb125a8bbe194755a29a152f2028be2cbb139baf"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_param_eeq2019.mod",
+        "path_type": "hardlink",
+        "sha256": "cc576f1d31040147242630d1e82875eadd65618357f7e15f3d073811c37b6148",
+        "size_in_bytes": 1616,
+        "sha256_in_prefix": "cc576f1d31040147242630d1e82875eadd65618357f7e15f3d073811c37b6148"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_version.mod",
+        "path_type": "hardlink",
+        "sha256": "eca610158b72cfb0def390bf004b038d541bdbacd5ca20da4b39c4025cd3fc41",
+        "size_in_bytes": 528,
+        "sha256_in_prefix": "eca610158b72cfb0def390bf004b038d541bdbacd5ca20da4b39c4025cd3fc41"
+      },
+      {
+        "_path": "include/multicharge/gcc-13.3.0/multicharge_wignerseitz.mod",
+        "path_type": "hardlink",
+        "sha256": "b18df1dc3ec91c1a9c61bfe8de862ffe717f2df90b20a926ce551165368c0d96",
+        "size_in_bytes": 22981,
+        "sha256_in_prefix": "b18df1dc3ec91c1a9c61bfe8de862ffe717f2df90b20a926ce551165368c0d96"
+      },
+      {
+        "_path": "lib/libmulticharge.0.dylib",
+        "path_type": "hardlink",
+        "sha256": "f9cc51e5f012c1c94ce00241ef2b12fc9c4c0f9dac6a43d023d3747cfb46a789",
+        "size_in_bytes": 160096,
+        "sha256_in_prefix": "f9cc51e5f012c1c94ce00241ef2b12fc9c4c0f9dac6a43d023d3747cfb46a789"
+      },
+      {
+        "_path": "lib/libmulticharge.a",
+        "path_type": "hardlink",
+        "sha256": "3ca09f42c7fff18f5dddc3677732e99a8b591531325a8711149231674a15f778",
+        "size_in_bytes": 127960,
+        "sha256_in_prefix": "3ca09f42c7fff18f5dddc3677732e99a8b591531325a8711149231674a15f778"
+      },
+      {
+        "_path": "lib/libmulticharge.dylib",
+        "path_type": "softlink",
+        "sha256": "f9cc51e5f012c1c94ce00241ef2b12fc9c4c0f9dac6a43d023d3747cfb46a789",
+        "size_in_bytes": 160096
+      },
+      {
+        "_path": "lib/pkgconfig/multicharge.pc",
+        "prefix_placeholder": "/Users/runner/miniforge3/conda-bld/multicharge_1743730701602/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeho",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "f8ee5c6dfda81f629fba874b4588015594329b6beea743553de308dd8ac9c837",
+        "size_in_bytes": 586,
+        "sha256_in_prefix": "de1b6b0b92954921bc0b1a5a643511c68cc84117cf9c6a60c9d114c54c08c13f"
+      },
+      {
+        "_path": "share/licenses/multicharge/LICENSE",
+        "path_type": "hardlink",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "size_in_bytes": 11358,
+        "sha256_in_prefix": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      {
+        "_path": "share/man/man1/multicharge.1",
+        "path_type": "hardlink",
+        "sha256": "b356e3fe3933e473ddeab945b18c96d6abae797ec9dba2e9e220f8585e7900ba",
+        "size_in_bytes": 1213,
+        "sha256_in_prefix": "b356e3fe3933e473ddeab945b18c96d6abae797ec9dba2e9e220f8585e7900ba"
+      }
+    ]
+  },
+  "link": {
+    "source": "/Users/controller/miniconda3/pkgs/multicharge-0.3.0-hb3fdf34_2",
+    "type": 1
+  }
+}

@@ -1,0 +1,464 @@
+import { test, expect, createTestProject } from './fixtures';
+import type { Page } from '@playwright/test';
+import * as path from 'path';
+import {
+  buildConformerProjectTable,
+  buildDockingProjectTable,
+  buildDockingViewerQueue,
+  buildMdProjectTable,
+} from '../../src/utils/viewerQueue';
+
+const FIXTURES = path.resolve(__dirname, '../fixtures');
+const ALANINE_PDB = path.join(FIXTURES, 'alanine_dipeptide.pdb');
+const BENZENE_SDF = path.join(FIXTURES, 'benzene.sdf');
+const DOCK_RECEPTOR_CIF = path.resolve(__dirname, '../../ember-test-protein/8tce.cif');
+const DOCK_REFERENCE_LIGAND = path.resolve(__dirname, '../../ember-test-protein/kiv/kiv.sdf');
+
+async function setupViewer(window: Page): Promise<void> {
+  await createTestProject(window, '__e2e_project_table__');
+  const viewTab = window.locator('.tab.tab-sm', { hasText: 'View' });
+  await expect(viewTab).toHaveClass(/tab-active/);
+  await window.waitForFunction(() => !!(window as any).__nglStage, null, { timeout: 10_000 });
+}
+
+async function getViewerState(window: Page): Promise<Record<string, any>> {
+  return window.evaluate(() => {
+    const store = (window as any).__emberStore;
+    return store ? { ...store.state().viewer } : {};
+  });
+}
+
+async function countReprOfType(window: Page, type: string): Promise<number> {
+  return window.evaluate((reprType: string) => {
+    const stage = (window as any).__nglStage;
+    if (!stage) return 0;
+    let count = 0;
+    for (const comp of stage.compList) {
+      for (const repr of comp.reprList) {
+        if (repr.repr?.type === reprType) count++;
+      }
+    }
+    return count;
+  }, type);
+}
+
+test.describe('Project table', () => {
+  test.beforeEach(async ({ window }) => {
+    await setupViewer(window);
+  });
+
+  test('responsive columns and resize update the NGL viewport without disturbing camera rotation', async ({ window }) => {
+    test.setTimeout(60_000);
+
+    const poses = [
+      {
+        ligandName: 'Pose A',
+        vinaAffinity: -7.5,
+        cordialPHighAffinity: 0.64,
+        qed: 0.71,
+        outputSdf: BENZENE_SDF,
+      },
+      {
+        ligandName: 'Pose B',
+        vinaAffinity: -6.8,
+        cordialPHighAffinity: 0.42,
+        qed: 0.66,
+        outputSdf: BENZENE_SDF,
+      },
+    ] as any[];
+
+    const queue = buildDockingViewerQueue(ALANINE_PDB, poses.map((pose) => ({
+      name: pose.ligandName,
+      path: pose.outputSdf,
+      affinity: pose.vinaAffinity,
+    })));
+
+    const projectTable = buildDockingProjectTable({
+      familyId: 'dock:test',
+      title: 'Docking job',
+      receptorPdb: ALANINE_PDB,
+      poses: poses as any,
+      poseQueue: queue,
+      selectedQueueIndex: 0,
+    });
+
+    await window.evaluate((args: { pdbPath: string; ligandPath: string; queue: any[]; projectTable: any }) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        ligandPath: args.ligandPath,
+        pdbQueue: args.queue,
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, {
+      pdbPath: ALANINE_PDB,
+      ligandPath: BENZENE_SDF,
+      queue,
+      projectTable,
+    });
+
+    await expect(window.locator('[data-testid="project-table"]')).toBeVisible({ timeout: 10_000 });
+    await expect(window.locator('div[data-testid="project-family-dock:test"]')).toBeVisible();
+    await expect(window.locator('[data-testid="project-table-nav-prev"]')).toBeVisible();
+    await expect(window.locator('[data-testid="project-table-nav-next"]')).toBeVisible();
+    await expect(window.locator('text=/\\(1\\/2\\)/')).toHaveCount(0);
+
+    await expect(window.locator('th', { hasText: 'Vina' })).toBeVisible();
+    await expect(window.locator('th', { hasText: 'P(<1uM)' })).not.toBeVisible();
+    await expect(window.locator('th', { hasText: 'QED' })).not.toBeVisible();
+
+    const before = await window.evaluate(() => {
+      const stage = (window as any).__nglStage;
+      return {
+        width: stage?.viewer?.renderer?.domElement?.width ?? 0,
+        rotation: stage?.viewerControls?.rotation?.toArray?.() ?? null,
+      };
+    });
+    expect(before.width).toBeGreaterThan(0);
+    expect(before.rotation).not.toBeNull();
+
+    const handle = window.locator('[data-testid="project-table-resize-handle"]');
+    const box = await handle.boundingBox();
+    expect(box).not.toBeNull();
+    if (!box) return;
+
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    await window.mouse.move(startX, startY);
+    await window.mouse.down();
+    await window.mouse.move(startX - 180, startY, { steps: 12 });
+    await window.waitForTimeout(300);
+
+    const duringDrag = await window.evaluate(() => {
+      const stage = (window as any).__nglStage;
+      return {
+        width: stage?.viewer?.renderer?.domElement?.width ?? 0,
+        rotation: stage?.viewerControls?.rotation?.toArray?.() ?? null,
+      };
+    });
+
+    expect(duringDrag.width).toBeLessThan(before.width);
+    expect(duringDrag.rotation).toEqual(before.rotation);
+
+    await window.mouse.up();
+    await window.waitForTimeout(500);
+
+    await expect(window.locator('th', { hasText: 'P(<1uM)' })).toBeVisible();
+    await expect(window.locator('th', { hasText: 'QED' })).toBeVisible();
+  });
+
+  test('header arrows and keyboard navigation follow visible table order and restore queue-backed rows', async ({ window }) => {
+    test.setTimeout(45_000);
+
+    const poses = [
+      {
+        ligandName: 'Pose A',
+        vinaAffinity: -7.5,
+        outputSdf: BENZENE_SDF,
+      },
+      {
+        ligandName: 'Pose B',
+        vinaAffinity: -6.8,
+        outputSdf: BENZENE_SDF,
+      },
+    ] as any[];
+
+    const queue = buildDockingViewerQueue(ALANINE_PDB, poses.map((pose) => ({
+      name: pose.ligandName,
+      path: pose.outputSdf,
+      affinity: pose.vinaAffinity,
+    })));
+
+    const projectTable = buildDockingProjectTable({
+      familyId: 'dock:state',
+      title: 'Docking state job',
+      receptorPdb: ALANINE_PDB,
+      preparedLigandPath: BENZENE_SDF,
+      referenceLigandPath: BENZENE_SDF,
+      poses: poses as any,
+      poseQueue: queue,
+      selectedQueueIndex: 0,
+    });
+
+    await window.evaluate((args: { pdbPath: string; ligandPath: string; queue: any[]; projectTable: any }) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        ligandPath: args.ligandPath,
+        pdbQueue: args.queue,
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, {
+      pdbPath: ALANINE_PDB,
+      ligandPath: BENZENE_SDF,
+      queue,
+      projectTable,
+    });
+
+    await expect(window.locator('[data-testid="project-row-dock:state:apo"]')).toBeVisible({ timeout: 10_000 });
+    await expect(window.locator('[data-testid="project-row-dock:state:prepared-ligand"]')).toBeVisible();
+
+    await window.locator('[data-testid="project-table-nav-prev"]').click();
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.activeRowId === 'dock:state:prepared-ligand' && s.viewer.pdbQueue.length === 0;
+    }, null, { timeout: 10_000 });
+
+    const afterPreparedLigand = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        activeRowId: s.viewer.projectTable?.activeRowId,
+        queueLength: s.viewer.pdbQueue.length,
+        trajectoryPath: s.viewer.trajectoryPath,
+      };
+    });
+    expect(afterPreparedLigand.activeRowId).toBe('dock:state:prepared-ligand');
+    expect(afterPreparedLigand.queueLength).toBe(0);
+    expect(afterPreparedLigand.trajectoryPath).toBeFalsy();
+
+    await window.keyboard.press('ArrowUp');
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.activeRowId === 'dock:state:apo' && s.viewer.pdbQueue.length === 0;
+    }, null, { timeout: 10_000 });
+
+    await window.keyboard.press('ArrowRight');
+    await window.keyboard.press('ArrowDown');
+    await window.keyboard.press('ArrowDown');
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.activeRowId === 'dock:state:pose:1'
+        && s.viewer.pdbQueue.length === 2
+        && s.viewer.pdbQueueIndex === 1;
+    }, null, { timeout: 10_000 });
+
+    const afterPose = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        activeRowId: s.viewer.projectTable?.activeRowId,
+        queueLength: s.viewer.pdbQueue.length,
+        queueIndex: s.viewer.pdbQueueIndex,
+      };
+    });
+    expect(afterPose.activeRowId).toBe('dock:state:pose:1');
+    expect(afterPose.queueLength).toBe(2);
+    expect(afterPose.queueIndex).toBe(1);
+  });
+
+  test('footer actions and close button are relocated into the new project-table layout', async ({ window }) => {
+    test.setTimeout(45_000);
+
+    const poses = [
+      {
+        ligandName: 'Pose A',
+        vinaAffinity: -7.5,
+        outputSdf: BENZENE_SDF,
+      },
+      {
+        ligandName: 'Pose B',
+        vinaAffinity: -6.8,
+        outputSdf: BENZENE_SDF,
+      },
+    ] as any[];
+
+    const queue = buildDockingViewerQueue(ALANINE_PDB, poses.map((pose) => ({
+      name: pose.ligandName,
+      path: pose.outputSdf,
+      affinity: pose.vinaAffinity,
+    })));
+
+    const projectTable = buildDockingProjectTable({
+      familyId: 'dock:layout',
+      title: 'Docking layout job',
+      receptorPdb: ALANINE_PDB,
+      preparedLigandPath: BENZENE_SDF,
+      referenceLigandPath: BENZENE_SDF,
+      poses: poses as any,
+      poseQueue: queue,
+      selectedQueueIndex: 0,
+    });
+
+    await window.evaluate((args: { pdbPath: string; ligandPath: string; queue: any[]; projectTable: any }) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        ligandPath: args.ligandPath,
+        pdbQueue: args.queue,
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, {
+      pdbPath: ALANINE_PDB,
+      ligandPath: BENZENE_SDF,
+      queue,
+      projectTable,
+    });
+
+    await expect(window.locator('[data-testid="viewer-close-button"]')).toBeVisible({ timeout: 10_000 });
+    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeVisible();
+    await expect(window.locator('[data-testid="project-table-export"]')).toBeVisible();
+    await expect(window.locator('[title=\"Simulate — run MD on this structure\"]')).toHaveCount(0);
+    await expect(window.locator('[title=\"Export as PDB\"]')).toHaveCount(0);
+
+    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeEnabled();
+    await expect(window.locator('[data-testid="project-table-export"]')).toBeEnabled();
+
+    await window.locator('[data-testid="project-row-dock:layout:prepared-ligand"]').click();
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.activeRowId === 'dock:layout:prepared-ligand';
+    }, null, { timeout: 10_000 });
+
+    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeDisabled();
+    await expect(window.locator('[data-testid="project-table-export"]')).toBeEnabled();
+  });
+
+  test('apo row keeps pocket residues available and prepared ligand uses the same ligand styling as docked poses', async ({ window }) => {
+    test.setTimeout(90_000);
+
+    const preparedReceptor = await window.evaluate(async ({ receptorCif, projectName }: { receptorCif: string; projectName: string }) => {
+      const api = (window as any).electronAPI;
+      const project = await api.ensureProject(projectName);
+      if (!project.ok) return null;
+      const imported = await api.importStructure(receptorCif, project.value);
+      const importedPath = imported.ok ? imported.value : receptorCif;
+      const detected = await api.detectPdbLigands(importedPath);
+      if (!detected.ok) return null;
+      const ligands = Array.isArray(detected.value) ? detected.value : detected.value.ligands;
+      const ligandId = ligands[0]?.id;
+      if (!ligandId) return null;
+      const outputPath = `${project.value}/structures/apo_receptor.pdb`;
+      const prepared = await api.prepareReceptor(importedPath, ligandId, outputPath);
+      return prepared.ok ? prepared.value : null;
+    }, { receptorCif: DOCK_RECEPTOR_CIF, projectName: '__e2e_project_table__' });
+
+    expect(preparedReceptor).not.toBeNull();
+    if (!preparedReceptor) return;
+
+    const poses = [
+      {
+        ligandName: 'Reference pose',
+        vinaAffinity: -8.2,
+        outputSdf: DOCK_REFERENCE_LIGAND,
+      },
+    ] as any[];
+
+    const queue = buildDockingViewerQueue(preparedReceptor, poses.map((pose) => ({
+      name: pose.ligandName,
+      path: pose.outputSdf,
+      affinity: pose.vinaAffinity,
+    })));
+
+    const projectTable = buildDockingProjectTable({
+      familyId: 'dock:apo',
+      title: 'Docking apo job',
+      receptorPdb: preparedReceptor,
+      preparedLigandPath: DOCK_REFERENCE_LIGAND,
+      referenceLigandPath: DOCK_REFERENCE_LIGAND,
+      poses: poses as any,
+      poseQueue: queue,
+      selectedQueueIndex: 0,
+    });
+
+    await window.evaluate((args: { pdbPath: string; ligandPath: string; queue: any[]; projectTable: any }) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        ligandPath: args.ligandPath,
+        pdbQueue: args.queue,
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, {
+      pdbPath: preparedReceptor,
+      ligandPath: DOCK_REFERENCE_LIGAND,
+      queue,
+      projectTable,
+    });
+
+    await window.locator('[data-testid="project-row-dock:apo:apo"]').click();
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.activeRowId === 'dock:apo:apo' && s.viewer.showPocketResidues === true;
+    }, null, { timeout: 10_000 });
+
+    await window.waitForTimeout(1_500);
+    expect(await countReprOfType(window, 'licorice')).toBeGreaterThan(0);
+
+    await window.evaluate(() => {
+      const store = (window as any).__emberStore;
+      store.setViewerLigandRep('spacefill');
+    });
+    await window.locator('[data-testid="project-row-dock:apo:prepared-ligand"]').click();
+    await window.waitForFunction(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.activeRowId === 'dock:apo:prepared-ligand'
+        && s.viewer.ligandRep === 'spacefill'
+        && s.viewer.detectedLigands.length === 0;
+    }, null, { timeout: 10_000 });
+
+    await window.waitForTimeout(1_000);
+    const viewerState = await getViewerState(window);
+    expect(viewerState.ligandPath).toContain('kiv');
+    expect(await countReprOfType(window, 'spacefill')).toBeGreaterThan(0);
+  });
+
+  test('result columns are data-driven and pinned rows stay at the top', async ({ window }) => {
+    test.setTimeout(45_000);
+
+    const conformerTable = buildConformerProjectTable({
+      familyId: 'conform:test',
+      title: 'Conformer job',
+      inputPath: BENZENE_SDF,
+      conformerPaths: [BENZENE_SDF, BENZENE_SDF],
+      conformerEnergies: {
+        [BENZENE_SDF]: 0.5,
+      },
+    });
+
+    await window.evaluate((args: { pdbPath: string; projectTable: any }) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        pdbQueue: [
+          { pdbPath: args.pdbPath, label: 'Conformer 1', type: 'conformer' },
+          { pdbPath: args.pdbPath, label: 'Conformer 2', type: 'conformer' },
+        ],
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, { pdbPath: BENZENE_SDF, projectTable: conformerTable });
+
+    await expect(window.locator('th', { hasText: 'Rel E' })).toBeVisible({ timeout: 10_000 });
+    await expect(window.locator('[data-testid="project-row-conform:test:input"]')).toBeVisible();
+
+    const firstConformerRow = await window.locator('[data-testid="project-table"] tbody tr').first().textContent();
+    expect(firstConformerRow).toContain('Input molecule');
+
+    const mdTable = buildMdProjectTable({
+      familyId: 'md:test',
+      title: 'MD job',
+      systemPdb: ALANINE_PDB,
+      clusters: [{
+        clusterId: 0,
+        population: 100,
+        centroidPdbPath: ALANINE_PDB,
+      }],
+      queueBackedClusters: false,
+    });
+
+    await window.evaluate((args: { pdbPath: string; projectTable: any }) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        projectTable: args.projectTable,
+      });
+    }, { pdbPath: ALANINE_PDB, projectTable: mdTable });
+
+    await expect(window.locator('th', { hasText: 'Pop%' })).toBeVisible({ timeout: 10_000 });
+    await expect(window.locator('th', { hasText: 'Vina' })).not.toBeVisible();
+    await expect(window.locator('th', { hasText: 'P(<1uM)' })).not.toBeVisible();
+  });
+});

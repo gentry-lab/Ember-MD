@@ -1,6 +1,6 @@
 # E2E Test Coverage Loop
 
-You are running a Playwright E2E test coverage loop for Ember. Read your IDENTITY.md memory for authority scope and guardrails. Check BOUNTY_BOARD.md for the P0 E2E checklist status.
+You are running a Playwright E2E test coverage loop for Ember. Read your IDENTITY.md memory for authority scope and guardrails. Use `e2e-coverage.md` as the checkbox source of truth; read `BOUNTY_BOARD.md` and `VISION.md` for product context and stale-item reconciliation.
 
 Your goal: make every test pass, fix failures, and add tests from `.claude/commands/e2e-coverage.md`.
 
@@ -15,15 +15,37 @@ Your goal: make every test pass, fix failures, and add tests from `.claude/comma
 
 ### Subsequent invocations (warm — last commit was this loop)
 1. **Skip full suite** — the last commit already confirmed all tests pass.
-2. **Check for uncommitted changes** — if there are dirty files, build and run affected spec only.
+2. **Check for uncommitted changes** — if there are dirty files, build and run affected spec(s) only.
 3. **Otherwise**: go straight to **Add new test**.
 
 ### Add new test
-1. Read `e2e-coverage.md`, find the next unchecked `[ ]` item.
+1. Read `e2e-coverage.md`, find the next unchecked `[ ]` item, and classify it before writing a test:
+   - direct current-UI behavior to test now
+   - dependency-gated / optional integration (`CREST`, `CORDIAL`, `xTB`)
+   - stale or UI-inaccessible item that needs doc cleanup before testing
 2. Write the test, run just that spec to get it passing.
-3. Run full suite as a regression check.
+3. **Targeted regression** — run only the related spec group (see mapping below), NOT the full suite.
 4. **Commit**: `npm version patch --no-git-tag-version` then commit with `test(e2e): {what you added/fixed}`.
 5. Mark the checklist item `[x]` in `e2e-coverage.md`.
+
+### Spec group mapping (targeted regression)
+When you add/fix a test, run the **new spec + its related specs** instead of the full suite:
+
+| Area touched | Run these specs |
+|---|---|
+| `app-boot`, `navigation`, `error-paths` | `app-boot navigation error-paths` |
+| `mcmm`, `mcmm-pipeline` | `mcmm mcmm-pipeline` |
+| `docking`, `docking-pipeline` | `docking docking-pipeline` |
+| `simulate`, `md-pipeline` | `simulate md-pipeline` |
+| `viewer`, `viewer-ngl`, `viewer-controls`, `project-table`, `viewer-trajectory` | `viewer viewer-ngl viewer-controls project-table viewer-trajectory` |
+| `electron/ipc/*`, fixtures, shared infra | Full suite (these affect everything) |
+
+Example: after adding a viewer/project-table test, run:
+```bash
+npx playwright test tests/e2e/viewer.spec.ts tests/e2e/viewer-ngl.spec.ts tests/e2e/viewer-controls.spec.ts tests/e2e/project-table.spec.ts tests/e2e/viewer-trajectory.spec.ts --reporter=list
+```
+
+Only run the **full suite** on cold start or if you touched shared infrastructure (fixtures, electron IPC, App.tsx, workflow store).
 
 ### Stop conditions
 - **Stop and report** if: >3 consecutive failures on same issue, or unclear test-bug vs app-bug.
@@ -120,6 +142,8 @@ If a mock still opens an OS dialog, switch to the direct IPC pattern above.
 - Tests must complete in <3 minutes each (exhaust=1, poses=1, 0.01 ns for computational tests)
 - Clean up test projects: `rm -rf ~/Ember/__e2e_*` in afterAll
 - Fix root causes, don't skip failures
+- If `BOUNTY_BOARD.md` conflicts with `e2e-coverage.md` or current app behavior, update docs before adding brittle tests
+- Treat `CREST`, `CORDIAL`, and optional `xTB` paths as availability-gated; do not fail the base loop on missing external tools
 - Don't modify `electron/ipc/` unless it's a real app bug
 - Don't modify `deps/staging/scripts/` — flag issues, don't fix them
 - Use sub-agents for selector discovery and IPC signature lookups when needed

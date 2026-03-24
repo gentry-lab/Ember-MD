@@ -1,4 +1,5 @@
 import { Component, Show, createSignal, For } from 'solid-js';
+import path from 'path';
 import {
   workflowStore,
   ClusteringConfig,
@@ -50,8 +51,9 @@ const ClusteringModal: Component<ClusteringModalProps> = (props) => {
 
     try {
       // Determine output directory
-      const trajDir = trajectoryPath()!.split('/').slice(0, -1).join('/');
-      const outputDir = `${trajDir}/clustering`;
+      const trajDir = path.dirname(trajectoryPath()!);
+      const runRoot = path.basename(trajDir) === 'results' ? path.dirname(trajDir) : trajDir;
+      const outputDir = path.join(runRoot, 'analysis', 'clustering');
 
       const result = await api.clusterTrajectory({
         topologyPath: pdbPath()!,

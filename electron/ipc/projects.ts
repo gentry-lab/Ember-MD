@@ -138,6 +138,27 @@ export const findDockingRunJobs = (
     ? fs.readdirSync(posesSearchDir).filter((f) => f.endsWith('_docked.sdf.gz'))
     : [];
 
+  const manifest = readJsonIfExists<{
+    prepared_reference_ligand_sdf?: string;
+  }>(path.join(runPath, 'prep', 'prepared_complex_manifest.json'));
+  const referenceLigandCandidates = [
+    manifest?.prepared_reference_ligand_sdf,
+    path.join(runPath, 'inputs', 'reference_ligand.sdf'),
+  ].filter((candidate): candidate is string => typeof candidate === 'string' && fs.existsSync(candidate));
+
+  const preparedLigandCandidates: string[] = [];
+  const inputsLigandsDir = path.join(runPath, 'inputs', 'ligands');
+  if (fs.existsSync(inputsLigandsDir)) {
+    preparedLigandCandidates.push(
+      ...fs.readdirSync(inputsLigandsDir)
+        .filter((fileName) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(fileName))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        .map((fileName) => path.join(inputsLigandsDir, fileName)),
+    );
+  }
+  const preparedLigandPath = preparedLigandCandidates[0];
+  const referenceLigandPath = referenceLigandCandidates[0];
+
   if (!receptorPdb || poseFiles.length === 0) return [];
 
   const poses: ProjectJobPose[] = poseFiles.map((f) => {
@@ -165,6 +186,8 @@ export const findDockingRunJobs = (
     sortKey: 0,
     receptorPdb,
     poses,
+    preparedLigandPath,
+    referenceLigandPath,
   };
 
   const poseJobs: ProjectJob[] = poses.map((pose, index) => ({
@@ -181,6 +204,8 @@ export const findDockingRunJobs = (
     poses,
     ligandPath: pose.path,
     poseIndex: index,
+    preparedLigandPath,
+    referenceLigandPath,
   }));
 
   return [allJob, ...poseJobs];

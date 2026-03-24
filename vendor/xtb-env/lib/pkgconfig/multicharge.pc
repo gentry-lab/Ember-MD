@@ -1,0 +1,11 @@
+prefix=/Users/controller/Desktop/Ember-MD/vendor/xtb-env
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: multicharge
+Description: Electronegativity equilibration model for charges and multipoles
+Version: 0.3.0
+Requires.private: mctc-lib
+Libs: -L${libdir} -lmulticharge
+Libs.private: -fopenmp -llapack -lblas
+Cflags: -I${includedir} -I${includedir}/multicharge/gcc-13.3.0

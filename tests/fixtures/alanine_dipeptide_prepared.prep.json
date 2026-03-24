@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "prepared_receptor_pdb": "/Users/controller/Desktop/Ember-MD/tests/fixtures/alanine_dipeptide_prepared.pdb",
+  "receptor_protonation_ph": 7.4,
+  "pocket_filtered": false,
+  "pocket_cutoff_angstrom": 6.0,
+  "pocket_residue_keys": [],
+  "reduce_available": true,
+  "reduce_applied": true,
+  "propka_available": false,
+  "propka_error": null,
+  "propka_shifted_residues": [],
+  "applied_overrides": [],
+  "ignored_shifted_residues": [],
+  "resolved_variants": {},
+  "actual_variants": [
+    null,
+    null,
+    null
+  ],
+  "disulfide_residue_keys": [],
+  "prepared_chain_count": 1,
+  "prepared_residue_count": 3,
+  "prepared_atom_count": 23
+}

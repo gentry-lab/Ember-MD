@@ -10,13 +10,17 @@ import type {
   SurfaceColorScheme,
   BindingSiteMapState,
   ViewerLayer,
+  ViewerProjectRow,
+  ViewerQueueItem,
 } from '../../stores/workflow';
 import TrajectoryControls from './TrajectoryControls';
 import ClusteringModal from './ClusteringModal';
 import AnalysisPanel from './AnalysisPanel';
 import LayerPanel from './LayerPanel';
+import ProjectTable from './ProjectTable';
 import { projectPaths } from '../../utils/projectPaths';
 import { loadProjectJob } from '../../utils/projectJobLoader';
+import { getVisibleProjectRows } from '../../utils/projectTable';
 import { theme } from '../../utils/theme';
 import type { AtomProxy, ResidueProxy, SelectionSchemeEntry, NglLoadOptions, BindingSiteResultsJson, PreparedPath } from '../../types/ngl';
 import type { ProjectJob, LigandPkaResult, QupkakeCapabilityResult } from '../../../shared/types/ipc';
@@ -55,6 +59,9 @@ const ViewerMode: Component = () => {
     setViewerIsPlaying,
     setViewerPdbQueue,
     setViewerPdbQueueIndex,
+    setViewerProjectActiveRow,
+    toggleViewerProjectFamilyCollapsed,
+    setViewerProjectFamilySort,
     setViewerBindingSiteMap,
     setViewerIsComputingBindingSiteMap,
     nextLayerId,
@@ -80,6 +87,7 @@ const ViewerMode: Component = () => {
   let stage: NGL.Stage | null = null;
   let proteinComponent: NGL.Component | null = null;
   let ligandComponent: NGL.Component | null = null;
+  let pocketReferenceLigandComponent: NGL.Component | null = null;
   let interactionShapeComponent: NGL.Component | null = null;
   let playbackTimer: ReturnType<typeof setTimeout> | null = null;
   let isFrameLoading = false;
@@ -91,6 +99,10 @@ const ViewerMode: Component = () => {
   let lastQueueIndex = -1;
   let lastQueueLength = 0;
   let isFirstFrameLoad = true;
+  let viewerCanvasShellRef: HTMLDivElement | undefined;
+  let projectTablePanelRef: HTMLDivElement | undefined;
+  let resizeObserver: ResizeObserver | null = null;
+  let projectTableResizeAnchorRight = 0;
   const alignedComponents: Map<number, NGL.Component> = new Map();  // For multi-PDB alignment
   const volumeComponents: Map<string, NGL.Component> = new Map();  // For binding site isosurfaces
   const layerComponents: Map<string, NGL.Component> = new Map();   // Layer ID → NGL component
@@ -102,12 +114,16 @@ const ViewerMode: Component = () => {
   const [isLoadingRecentJobs, setIsLoadingRecentJobs] = createSignal(false);
   const [loadingRecentJobId, setLoadingRecentJobId] = createSignal<string | null>(null);
   const [smilesInput, setSmilesInput] = createSignal('');
+  const [viewerPdbIdInput, setViewerPdbIdInput] = createSignal('');
   const [isLoadingSmiles, setIsLoadingSmiles] = createSignal(false);
+  const [isFetchingViewerPdb, setIsFetchingViewerPdb] = createSignal(false);
   const [isCheckingQupkake, setIsCheckingQupkake] = createSignal(false);
   const [qupkakeCapability, setQupkakeCapability] = createSignal<QupkakeCapabilityResult | null>(null);
   const [isComputingPka, setIsComputingPka] = createSignal(false);
   const [pkaResult, setPkaResult] = createSignal<LigandPkaResult | null>(null);
   const [pkaError, setPkaError] = createSignal<string | null>(null);
+  const [projectTableWidth, setProjectTableWidth] = createSignal(300);
+  const [structureLoadTick, setStructureLoadTick] = createSignal(0);
   const surfacePropsCache = new Map<string, SurfacePropsCacheEntry>();
   const surfacePropsInflight = new Map<string, Promise<SurfacePropsCacheEntry | null>>();
   let lastViewerSessionKey = state().viewer.sessionKey;
@@ -115,6 +131,8 @@ const ViewerMode: Component = () => {
   let qupkakeAvailabilityRequestId = 0;
   let pkaRequestId = 0;
   let lastPkaContextKey: string | null = null;
+  let isResizingProjectTable = false;
+  let shouldFitProjectTableResize = false;
 
   const api = window.electronAPI;
 
@@ -128,6 +146,16 @@ const ViewerMode: Component = () => {
       try {
         const capability = await api.checkQupkakeInstalled();
         if (requestId !== qupkakeAvailabilityRequestId) return;
+        if (!capability.validated) {
+          console.warn('[Viewer][QupKake] runtime not validated', {
+            failureStage: capability.failureStage,
+            runtimeFingerprint: capability.runtimeFingerprint,
+            runtimeProbe: capability.runtimeProbe,
+            validationCase: capability.validationCase,
+            validationReport: capability.validationReport,
+            warning: capability.warning,
+          });
+        }
         setQupkakeCapability(capability);
       } catch (err) {
         if (requestId !== qupkakeAvailabilityRequestId) return;
@@ -205,9 +233,11 @@ const ViewerMode: Component = () => {
     volumeComponents.clear();
     proteinComponent = null;
     ligandComponent = null;
+    pocketReferenceLigandComponent = null;
     interactionShapeComponent = null;
     alignedComponents.clear();
     layerComponents.clear();
+    setStructureLoadTick((tick) => tick + 1);
     setIsAligned(false);
     surfacePropsCache.clear();
     surfacePropsInflight.clear();
@@ -228,11 +258,128 @@ const ViewerMode: Component = () => {
     state().viewer.layers.length > 0 ||
     state().viewer.layerGroups.length > 0;
 
+  const hasProjectTable = () => (state().viewer.projectTable?.families.length || 0) > 0;
+  const activeProjectRow = () => {
+    const table = state().viewer.projectTable;
+    return table?.rows.find((row) => row.id === table.activeRowId) || null;
+  };
+  const visibleProjectRows = () => getVisibleProjectRows(state().viewer.projectTable, projectTableWidth());
+  const activeProjectRowIndex = () => visibleProjectRows().findIndex((row) => row.id === activeProjectRow()?.id);
+
+  const fitVisibleStructure = () => {
+    if (!stage) return;
+
+    if (proteinComponent && state().viewer.selectedLigandId) {
+      const ligandSele = getLigandSelection();
+      if (ligandSele) {
+        (proteinComponent as NGL.StructureComponent).autoView(ligandSele);
+        return;
+      }
+    }
+
+    if (proteinComponent && !ligandComponent) {
+      proteinComponent.autoView();
+      return;
+    }
+
+    if (ligandComponent && !proteinComponent) {
+      ligandComponent.autoView();
+      return;
+    }
+
+    stage.autoView();
+  };
+
+  const clearPocketReferenceLigand = () => {
+    if (pocketReferenceLigandComponent && stage) {
+      stage.removeComponent(pocketReferenceLigandComponent);
+    }
+    pocketReferenceLigandComponent = null;
+  };
+
+  const isInteractiveTextTarget = (target: EventTarget | null): boolean => {
+    if (!(target instanceof HTMLElement)) return false;
+    const tagName = target.tagName.toLowerCase();
+    return tagName === 'input'
+      || tagName === 'textarea'
+      || tagName === 'select'
+      || target.isContentEditable;
+  };
+
+  const handleProjectTableResizeMove = (event: MouseEvent) => {
+    if (!isResizingProjectTable) return;
+    const nextWidth = Math.max(260, Math.min(640, projectTableResizeAnchorRight - event.clientX));
+    setProjectTableWidth(nextWidth);
+  };
+
+  const handleProjectTableResizeEnd = () => {
+    if (!isResizingProjectTable) return;
+    isResizingProjectTable = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    if (shouldFitProjectTableResize) {
+      shouldFitProjectTableResize = false;
+      requestAnimationFrame(() => {
+        stage?.handleResize();
+        fitVisibleStructure();
+      });
+    }
+  };
+
+  const handleProjectTableResizeStart = (event: MouseEvent) => {
+    event.preventDefault();
+    isResizingProjectTable = true;
+    shouldFitProjectTableResize = true;
+    projectTableResizeAnchorRight = projectTablePanelRef?.getBoundingClientRect().right ?? window.innerWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   createEffect(() => {
     const sessionKey = state().viewer.sessionKey;
     if (sessionKey === lastViewerSessionKey) return;
     lastViewerSessionKey = sessionKey;
     clearViewerStage();
+  });
+
+  const navigateProjectTable = async (direction: -1 | 1) => {
+    const rows = visibleProjectRows();
+    if (rows.length === 0) return;
+    const currentIndex = activeProjectRowIndex();
+    const nextIndex = currentIndex >= 0
+      ? Math.min(rows.length - 1, Math.max(0, currentIndex + direction))
+      : 0;
+    const nextRow = rows[nextIndex];
+    if (!nextRow || nextRow.id === activeProjectRow()?.id) return;
+    await handleProjectTableRowSelect(nextRow.id);
+  };
+
+  const handleViewerKeyDown = (event: KeyboardEvent) => {
+    if (state().mode !== 'viewer' || !hasProjectTable() || isInteractiveTextTarget(event.target)) return;
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      void navigateProjectTable(1);
+      return;
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      void navigateProjectTable(-1);
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener('mousemove', handleProjectTableResizeMove);
+    window.addEventListener('mouseup', handleProjectTableResizeEnd);
+    window.addEventListener('keydown', handleViewerKeyDown);
+
+    if (typeof ResizeObserver !== 'undefined' && viewerCanvasShellRef) {
+      resizeObserver = new ResizeObserver(() => {
+        requestAnimationFrame(() => stage?.handleResize());
+      });
+      resizeObserver.observe(viewerCanvasShellRef);
+    }
   });
 
   // Helper to get ligand selection string for detected ligand
@@ -471,6 +618,46 @@ const ViewerMode: Component = () => {
 
   const [stageReady, setStageReady] = createSignal(false);
 
+  const resetViewerTestState = () => {
+    if (!(window as any).__EMBER_TEST__) return;
+    (window as any).__viewerTestState = {
+      renderedFrameIndex: null,
+      coordinateSignature: null,
+    };
+  };
+
+  const updateViewerTestState = (
+    frameIndex: number,
+    structure: NGL.Structure | null | undefined,
+    component?: NGL.Component | null,
+  ) => {
+    if (!(window as any).__EMBER_TEST__) return;
+    let coordinateSignature: number[] | null = null;
+    if (structure) {
+      const center = structure.atomCenter();
+      coordinateSignature = [
+        Number(center.x.toFixed(4)),
+        Number(center.y.toFixed(4)),
+        Number(center.z.toFixed(4)),
+      ];
+    }
+    if (component && typeof (component as any).getBox === 'function') {
+      const box = (component as any).getBox();
+      if (box) {
+        coordinateSignature = [
+          ...(coordinateSignature ?? []),
+          Number(box.min.x.toFixed(4)),
+          Number(box.min.y.toFixed(4)),
+          Number(box.min.z.toFixed(4)),
+        ];
+      }
+    }
+    (window as any).__viewerTestState = {
+      renderedFrameIndex: frameIndex,
+      coordinateSignature,
+    };
+  };
+
   onMount(() => {
     checkQupkakeCapability();
     if (containerRef) {
@@ -489,6 +676,7 @@ const ViewerMode: Component = () => {
       // Expose stage for E2E test assertions (NGL state queries, not screenshots)
       if ((window as any).__EMBER_TEST__) {
         (window as any).__nglStage = stage;
+        resetViewerTestState();
       }
       console.log('[Viewer] NGL Stage created');
 
@@ -502,6 +690,7 @@ const ViewerMode: Component = () => {
         proteinComponent = null;
         ligandComponent = null;
         interactionShapeComponent = null;
+        resetViewerTestState();
       });
     }
   });
@@ -797,9 +986,10 @@ const ViewerMode: Component = () => {
 
     // Handle pocket residues and interactions for EXTERNAL ligands (loaded from SDF)
     // This is separate because external ligands are in a different NGL component
-    if (!ligandSele && ligandComponent && (state().viewer.showPocketResidues || state().viewer.showInteractions)) {
+    const pocketLigandComponent = ligandComponent || pocketReferenceLigandComponent;
+    if (!ligandSele && pocketLigandComponent && (state().viewer.showPocketResidues || state().viewer.showInteractions)) {
       const proteinStructure = (proteinComponent as NGL.StructureComponent).structure;
-      const ligandStructure = (ligandComponent as NGL.StructureComponent).structure;
+      const ligandStructure = (pocketLigandComponent as NGL.StructureComponent).structure;
 
       if (proteinStructure && ligandStructure) {
         try {
@@ -905,7 +1095,7 @@ const ViewerMode: Component = () => {
                 }
 
                 // Cross-structure interactions with external ligand
-                if (state().viewer.showInteractions && ligandComponent && ligandStructure) {
+                if (state().viewer.showInteractions && pocketLigandComponent && ligandStructure) {
                   try {
                     const pAtoms = collectAtoms(proteinStructure, pocketResiduesSele, true);
                     const lAtoms = collectAtoms(ligandStructure, '*', false);
@@ -1045,6 +1235,7 @@ const ViewerMode: Component = () => {
 
       // Reset ligand state only if not preserving external ligand
       if (!preserveExternalLigand) {
+        clearPocketReferenceLigand();
         setViewerLigandPath(null);
         setViewerDetectedLigands([]);
         setViewerSelectedLigandId(null);
@@ -1076,6 +1267,7 @@ const ViewerMode: Component = () => {
         }
 
         updateProteinStyle();
+        setStructureLoadTick((tick) => tick + 1);
 
         // Detect ligands in the PDB in the background (don't block the viewer)
         if (!preserveExternalLigand) {
@@ -1158,8 +1350,58 @@ const ViewerMode: Component = () => {
     return result.value.sdfPath;
   };
 
+  const getViewerSupportDir = async (name: string): Promise<string> => {
+    if (state().projectDir) {
+      return `${state().projectDir}/structures/${name}`;
+    }
+
+    const defaultDir = await api.getDefaultOutputDir();
+    const baseOutputDir = state().customOutputDir || defaultDir;
+    return `${projectPaths(baseOutputDir, state().jobName).structures}/${name}`;
+  };
+
+  const resolvePocketReferenceLigandPath = async (row: ViewerProjectRow): Promise<string | null> => {
+    if (row.pocketLigandPath) return row.pocketLigandPath;
+    if (!row.pocketSourcePdbPath) return null;
+
+    const detected = await api.detectPdbLigands(row.pocketSourcePdbPath);
+    if (!detected.ok) return null;
+    const ligands = Array.isArray(detected.value) ? detected.value : detected.value.ligands;
+    const ligandId = ligands[0]?.id;
+    if (!ligandId) return null;
+
+    const outputDir = await getViewerSupportDir('viewer-pocket-reference');
+    const extracted = await api.extractXrayLigand(row.pocketSourcePdbPath, ligandId, outputDir);
+    return extracted.ok ? extracted.value.sdfPath : null;
+  };
+
+  const loadPocketReferenceLigand = async (row: ViewerProjectRow) => {
+    const pocketLigandPath = await resolvePocketReferenceLigandPath(row);
+    if (!pocketLigandPath) {
+      clearPocketReferenceLigand();
+      updateProteinStyle();
+      return;
+    }
+    await handleLoadExternalLigand(pocketLigandPath, {
+      target: 'pocket',
+      assignViewerLigandPath: false,
+      focus: false,
+    });
+  };
+
   // Load external ligand from path (supports .sdf, .sdf.gz, .mol, and .mol2)
-  const handleLoadExternalLigand = async (filePath: string) => {
+  const handleLoadExternalLigand = async (
+    filePath: string,
+    options: {
+      target?: 'visible' | 'pocket';
+      assignViewerLigandPath?: boolean;
+      focus?: boolean;
+    } = {},
+  ) => {
+    const target = options.target ?? 'visible';
+    const assignViewerLigandPath = options.assignViewerLigandPath ?? target === 'visible';
+    const focus = options.focus ?? target === 'visible';
+
     console.log('[Viewer] Loading external ligand:', filePath);
     const viewerSessionKey = state().viewer.sessionKey;
     setIsLoading(true);
@@ -1172,9 +1414,13 @@ const ViewerMode: Component = () => {
 
       // Load SDF into NGL
       if (stage) {
-        // Remove previous external ligand component if any
-        if (ligandComponent) {
-          stage.removeComponent(ligandComponent);
+        if (target === 'visible') {
+          clearPocketReferenceLigand();
+        }
+
+        const existingComponent = target === 'visible' ? ligandComponent : pocketReferenceLigandComponent;
+        if (existingComponent) {
+          stage.removeComponent(existingComponent);
         }
 
         // NGL auto-detects .sdf.gz (format=SDF, compression=gzip) — don't override ext
@@ -1184,36 +1430,47 @@ const ViewerMode: Component = () => {
         };
 
         console.log('[Viewer] Loading ligand file:', normalizedLigandPath, 'options:', loadOptions);
-        ligandComponent = await stage.loadFile(normalizedLigandPath, loadOptions) as NGL.Component || null;
+        const loadedComponent = await stage.loadFile(normalizedLigandPath, loadOptions) as NGL.Component || null;
         if (state().viewer.sessionKey !== viewerSessionKey) {
-          if (ligandComponent && stage) {
-            stage.removeComponent(ligandComponent);
+          if (loadedComponent && stage) {
+            stage.removeComponent(loadedComponent);
           }
-          ligandComponent = null;
+          if (target === 'visible') {
+            ligandComponent = null;
+          } else {
+            pocketReferenceLigandComponent = null;
+          }
           return;
+        }
+
+        if (target === 'visible') {
+          ligandComponent = loadedComponent;
+        } else {
+          pocketReferenceLigandComponent = loadedComponent;
+          pocketReferenceLigandComponent?.setVisibility(false);
         }
 
         // Wait for structure to be parsed (NGL parses asynchronously)
         await new Promise(resolve => setTimeout(resolve, 100));
         if (state().viewer.sessionKey !== viewerSessionKey) return;
 
-        updateExternalLigandStyle();
+        if (target === 'visible') {
+          updateExternalLigandStyle();
+        }
 
-        // Update protein style to recalculate pocket residues and interactions with new ligand
         if (proteinComponent) {
           console.log('[Viewer] Updating protein style after ligand load');
           updateProteinStyle();
         }
 
-        // Focus on ligand rather than whole protein
-        if (ligandComponent) {
+        if (focus && ligandComponent) {
           ligandComponent.autoView();
-        } else {
+        } else if (focus) {
           stage.autoView();
         }
       }
 
-      if (state().viewer.sessionKey === viewerSessionKey) {
+      if (assignViewerLigandPath && state().viewer.sessionKey === viewerSessionKey) {
         setViewerLigandPath(normalizedLigandPath);
       }
     } catch (err) {
@@ -1222,6 +1479,70 @@ const ViewerMode: Component = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleLoadStandaloneLigand = async (filePath: string) => {
+    if (!stage) return;
+    clearBindingSiteVolumes();
+    clearPocketReferenceLigand();
+    if (interactionShapeComponent) {
+      stage.removeComponent(interactionShapeComponent);
+      interactionShapeComponent = null;
+    }
+    if (isAligned()) clearAlignment();
+    setViewerDetectedLigands([]);
+    setViewerSelectedLigandId(null);
+
+    if (proteinComponent) {
+      stage.removeComponent(proteinComponent);
+      proteinComponent = null;
+    }
+
+    if (ligandComponent) {
+      stage.removeComponent(ligandComponent);
+      ligandComponent = null;
+    }
+
+    await handleLoadExternalLigand(filePath, {
+      target: 'visible',
+      assignViewerLigandPath: true,
+      focus: true,
+    });
+
+    if (state().viewer.pdbPath !== state().viewer.ligandPath) {
+      setViewerPdbPath(state().viewer.ligandPath);
+    }
+  };
+
+  const loadViewerQueueItem = async (item: ViewerQueueItem) => {
+    if (item.type === 'conformer' || item.type === 'ligand') {
+      console.log(`[Viewer] Queue nav (conformer): ${item.label} — ${item.pdbPath}`);
+      await handleLoadStandaloneLigand(item.pdbPath);
+      return;
+    }
+
+    if (item.ligandPath) {
+      console.log(`[Viewer] Queue nav (docking): ${item.label} — ligand=${item.ligandPath}`);
+      const currentPdb = state().viewer.pdbPath;
+      if (currentPdb !== item.pdbPath || !proteinComponent) {
+        await handleLoadPdb(item.pdbPath, true);
+      }
+      await handleLoadExternalLigand(item.ligandPath);
+      return;
+    }
+
+    if (isAligned() && alignedComponents.has(state().viewer.pdbQueueIndex)) {
+      for (const [i, comp] of alignedComponents.entries()) {
+        comp.setVisibility(i === state().viewer.pdbQueueIndex);
+      }
+      proteinComponent = alignedComponents.get(state().viewer.pdbQueueIndex) || null;
+      return;
+    }
+
+    console.log('[Viewer] Queue navigation to:', item.label, item.pdbPath);
+    clearPocketReferenceLigand();
+    if (isAligned()) clearAlignment();
+    await handleLoadPdb(item.pdbPath, false);
   };
 
   // React to PDB queue navigation (page-turn arrows + initial load from View 3D)
@@ -1237,49 +1558,7 @@ const ViewerMode: Component = () => {
       lastQueueIndex = idx;
       const item = queue[idx];
       if (!item) { lastQueueIndex = idx; return; }
-
-      if (item.type === 'conformer') {
-        // Conformer mode: load SDF directly with ball+stick representation
-        console.log(`[Viewer] Queue nav (conformer): ${item.label} — ${item.pdbPath}`);
-        if (stage) {
-          stage.removeAllComponents();
-          proteinComponent = null;
-          ligandComponent = null;
-          try {
-            const comp = await stage.loadFile(item.pdbPath) as NGL.Component | null;
-            if (comp) {
-              comp.addRepresentation('ball+stick', {
-                multipleBond: true,
-                colorScheme: 'element',
-              });
-              comp.autoView();
-              proteinComponent = comp;
-            }
-          } catch (err) {
-            console.error('[Viewer] Failed to load conformer:', err);
-          }
-        }
-      } else if (item.ligandPath) {
-        // Docking mode: keep receptor, swap ligand only
-        console.log(`[Viewer] Queue nav (docking): ${item.label} — ligand=${item.ligandPath}`);
-        const currentPdb = state().viewer.pdbPath;
-        if (currentPdb !== item.pdbPath || !proteinComponent) {
-          await handleLoadPdb(item.pdbPath, true);
-        }
-        await handleLoadExternalLigand(item.ligandPath);
-      } else if (isAligned() && alignedComponents.has(idx)) {
-        // Aligned mode: toggle visibility instead of reloading
-        for (const [i, comp] of alignedComponents.entries()) {
-          comp.setVisibility(i === idx);
-        }
-        // Update proteinComponent reference to the visible one
-        proteinComponent = alignedComponents.get(idx) || null;
-      } else {
-        // Normal mode: load the PDB
-        console.log('[Viewer] Queue navigation to:', item.label, item.pdbPath);
-        if (isAligned()) clearAlignment();
-        await handleLoadPdb(item.pdbPath, false);
-      }
+      await loadViewerQueueItem(item);
     }
     lastQueueIndex = idx;
   });
@@ -1290,6 +1569,7 @@ const ViewerMode: Component = () => {
   // while proteinComponent is still null, causing an infinite load loop.
   // eslint-disable-next-line solid/reactivity -- async load is intentional
   createEffect(async () => {
+    structureLoadTick();
     if (!stageReady()) return;
 
     const pdbPath = state().viewer.pdbPath;
@@ -1321,6 +1601,7 @@ const ViewerMode: Component = () => {
   // Auto-load DCD after the topology is present. This is the same path used by the explicit DCD picker.
   // eslint-disable-next-line solid/reactivity -- async load is intentional
   createEffect(async () => {
+    structureLoadTick();
     if (!stageReady() || !proteinComponent) return;
 
     const trajectoryPath = state().viewer.trajectoryPath;
@@ -1435,11 +1716,12 @@ const ViewerMode: Component = () => {
   };
 
   const handleExportPdb = async () => {
-    if (!proteinComponent) return;
+    const exportComponent = proteinComponent || ligandComponent;
+    if (!exportComponent) return;
 
     try {
       // Get the structure from NGL and export as PDB
-      const structure = (proteinComponent as NGL.StructureComponent).structure;
+      const structure = (exportComponent as NGL.StructureComponent).structure;
       if (!structure) return;
 
       // Use NGL's built-in PDB writer
@@ -1447,8 +1729,10 @@ const ViewerMode: Component = () => {
       const pdbString = pdbWriter.getString();
 
       // Generate a default filename
-      const pdbPath = state().viewer.pdbPath;
-      const baseName = pdbPath ? pdbPath.split('/').pop()?.replace('.pdb', '') : 'complex';
+      const currentPath = state().viewer.ligandPath || state().viewer.pdbPath;
+      const baseName = currentPath
+        ? currentPath.split('/').pop()?.replace(/\.(pdb|sdf|sdf\.gz|mol|mol2)$/i, '')
+        : 'complex';
       const defaultName = `${baseName}_export.pdb`;
 
       // Save via IPC
@@ -1523,6 +1807,7 @@ const ViewerMode: Component = () => {
       handleTrajectoryPause();
       isFirstFrameLoad = true;
       setViewerTrajectoryInfo(null);
+      resetViewerTestState();
 
       // Get trajectory info from backend
       const infoResult = await api.getTrajectoryInfo(pdbPath, dcdPath);
@@ -1624,6 +1909,7 @@ const ViewerMode: Component = () => {
           structure.updatePosition(coords);
 
           setViewerCurrentFrame(frameIndex);
+          updateViewerTestState(frameIndex, structure, proteinComponent);
 
           // Track center target without changing camera rotation/zoom
           const centerTarget = state().viewer.centerTarget;
@@ -1686,6 +1972,7 @@ const ViewerMode: Component = () => {
 
       // Update current frame in state
       setViewerCurrentFrame(frameIndex);
+      updateViewerTestState(frameIndex, (proteinComponent as NGL.StructureComponent).structure, proteinComponent);
 
       // Center view on target
       // First frame: use autoView on target to establish initial rotation + zoom + center
@@ -1856,6 +2143,11 @@ const ViewerMode: Component = () => {
   // Clean up playback on unmount
   onCleanup(() => {
     playbackGeneration++;
+    window.removeEventListener('mousemove', handleProjectTableResizeMove);
+    window.removeEventListener('mouseup', handleProjectTableResizeEnd);
+    window.removeEventListener('keydown', handleViewerKeyDown);
+    resizeObserver?.disconnect();
+    resizeObserver = null;
     if (playbackTimer) {
       clearTimeout(playbackTimer);
       playbackTimer = null;
@@ -2161,6 +2453,34 @@ const ViewerMode: Component = () => {
     await handleLoadTrajectory(dcdPath);
   };
 
+  const handleFetchViewerPdb = async () => {
+    const id = viewerPdbIdInput().trim();
+    if (!id) return;
+    const projectDir = state().projectDir;
+    if (!projectDir) {
+      setError('No project selected');
+      return;
+    }
+
+    setIsFetchingViewerPdb(true);
+    setError(null);
+
+    try {
+      const result = await api.fetchPdb(id, projectDir);
+      if (!result.ok) {
+        setError(result.error?.message || 'Failed to fetch PDB');
+        return;
+      }
+
+      setViewerPdbIdInput('');
+      await loadImportedStructures([result.value]);
+    } catch (err) {
+      setError(`PDB fetch error: ${(err as Error).message}`);
+    } finally {
+      setIsFetchingViewerPdb(false);
+    }
+  };
+
   const handleOpenRecentJob = async (jobId: string) => {
     const job = recentJobs().find((entry) => entry.id === jobId);
     if (!job || loadingRecentJobId()) return;
@@ -2170,6 +2490,89 @@ const ViewerMode: Component = () => {
       await loadProjectJob(job, api);
     } finally {
       setLoadingRecentJobId(null);
+    }
+  };
+
+  const handleProjectTableSort = (familyId: string, columnKey: string) => {
+    const family = state().viewer.projectTable?.families.find((entry) => entry.id === familyId);
+    if (!family) return;
+    const nextDirection = family.sortKey === columnKey && family.sortDirection === 'asc' ? 'desc' : 'asc';
+    setViewerProjectFamilySort(familyId, columnKey, nextDirection);
+  };
+
+  const handleProjectTableRowSelect = async (rowId: string) => {
+    const projectTable = state().viewer.projectTable;
+    const row = projectTable?.rows.find((entry) => entry.id === rowId);
+    if (!row) return;
+
+    setViewerProjectActiveRow(rowId);
+
+    if (row.loadKind === 'queue' && row.queueIndex !== undefined && row.queueIndex >= 0) {
+      const familyQueueRows = projectTable?.rows
+        .filter((entry) => entry.familyId === row.familyId && entry.loadKind === 'queue' && entry.queueIndex !== undefined)
+        .sort((a, b) => (a.queueIndex ?? 0) - (b.queueIndex ?? 0)) ?? [];
+
+      if (familyQueueRows.length > 0) {
+        const restoredQueue = familyQueueRows.map((entry) => entry.item);
+        const queueMatches = state().viewer.pdbQueue.length === restoredQueue.length
+          && state().viewer.pdbQueue.every((item, index) =>
+            item.pdbPath === restoredQueue[index]?.pdbPath
+            && item.ligandPath === restoredQueue[index]?.ligandPath
+            && item.type === restoredQueue[index]?.type
+          );
+        if (!queueMatches) {
+          setViewerPdbQueue(restoredQueue);
+        }
+      }
+
+      setViewerTrajectoryPath(row.trajectoryPath ?? null);
+      setViewerTrajectoryInfo(row.trajectoryPath ? state().viewer.trajectoryInfo : null);
+      setViewerCurrentFrame(0);
+      setViewerPdbQueueIndex(row.queueIndex);
+      return;
+    }
+
+    setViewerPdbQueue([]);
+    setViewerTrajectoryPath(row.trajectoryPath ?? null);
+    setViewerTrajectoryInfo(null);
+    setViewerCurrentFrame(0);
+
+    if (row.loadKind === 'standalone-ligand') {
+      setViewerDetectedLigands([]);
+      setViewerSelectedLigandId(null);
+      setViewerPdbPath(row.item.pdbPath);
+      setViewerLigandPath(row.item.pdbPath);
+      await handleLoadStandaloneLigand(row.item.pdbPath);
+      return;
+    }
+
+    setViewerPdbPath(row.item.pdbPath);
+    setViewerLigandPath(row.item.ligandPath ?? null);
+    clearPocketReferenceLigand();
+    await loadViewerQueueItem(row.item);
+
+    if (!row.item.ligandPath && (row.pocketLigandPath || row.pocketSourcePdbPath)) {
+      await loadPocketReferenceLigand(row);
+    }
+  };
+
+  const handleProjectTablePlayTrajectory = async (familyId: string) => {
+    const projectTable = state().viewer.projectTable;
+    const family = projectTable?.families.find((entry) => entry.id === familyId);
+    if (!family?.trajectoryPath) return;
+    const initialRow = projectTable?.rows.find((row) => row.familyId === familyId && row.rowKind === 'initial-complex');
+    if (!initialRow) return;
+
+    setViewerProjectActiveRow(initialRow.id);
+    setViewerPdbQueue([]);
+    setViewerPdbPath(initialRow.item.pdbPath);
+    setViewerLigandPath(initialRow.item.ligandPath ?? null);
+    setViewerTrajectoryPath(family.trajectoryPath);
+    setViewerTrajectoryInfo(null);
+    setViewerCurrentFrame(0);
+
+    if (!proteinComponent || state().viewer.pdbPath !== initialRow.item.pdbPath) {
+      await loadViewerQueueItem(initialRow.item);
     }
   };
 
@@ -2595,6 +2998,13 @@ const ViewerMode: Component = () => {
     if (!pdbPath && isLigandLikePath(ligandPath)) return ligandPath;
     return null;
   };
+  const hasLigandDisplayTarget = () => hasAnyLigand() || getStandaloneLigandPath() !== null || (!!ligandComponent && !proteinComponent);
+  const hasProteinLigandContext = () => !!proteinComponent && hasAnyLigand();
+  const canSimulateCurrentView = () =>
+    !!state().viewer.pdbPath
+    && !isLigandLikePath(state().viewer.pdbPath)
+    && hasAnyLigand();
+  const canExportCurrentView = () => !!state().viewer.pdbPath || !!state().viewer.ligandPath;
   const canEstimateLigandPka = () =>
     !state().viewer.trajectoryPath
     && state().viewer.detectedLigands.length === 0
@@ -2611,7 +3021,7 @@ const ViewerMode: Component = () => {
   const qupkakeWarning = () => {
     const capability = qupkakeCapability();
     if (!capability?.available || capability.validated) return null;
-    return capability.warning || 'QupKake is available, but this macOS runtime is still experimental.';
+    return capability.warning || 'QupKake is blocked until the required acid/base validation controls pass.';
   };
 
   createEffect(() => {
@@ -2641,7 +3051,7 @@ const ViewerMode: Component = () => {
 
   const handleSimulate = () => {
     const pdbPath = state().viewer.pdbPath;
-    if (!pdbPath) return;
+    if (!pdbPath || !canSimulateCurrentView()) return;
     const ligandPath = state().viewer.ligandPath;
     const ligandName = ligandPath
       ? ligandPath.split('/').pop()?.replace(/\.sdf(\.gz)?$/, '') || 'ligand'
@@ -2659,7 +3069,7 @@ const ViewerMode: Component = () => {
 
   const handlePredictLigandPka = async () => {
     const ligandPath = getStandaloneLigandPath();
-    if (!ligandPath || !qupkakeAvailable() || isComputingPka()) return;
+    if (!ligandPath || !qupkakeAvailable() || !qupkakeValidated() || isComputingPka()) return;
 
     const viewerSessionKey = state().viewer.sessionKey;
     const requestId = ++pkaRequestId;
@@ -2672,11 +3082,16 @@ const ViewerMode: Component = () => {
       if (result.ok) {
         setPkaResult(result.value);
       } else {
+        console.error('[Viewer][QupKake] ligand pKa prediction failed', {
+          ligandPath,
+          error: result.error,
+        });
         setPkaResult(null);
         setPkaError(result.error?.message || 'Failed to predict pKa');
       }
     } catch (err) {
       if (state().viewer.sessionKey !== viewerSessionKey || requestId !== pkaRequestId) return;
+      console.error('[Viewer][QupKake] ligand pKa prediction threw', { ligandPath, error: err });
       setPkaResult(null);
       setPkaError(`Failed to predict pKa: ${(err as Error).message}`);
     } finally {
@@ -2697,11 +3112,16 @@ const ViewerMode: Component = () => {
       recentJobs={recentJobs()}
       isLoadingRecentJobs={isLoadingRecentJobs()}
       loadingRecentJobId={loadingRecentJobId()}
+      pdbIdInput={viewerPdbIdInput()}
+      isLoadingImport={isLoading()}
+      isLoadingPdbFetch={isFetchingViewerPdb()}
       smilesInput={smilesInput()}
       isLoadingSmiles={isLoadingSmiles()}
       onBrowseFiles={handleImportFiles}
       onAlignAll={handleLayerAlignAll}
       onClearAll={handleClearAll}
+      onPdbIdInput={setViewerPdbIdInput}
+      onFetchPdb={handleFetchViewerPdb}
       onSmilesInput={setSmilesInput}
       onLoadSmiles={handleLoadSmiles}
       onOpenRecentJob={handleOpenRecentJob}
@@ -2724,49 +3144,9 @@ const ViewerMode: Component = () => {
   );
 
   return (
-    <div class="h-full flex flex-col gap-2">
-      {/* Queue Navigation (docking poses / multi-structure) */}
-      <Show when={state().viewer.pdbQueue.length > 1}>
-        <div class="card bg-base-200 p-2">
-          <div class="flex items-center gap-2 px-1">
-            <button
-              class="btn btn-xs btn-ghost btn-square"
-              onClick={() => {
-                const idx = Math.max(0, state().viewer.pdbQueueIndex - 1);
-                setViewerPdbQueueIndex(idx);
-              }}
-              disabled={state().viewer.pdbQueueIndex === 0}
-              title="Previous"
-            >
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <span class="text-xs text-base-content/80 flex-1 text-center">
-              {state().viewer.pdbQueue[state().viewer.pdbQueueIndex]?.label || ''}
-              <span class="text-base-content/50 ml-1">
-                ({state().viewer.pdbQueueIndex + 1}/{state().viewer.pdbQueue.length})
-              </span>
-            </span>
-            <button
-              class="btn btn-xs btn-ghost btn-square"
-              onClick={() => {
-                const idx = Math.min(state().viewer.pdbQueue.length - 1, state().viewer.pdbQueueIndex + 1);
-                setViewerPdbQueueIndex(idx);
-              }}
-              disabled={state().viewer.pdbQueueIndex === state().viewer.pdbQueue.length - 1}
-              title="Next"
-            >
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </Show>
-
+    <div class="h-full w-full min-w-0 flex flex-col gap-2">
       {/* Detected Ligand Info */}
-      <Show when={hasAutoDetectedLigand() || hasExternalLigand()}>
+      <Show when={hasAnyLigand()}>
         <div class="card bg-base-200 p-2">
           <div class="flex items-center gap-2">
             <Show when={hasAutoDetectedLigand()}>
@@ -2785,6 +3165,18 @@ const ViewerMode: Component = () => {
                 {state().viewer.ligandPath?.split('/').pop()}
               </Show>
             </span>
+            <Show when={hasViewerSession()}>
+              <button
+                class="btn btn-sm btn-error btn-outline ml-auto"
+                onClick={handleClearAll}
+                title="Close structure"
+                data-testid="viewer-close-button"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </Show>
           </div>
         </div>
       </Show>
@@ -2814,80 +3206,87 @@ const ViewerMode: Component = () => {
         </div>
       </Show>
 
-      {/* NGL Viewer Canvas */}
-      <div class="flex-1 relative rounded-lg overflow-hidden border border-base-300">
+      <Show when={canEstimateLigandPka() && qupkakeWarning()}>
+        <div class="alert alert-warning text-xs py-1">
+          {qupkakeWarning()}
+        </div>
+      </Show>
+
+      {/* NGL Viewer Canvas + Project Table */}
+      <div class="flex-1 min-h-0 min-w-0 w-full flex gap-2">
         <div
-          ref={containerRef}
-          class="absolute inset-0"
-          style={{ width: '100%', height: '100%' }}
-        />
-        {/* Floating buttons */}
-        <Show when={state().viewer.pdbPath || (canEstimateLigandPka() && qupkakeAvailable())}>
-          <div class="absolute top-2 right-2 z-10 flex flex-col items-end gap-2">
-            <div class="flex gap-1.5">
-              <Show when={canEstimateLigandPka() && qupkakeAvailable()}>
-                <button
-                  class={`btn btn-sm btn-ghost px-2 ${qupkakeValidated() ? 'bg-base-300/80 hover:bg-base-300' : 'border border-warning/40 bg-warning/15 text-warning-content hover:bg-warning/25'}`}
-                  onClick={handlePredictLigandPka}
-                  disabled={isComputingPka()}
-                  title={isCheckingQupkake()
-                    ? 'Checking QupKake...'
-                    : qupkakeValidated()
-                      ? 'Predict micro-pKa with QupKake'
-                      : 'Predict micro-pKa with QupKake (experimental runtime on this Mac)'}
-                >
-                  <Show when={isComputingPka()} fallback={<span class="font-semibold text-xs leading-none">pKa</span>}>
-                    <span class="loading loading-spinner loading-xs" />
-                  </Show>
-                </button>
-              </Show>
-              {/* Simulate (visible when a ligand is loaded with a structure) */}
-              <Show when={state().viewer.pdbPath && hasAnyLigand()}>
-                <button
-                  class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300"
-                  onClick={handleSimulate}
-                  title="Simulate — run MD on this structure"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                  </svg>
-                </button>
-              </Show>
-              <Show when={state().viewer.pdbPath}>
-                <button
-                  class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300"
-                  onClick={handleExportPdb}
-                  title="Export as PDB"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                </button>
-              </Show>
-              <Show when={hasViewerSession()}>
-                <button
-                  class="btn btn-sm btn-ghost bg-base-300/80 hover:bg-base-300"
-                  onClick={handleClearAll}
-                  title="Close structure"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </Show>
+          ref={viewerCanvasShellRef}
+          class="flex-1 basis-0 min-w-0 w-full relative rounded-lg overflow-hidden border border-base-300 min-h-0"
+        >
+          <div
+            ref={containerRef}
+            class="absolute inset-0"
+            style={{ width: '100%', height: '100%' }}
+          />
+          {/* Floating buttons */}
+          <Show when={canEstimateLigandPka() && qupkakeAvailable() && qupkakeValidated()}>
+            <div class="absolute top-2 right-2 z-10 flex flex-col items-end gap-2">
+              <div class="flex gap-1.5">
+                <Show when={canEstimateLigandPka() && qupkakeAvailable() && qupkakeValidated()}>
+                  <button
+                    class="btn btn-sm btn-ghost px-2 bg-base-300/80 hover:bg-base-300"
+                    onClick={handlePredictLigandPka}
+                    disabled={isComputingPka()}
+                    title={isCheckingQupkake()
+                      ? 'Checking QupKake...'
+                      : 'Predict micro-pKa with QupKake'}
+                  >
+                    <Show when={isComputingPka()} fallback={<span class="font-semibold text-xs leading-none">pKa</span>}>
+                      <span class="loading loading-spinner loading-xs" />
+                    </Show>
+                  </button>
+                </Show>
+              </div>
             </div>
-          </div>
-        </Show>
-        <Show when={isLoading()}>
-          <div class="absolute inset-0 bg-base-300/50 flex items-center justify-center">
-            <span class="loading loading-spinner loading-lg text-primary" />
-          </div>
-        </Show>
-        <Show when={!hasViewerSession() && !isLoading()}>
-          <div class="absolute inset-0 flex items-center justify-center overflow-auto">
-            <div class="w-full max-w-md">
-              {viewerLoadPanel(false)}
+          </Show>
+          <Show when={isLoading()}>
+            <div class="absolute inset-0 bg-base-300/50 flex items-center justify-center">
+              <span class="loading loading-spinner loading-lg text-primary" />
             </div>
+          </Show>
+          <Show when={!hasViewerSession() && !isLoading()}>
+            <div class="absolute inset-0 flex items-center justify-center overflow-auto">
+              <div class="w-full max-w-md">
+                {viewerLoadPanel(false)}
+              </div>
+            </div>
+          </Show>
+        </div>
+
+        <Show when={hasViewerSession() && hasProjectTable() && state().viewer.projectTable}>
+          <div
+            ref={projectTablePanelRef}
+            class="relative shrink-0 min-h-0 h-full"
+            style={{ width: `${projectTableWidth()}px` }}
+          >
+            <div
+              class="absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize z-20"
+              onMouseDown={handleProjectTableResizeStart}
+              data-testid="project-table-resize-handle"
+            >
+              <div class="pointer-events-none absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-px bg-base-content/15" />
+            </div>
+            <ProjectTable
+              projectTable={state().viewer.projectTable!}
+              panelWidth={projectTableWidth()}
+              onSelectRow={handleProjectTableRowSelect}
+              onToggleFamilyCollapsed={toggleViewerProjectFamilyCollapsed}
+              onSortFamily={handleProjectTableSort}
+              onPlayTrajectory={handleProjectTablePlayTrajectory}
+              canNavigatePrevious={activeProjectRowIndex() > 0}
+              canNavigateNext={activeProjectRowIndex() >= 0 && activeProjectRowIndex() < visibleProjectRows().length - 1}
+              onNavigatePrevious={() => void navigateProjectTable(-1)}
+              onNavigateNext={() => void navigateProjectTable(1)}
+              canSimulate={canSimulateCurrentView()}
+              canExport={canExportCurrentView()}
+              onSimulate={handleSimulate}
+              onExport={() => void handleExportPdb()}
+            />
           </div>
         </Show>
       </div>
@@ -2965,7 +3364,7 @@ const ViewerMode: Component = () => {
                 class="checkbox checkbox-xs checkbox-primary"
                 checked={state().viewer.showPocketResidues}
                 onChange={handlePocketResiduesToggle}
-                disabled={!hasAnyLigand()}
+                disabled={!hasProteinLigandContext()}
               />
               <span class="text-xs">Show Pocket</span>
             </label>
@@ -2975,7 +3374,7 @@ const ViewerMode: Component = () => {
                 class="checkbox checkbox-xs checkbox-primary"
                 checked={state().viewer.showPocketLabels}
                 onChange={handlePocketLabelsToggle}
-                disabled={!hasAnyLigand() || !state().viewer.showPocketResidues}
+                disabled={!hasProteinLigandContext() || !state().viewer.showPocketResidues}
               />
               <span class="text-xs">Labels</span>
             </label>
@@ -3000,7 +3399,7 @@ const ViewerMode: Component = () => {
                 class="checkbox checkbox-xs checkbox-secondary"
                 checked={state().viewer.ligandVisible}
                 onChange={handleLigandVisibleToggle}
-                disabled={!hasAnyLigand()}
+                disabled={!hasLigandDisplayTarget()}
               />
               <span class="text-xs">Show</span>
             </label>
@@ -3008,7 +3407,7 @@ const ViewerMode: Component = () => {
               class="select select-xs select-bordered w-24"
               value={state().viewer.ligandRep}
               onChange={(e) => handleLigandRepChange(e.target.value as LigandRepresentation)}
-              disabled={!hasAnyLigand()}
+              disabled={!hasLigandDisplayTarget()}
             >
               <option value="ball+stick">Ball+Stick</option>
               <option value="stick">Stick</option>
@@ -3019,7 +3418,7 @@ const ViewerMode: Component = () => {
               class="w-6 h-6 cursor-pointer rounded border border-base-300"
               value={state().viewer.ligandCarbonColor}
               onChange={(e) => handleLigandCarbonColorChange(e.target.value)}
-              disabled={!hasAnyLigand()}
+              disabled={!hasLigandDisplayTarget()}
               title="Carbon color"
             />
             <label class="label cursor-pointer gap-1 p-0">
@@ -3028,7 +3427,7 @@ const ViewerMode: Component = () => {
                 class="checkbox checkbox-xs checkbox-secondary"
                 checked={state().viewer.ligandSurface}
                 onChange={handleLigandSurfaceToggle}
-                disabled={!hasAnyLigand()}
+                disabled={!hasLigandDisplayTarget()}
               />
               <span class="text-xs">Surface</span>
             </label>
@@ -3037,7 +3436,7 @@ const ViewerMode: Component = () => {
                 class="select select-xs select-bordered w-32"
                 value={state().viewer.surfaceColorScheme}
                 onChange={(e) => handleSurfaceColorChange(e.target.value as SurfaceColorScheme)}
-                disabled={!hasAnyLigand()}
+                disabled={!hasLigandDisplayTarget()}
               >
                 <option value="uniform-grey">Solid</option>
                 <option value="hydrophobic">Hydrophobic</option>
@@ -3050,7 +3449,7 @@ const ViewerMode: Component = () => {
                 class="select select-xs select-bordered w-16"
                 value={state().viewer.ligandSurfaceOpacity}
                 onChange={(e) => handleLigandSurfaceOpacityChange(parseFloat(e.target.value))}
-                disabled={!hasAnyLigand()}
+                disabled={!hasLigandDisplayTarget()}
                 title="Surface opacity"
               >
                 <option value="0.1">10%</option>
@@ -3071,7 +3470,7 @@ const ViewerMode: Component = () => {
                 class="checkbox checkbox-xs checkbox-secondary"
                 checked={state().viewer.ligandPolarHOnly}
                 onChange={handleLigandPolarHToggle}
-                disabled={!hasAnyLigand()}
+                disabled={!hasLigandDisplayTarget()}
               />
               <span class="text-xs">Polar H</span>
             </label>
@@ -3081,7 +3480,7 @@ const ViewerMode: Component = () => {
                 class="checkbox checkbox-xs checkbox-accent"
                 checked={state().viewer.showInteractions}
                 onChange={handleInteractionsToggle}
-                disabled={!hasAnyLigand()}
+                disabled={!hasProteinLigandContext()}
               />
               <span class="text-xs">Interactions</span>
             </label>

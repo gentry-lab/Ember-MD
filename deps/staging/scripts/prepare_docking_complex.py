@@ -16,6 +16,8 @@ import sys
 import time
 from typing import Any, Tuple
 
+from utils import add_gbsa_obc2_force, load_sdf
+
 try:
     from rdkit import Chem
     from rdkit.Chem import AllChem
@@ -44,10 +46,10 @@ WATER_RESNAMES = {"HOH", "WAT", "H2O", "TIP3", "TIP4", "OPC"}
 
 
 def load_first_sdf(sdf_path: str) -> Any:
-    supplier = Chem.SDMolSupplier(sdf_path, removeHs=False)
-    if len(supplier) == 0 or supplier[0] is None:
+    mol = load_sdf(sdf_path)
+    if mol is None:
         raise RuntimeError(f"Failed to read molecule from {sdf_path}")
-    return supplier[0]
+    return mol
 
 
 def heavy_atom_smiles(mol: Any) -> str:
@@ -262,45 +264,7 @@ def create_complex_system(
             residueTemplates=cys_templates,
         )
 
-    radii_nm = {
-        "H": 0.12, "C": 0.17, "N": 0.155, "O": 0.15, "F": 0.15,
-        "S": 0.18, "P": 0.185, "Cl": 0.17, "Br": 0.185, "I": 0.198,
-        "Na": 0.102, "K": 0.138, "Mg": 0.072, "Ca": 0.10, "Zn": 0.074, "Fe": 0.064, "Mn": 0.067,
-    }
-    screen = {
-        "H": 0.85, "C": 0.72, "N": 0.79, "O": 0.85, "F": 0.88,
-        "S": 0.96, "P": 0.86, "Cl": 0.80, "Br": 0.80, "I": 0.80,
-        "Na": 0.80, "K": 0.80, "Mg": 0.80, "Ca": 0.80, "Zn": 0.80, "Fe": 0.80, "Mn": 0.80,
-    }
-
-    nb_force = None
-    for force in system.getForces():
-        if isinstance(force, openmm.NonbondedForce):
-            nb_force = force
-            break
-
-    if nb_force is not None:
-        gbsa = openmm.GBSAOBCForce()
-        gbsa.setSolventDielectric(78.5)
-        gbsa.setSoluteDielectric(1.0)
-        gbsa.setNonbondedMethod(openmm.GBSAOBCForce.NoCutoff)
-        bonds = list(modeller.topology.bonds())
-        for idx, atom in enumerate(modeller.topology.atoms()):
-            charge, _sigma, _epsilon = nb_force.getParticleParameters(idx)
-            q = charge.value_in_unit(omm_unit.elementary_charge)
-            symbol = atom.element.symbol if atom.element else "C"
-            radius = radii_nm.get(symbol, 0.15)
-            atom_screen = screen.get(symbol, 0.80)
-            if symbol == "H":
-                for a1, a2 in bonds:
-                    if a1.index == idx and a2.element and a2.element.symbol == "N":
-                        radius = 0.13
-                        break
-                    if a2.index == idx and a1.element and a1.element.symbol == "N":
-                        radius = 0.13
-                        break
-            gbsa.addParticle(q, radius, atom_screen)
-        system.addForce(gbsa)
+    add_gbsa_obc2_force(system, modeller.topology)
 
     restraint = openmm.CustomExternalForce("k*((x-x0)^2+(y-y0)^2+(z-z0)^2)")
     restraint.addGlobalParameter("k", 25000.0 * omm_unit.kilojoules_per_mole / omm_unit.nanometers ** 2)

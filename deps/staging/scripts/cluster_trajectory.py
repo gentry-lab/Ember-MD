@@ -99,6 +99,18 @@ def main() -> None:
         sampled_frame_indices = sampled_frame_indices[:args.max_frames]
 
     print(f"Using {len(sampled_frame_indices)} frames (stride={effective_stride}, total={total_frames})")
+    if len(sampled_frame_indices) == 0:
+        print("Error: No trajectory frames available for clustering", file=sys.stderr)
+        sys.exit(1)
+
+    requested_clusters = max(1, args.n_clusters)
+    actual_clusters = min(requested_clusters, len(sampled_frame_indices))
+    if actual_clusters != requested_clusters:
+        print(
+            f"Requested {requested_clusters} clusters but only {len(sampled_frame_indices)} sampled frames are available; "
+            f"using {actual_clusters} clusters instead.",
+            file=sys.stderr,
+        )
 
     # Store coordinates for selected frames
     coords = []
@@ -146,10 +158,13 @@ def main() -> None:
     # Perform clustering
     print(f"Clustering with {args.method}...")
 
-    if args.method == 'kmeans':
+    if n == 1:
+        labels = np.array([0], dtype=int)
+        actual_clusters = 1
+    elif args.method == 'kmeans':
         # For KMeans, we use coordinates directly
         coords_flat = coords.reshape(n, -1)
-        model = KMeans(n_clusters=args.n_clusters, random_state=42, n_init=10)
+        model = KMeans(n_clusters=actual_clusters, random_state=42, n_init=10)
         labels = model.fit_predict(coords_flat)
     elif args.method == 'dbscan':
         # DBSCAN uses the distance matrix
@@ -161,7 +176,7 @@ def main() -> None:
         model = DBSCAN(eps=eps, min_samples=max(2, n // 20), metric='precomputed')
         labels = model.fit_predict(rmsd_matrix)
     elif args.method == 'hierarchical':
-        model = AgglomerativeClustering(n_clusters=args.n_clusters, metric='precomputed', linkage='average')
+        model = AgglomerativeClustering(n_clusters=actual_clusters, metric='precomputed', linkage='average')
         labels = model.fit_predict(rmsd_matrix)
 
     # Analyze clusters
@@ -228,6 +243,8 @@ def main() -> None:
         'nFramesSampled': n,
         'nFramesTotal': total_frames,
         'stride': effective_stride,
+        'requestedClusters': requested_clusters,
+        'actualClusters': len(clusters),
     }
 
     results_path = os.path.join(args.output_dir, 'clustering_results.json')

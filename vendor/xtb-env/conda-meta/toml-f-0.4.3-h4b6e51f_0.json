@@ -1,0 +1,356 @@
+{
+  "name": "toml-f",
+  "version": "0.4.3",
+  "build": "h4b6e51f_0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/conda-forge/osx-arm64",
+  "subdir": "osx-arm64",
+  "fn": "toml-f-0.4.3-h4b6e51f_0.conda",
+  "md5": "87459f57f544db861e42db23aaba2cc4",
+  "url": "https://conda.anaconda.org/conda-forge/osx-arm64/toml-f-0.4.3-h4b6e51f_0.conda",
+  "sha256": "9ebc3e8c7212fd24965fb4dbdaa61e6a65b739fd2a89cfc075f9b4cd8503f372",
+  "depends": [
+    "__osx >=11.0",
+    "libgfortran",
+    "libgfortran5 >=14.3.0"
+  ],
+  "constrains": [],
+  "license": "Apache-2.0 OR MIT",
+  "timestamp": 1762776061000,
+  "size": 442298,
+  "requested_spec": "None",
+  "package_tarball_full_path": "/Users/controller/miniconda3/pkgs/toml-f-0.4.3-h4b6e51f_0.conda",
+  "extracted_package_dir": "/Users/controller/miniconda3/pkgs/toml-f-0.4.3-h4b6e51f_0",
+  "files": [
+    "include/toml-f/modules/tomlf.mod",
+    "include/toml-f/modules/tomlf_all.mod",
+    "include/toml-f/modules/tomlf_build.mod",
+    "include/toml-f/modules/tomlf_build_array.mod",
+    "include/toml-f/modules/tomlf_build_keyval.mod",
+    "include/toml-f/modules/tomlf_build_merge.mod",
+    "include/toml-f/modules/tomlf_build_path.mod",
+    "include/toml-f/modules/tomlf_build_table.mod",
+    "include/toml-f/modules/tomlf_constants.mod",
+    "include/toml-f/modules/tomlf_datetime.mod",
+    "include/toml-f/modules/tomlf_de.mod",
+    "include/toml-f/modules/tomlf_de_abc.mod",
+    "include/toml-f/modules/tomlf_de_context.mod",
+    "include/toml-f/modules/tomlf_de_lexer.mod",
+    "include/toml-f/modules/tomlf_de_parser.mod",
+    "include/toml-f/modules/tomlf_de_token.mod",
+    "include/toml-f/modules/tomlf_diagnostic.mod",
+    "include/toml-f/modules/tomlf_error.mod",
+    "include/toml-f/modules/tomlf_ser.mod",
+    "include/toml-f/modules/tomlf_structure.mod",
+    "include/toml-f/modules/tomlf_structure_array_list.mod",
+    "include/toml-f/modules/tomlf_structure_list.mod",
+    "include/toml-f/modules/tomlf_structure_map.mod",
+    "include/toml-f/modules/tomlf_structure_node.mod",
+    "include/toml-f/modules/tomlf_structure_ordered_map.mod",
+    "include/toml-f/modules/tomlf_terminal.mod",
+    "include/toml-f/modules/tomlf_type.mod",
+    "include/toml-f/modules/tomlf_type_array.mod",
+    "include/toml-f/modules/tomlf_type_keyval.mod",
+    "include/toml-f/modules/tomlf_type_table.mod",
+    "include/toml-f/modules/tomlf_type_value.mod",
+    "include/toml-f/modules/tomlf_utils.mod",
+    "include/toml-f/modules/tomlf_utils_io.mod",
+    "include/toml-f/modules/tomlf_utils_sort.mod",
+    "include/toml-f/modules/tomlf_version.mod",
+    "lib/libtoml-f.0.dylib",
+    "lib/libtoml-f.dylib",
+    "lib/pkgconfig/toml-f.pc",
+    "share/licenses/toml-f/LICENSE-Apache",
+    "share/licenses/toml-f/LICENSE-MIT"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "include/toml-f/modules/tomlf.mod",
+        "path_type": "hardlink",
+        "sha256": "bdebf85f3ebd47a6588722a5a42907f7bc160b5d8cb527c4f42eb591ca316b79",
+        "size_in_bytes": 34691,
+        "sha256_in_prefix": "bdebf85f3ebd47a6588722a5a42907f7bc160b5d8cb527c4f42eb591ca316b79"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_all.mod",
+        "path_type": "hardlink",
+        "sha256": "9d8e9e22d65e182f054e55397d8c7b840830de0c2b000a7b148c0ebc4d94485f",
+        "size_in_bytes": 37570,
+        "sha256_in_prefix": "9d8e9e22d65e182f054e55397d8c7b840830de0c2b000a7b148c0ebc4d94485f"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_build.mod",
+        "path_type": "hardlink",
+        "sha256": "ddec8ab6bb273bba5ac6a125d44d0f04a4cb4e64121675164237bb9ea0747a2b",
+        "size_in_bytes": 22123,
+        "sha256_in_prefix": "ddec8ab6bb273bba5ac6a125d44d0f04a4cb4e64121675164237bb9ea0747a2b"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_build_array.mod",
+        "path_type": "hardlink",
+        "sha256": "7bcea0ba848c1b69e698bf86e898ffac567cb89eef93089ed8821839f8f33aed",
+        "size_in_bytes": 15466,
+        "sha256_in_prefix": "7bcea0ba848c1b69e698bf86e898ffac567cb89eef93089ed8821839f8f33aed"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_build_keyval.mod",
+        "path_type": "hardlink",
+        "sha256": "8a28a39c9a1db602b848b36e8e7f9fd28a0cebf8768da77a8cc6e7e884c78a18",
+        "size_in_bytes": 12975,
+        "sha256_in_prefix": "8a28a39c9a1db602b848b36e8e7f9fd28a0cebf8768da77a8cc6e7e884c78a18"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_build_merge.mod",
+        "path_type": "hardlink",
+        "sha256": "2de71260f1f089a3b3f8d1513ec644af676828a925d8d0634d30cdf39df8d822",
+        "size_in_bytes": 12847,
+        "sha256_in_prefix": "2de71260f1f089a3b3f8d1513ec644af676828a925d8d0634d30cdf39df8d822"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_build_path.mod",
+        "path_type": "hardlink",
+        "sha256": "eef2462d9937088a1e0c10e99ee3e4ce3fb14d88bd2f7d8675e7d4938554c5b6",
+        "size_in_bytes": 18669,
+        "sha256_in_prefix": "eef2462d9937088a1e0c10e99ee3e4ce3fb14d88bd2f7d8675e7d4938554c5b6"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_build_table.mod",
+        "path_type": "hardlink",
+        "sha256": "1b790111150f3aab5ca18ded11812a6e3b6c64e059558f9409a9f614a2e96393",
+        "size_in_bytes": 16313,
+        "sha256_in_prefix": "1b790111150f3aab5ca18ded11812a6e3b6c64e059558f9409a9f614a2e96393"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_constants.mod",
+        "path_type": "hardlink",
+        "sha256": "d9de8ec7078454aa67bba78103a75f7668092f6bcfaeb3ea24b2973259fa1e54",
+        "size_in_bytes": 2155,
+        "sha256_in_prefix": "d9de8ec7078454aa67bba78103a75f7668092f6bcfaeb3ea24b2973259fa1e54"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_datetime.mod",
+        "path_type": "hardlink",
+        "sha256": "b36d9abc443c2b90684a01bd4107de8a97f085bdc4c6d492e52eb1bf4802568c",
+        "size_in_bytes": 2951,
+        "sha256_in_prefix": "b36d9abc443c2b90684a01bd4107de8a97f085bdc4c6d492e52eb1bf4802568c"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_de.mod",
+        "path_type": "hardlink",
+        "sha256": "af7ce0afa538e74918e18fcca3aeb4a70a64ef56a9b77c3132220dfd804669cc",
+        "size_in_bytes": 20716,
+        "sha256_in_prefix": "af7ce0afa538e74918e18fcca3aeb4a70a64ef56a9b77c3132220dfd804669cc"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_de_abc.mod",
+        "path_type": "hardlink",
+        "sha256": "392e8d1ee1180b39abfd3a0d7eb36f55ea8d0d4cf11c6a38c75efef1306b3548",
+        "size_in_bytes": 3907,
+        "sha256_in_prefix": "392e8d1ee1180b39abfd3a0d7eb36f55ea8d0d4cf11c6a38c75efef1306b3548"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_de_context.mod",
+        "path_type": "hardlink",
+        "sha256": "d080998810c8665a7987c2ddaa7fa5737601d85f965a5d317d971a22a4a547ed",
+        "size_in_bytes": 6012,
+        "sha256_in_prefix": "d080998810c8665a7987c2ddaa7fa5737601d85f965a5d317d971a22a4a547ed"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_de_lexer.mod",
+        "path_type": "hardlink",
+        "sha256": "8c9a1176e2e0614174188b7ce81c886144177f96beefe18a63428edeebf9f715",
+        "size_in_bytes": 10202,
+        "sha256_in_prefix": "8c9a1176e2e0614174188b7ce81c886144177f96beefe18a63428edeebf9f715"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_de_parser.mod",
+        "path_type": "hardlink",
+        "sha256": "50481fab8850400d8affaeb7a5da768a9baa3a663bb394e3c9765f6490028b7a",
+        "size_in_bytes": 18502,
+        "sha256_in_prefix": "50481fab8850400d8affaeb7a5da768a9baa3a663bb394e3c9765f6490028b7a"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_de_token.mod",
+        "path_type": "hardlink",
+        "sha256": "1a0475cb4feb6a12204102598600e18d049676b130fb9201c26a42a6be99a113",
+        "size_in_bytes": 1786,
+        "sha256_in_prefix": "1a0475cb4feb6a12204102598600e18d049676b130fb9201c26a42a6be99a113"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_diagnostic.mod",
+        "path_type": "hardlink",
+        "sha256": "5a1fc3398da4a3902550f00861d1a24cb63479d0eca0852ae94d536c87294f55",
+        "size_in_bytes": 5144,
+        "sha256_in_prefix": "5a1fc3398da4a3902550f00861d1a24cb63479d0eca0852ae94d536c87294f55"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_error.mod",
+        "path_type": "hardlink",
+        "sha256": "2b5e039d829d73c7e548152bc95636d6df2601f4cc2472bad91e796310ba78e7",
+        "size_in_bytes": 2226,
+        "sha256_in_prefix": "2b5e039d829d73c7e548152bc95636d6df2601f4cc2472bad91e796310ba78e7"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_ser.mod",
+        "path_type": "hardlink",
+        "sha256": "07cc8bfd6f054855f63ff5b6dcecc58b11cdb9a124b5dbe3c8cb7c3be3fb0ba7",
+        "size_in_bytes": 13433,
+        "sha256_in_prefix": "07cc8bfd6f054855f63ff5b6dcecc58b11cdb9a124b5dbe3c8cb7c3be3fb0ba7"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_structure.mod",
+        "path_type": "hardlink",
+        "sha256": "e2ba0c244301153d8a835b77eceaf4430a20ca8e581884b4316f104cddd44c56",
+        "size_in_bytes": 7159,
+        "sha256_in_prefix": "e2ba0c244301153d8a835b77eceaf4430a20ca8e581884b4316f104cddd44c56"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_structure_array_list.mod",
+        "path_type": "hardlink",
+        "sha256": "2d137965762d3ad6bec19f28c9bf4e64ca5784d021b9c43a38dde6b2e7ed1c62",
+        "size_in_bytes": 5709,
+        "sha256_in_prefix": "2d137965762d3ad6bec19f28c9bf4e64ca5784d021b9c43a38dde6b2e7ed1c62"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_structure_list.mod",
+        "path_type": "hardlink",
+        "sha256": "4262b54e3ca6a58756c32d5868cdb54eb6007895a577a51f011eb425437f57bd",
+        "size_in_bytes": 4386,
+        "sha256_in_prefix": "4262b54e3ca6a58756c32d5868cdb54eb6007895a577a51f011eb425437f57bd"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_structure_map.mod",
+        "path_type": "hardlink",
+        "sha256": "6c9b4265dd78d21a05511bef4949a049a790ca33d930223b39729d1cbc7448f1",
+        "size_in_bytes": 4323,
+        "sha256_in_prefix": "6c9b4265dd78d21a05511bef4949a049a790ca33d930223b39729d1cbc7448f1"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_structure_node.mod",
+        "path_type": "hardlink",
+        "sha256": "9e01a4207a6cd898062e21df48c4b0defe5b8a611732a782814d30609a432c0c",
+        "size_in_bytes": 4000,
+        "sha256_in_prefix": "9e01a4207a6cd898062e21df48c4b0defe5b8a611732a782814d30609a432c0c"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_structure_ordered_map.mod",
+        "path_type": "hardlink",
+        "sha256": "56401833db9b92ab43d2492e6328233e5fd11b32fcc7a8693c2ad045e12af555",
+        "size_in_bytes": 5697,
+        "sha256_in_prefix": "56401833db9b92ab43d2492e6328233e5fd11b32fcc7a8693c2ad045e12af555"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_terminal.mod",
+        "path_type": "hardlink",
+        "sha256": "51443b63376006ca5b2d59bcd87faab11353f2ebbd2c6d749cce80b0b7f0f349",
+        "size_in_bytes": 4493,
+        "sha256_in_prefix": "51443b63376006ca5b2d59bcd87faab11353f2ebbd2c6d749cce80b0b7f0f349"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_type.mod",
+        "path_type": "hardlink",
+        "sha256": "a6a3a4558161bb34aa166dc80364feb7a5683da3624b67cf98d2413353cdebe0",
+        "size_in_bytes": 13505,
+        "sha256_in_prefix": "a6a3a4558161bb34aa166dc80364feb7a5683da3624b67cf98d2413353cdebe0"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_type_array.mod",
+        "path_type": "hardlink",
+        "sha256": "c79bdcb0a5067dda0c309a3015cb2ae227b1ad0c35b4c571e113399c25030c60",
+        "size_in_bytes": 8688,
+        "sha256_in_prefix": "c79bdcb0a5067dda0c309a3015cb2ae227b1ad0c35b4c571e113399c25030c60"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_type_keyval.mod",
+        "path_type": "hardlink",
+        "sha256": "e818bd2dc1252d87ad0703483c8e6f338566a0fc074f757ab26f9a51b3411641",
+        "size_in_bytes": 6277,
+        "sha256_in_prefix": "e818bd2dc1252d87ad0703483c8e6f338566a0fc074f757ab26f9a51b3411641"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_type_table.mod",
+        "path_type": "hardlink",
+        "sha256": "9fb7647412d882a8650ac0869f656255e84afe8c6f231584c00e41ee0a5b4521",
+        "size_in_bytes": 8960,
+        "sha256_in_prefix": "9fb7647412d882a8650ac0869f656255e84afe8c6f231584c00e41ee0a5b4521"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_type_value.mod",
+        "path_type": "hardlink",
+        "sha256": "04202fdb811440a121502db3987a6c0a363298789562365bb9836f3711f99991",
+        "size_in_bytes": 3685,
+        "sha256_in_prefix": "04202fdb811440a121502db3987a6c0a363298789562365bb9836f3711f99991"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_utils.mod",
+        "path_type": "hardlink",
+        "sha256": "a1641cc2e5290e7bd5114fb66a5d064285f5464e0dc534a4dcd9fefa14ca9acd",
+        "size_in_bytes": 2740,
+        "sha256_in_prefix": "a1641cc2e5290e7bd5114fb66a5d064285f5464e0dc534a4dcd9fefa14ca9acd"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_utils_io.mod",
+        "path_type": "hardlink",
+        "sha256": "27654efcab24f0274df95ef01b5ee4724703da8953eab93daeef68ed819c89d0",
+        "size_in_bytes": 1409,
+        "sha256_in_prefix": "27654efcab24f0274df95ef01b5ee4724703da8953eab93daeef68ed819c89d0"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_utils_sort.mod",
+        "path_type": "hardlink",
+        "sha256": "bd37524cd63ce4b44236cfc6091be5766c85be6cfd294615c75fc651c1ced7e7",
+        "size_in_bytes": 3716,
+        "sha256_in_prefix": "bd37524cd63ce4b44236cfc6091be5766c85be6cfd294615c75fc651c1ced7e7"
+      },
+      {
+        "_path": "include/toml-f/modules/tomlf_version.mod",
+        "path_type": "hardlink",
+        "sha256": "3fed4e8b0f6762dd5e5950604cb9605302613c127d887bebe40f8ca856158554",
+        "size_in_bytes": 455,
+        "sha256_in_prefix": "3fed4e8b0f6762dd5e5950604cb9605302613c127d887bebe40f8ca856158554"
+      },
+      {
+        "_path": "lib/libtoml-f.0.dylib",
+        "path_type": "hardlink",
+        "sha256": "e2add6c559b593de40c7227540bc903ee36839aab6477f09b71abe5d22b5aaf7",
+        "size_in_bytes": 295376,
+        "sha256_in_prefix": "e2add6c559b593de40c7227540bc903ee36839aab6477f09b71abe5d22b5aaf7"
+      },
+      {
+        "_path": "lib/libtoml-f.dylib",
+        "path_type": "softlink",
+        "sha256": "e2add6c559b593de40c7227540bc903ee36839aab6477f09b71abe5d22b5aaf7",
+        "size_in_bytes": 295376
+      },
+      {
+        "_path": "lib/pkgconfig/toml-f.pc",
+        "prefix_placeholder": "/Users/runner/miniforge3/conda-bld/toml-f_1762775660960/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pl",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "be3d57be28daf56928d9a88ebc68631d89ee8ce0c61a66e997d03e6f3a0af691",
+        "size_in_bytes": 520,
+        "sha256_in_prefix": "8bc3fb7615f6aa984596486e85c27754d427e0b13f2b291ddb11fb233b0919a1"
+      },
+      {
+        "_path": "share/licenses/toml-f/LICENSE-Apache",
+        "path_type": "hardlink",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "size_in_bytes": 11358,
+        "sha256_in_prefix": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      {
+        "_path": "share/licenses/toml-f/LICENSE-MIT",
+        "path_type": "hardlink",
+        "sha256": "aae148780b8012a964c33894d1414ff183b0b67a76fcc63f8893d3f816909e39",
+        "size_in_bytes": 1061,
+        "sha256_in_prefix": "aae148780b8012a964c33894d1414ff183b0b67a76fcc63f8893d3f816909e39"
+      }
+    ]
+  },
+  "link": {
+    "source": "/Users/controller/miniconda3/pkgs/toml-f-0.4.3-h4b6e51f_0",
+    "type": 1
+  }
+}

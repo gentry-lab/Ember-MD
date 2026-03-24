@@ -14,6 +14,8 @@
  *     inputs/              — receptor.pdb, ligand.sdf
  *     results/             — system.pdb, trajectory.dcd, final.pdb, energy.csv
  *     analysis/            — clustering/, rmsd/, rmsf/, hbonds/, contacts/
+ *   xray/{run}/            — X-ray pose validation jobs
+ *     reports/             — xray_analysis_*.pdf outputs
  *   fep/                   — FEP scoring results
  */
 
@@ -65,6 +67,7 @@ export function projectPaths(baseDir: string, projectName: string) {
       };
     },
     conformers: (runFolder: string) => path.join(root, 'conformers', runFolder),
+    xray: (runFolder: string) => path.join(root, 'xray', runFolder),
     fep: path.join(root, 'fep'),
 
     // === Legacy aliases (for reading old projects) ===

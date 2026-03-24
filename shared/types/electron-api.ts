@@ -36,6 +36,7 @@ import type {
   ExportFrameOptions,
   AnalysisOptions,
   AnalysisResult,
+  XrayAnalysisResult,
   MdReportOptions,
   MdReportResult,
   MdTorsionAnalysis,
@@ -260,6 +261,7 @@ export interface ElectronAPI {
 
   // MD event listener
   onMdOutput: (callback: (data: OutputData) => void) => () => void;
+  onXrayOutput: (callback: (data: OutputData) => void) => () => void;
 
   // Trajectory viewer operations
   selectDcdFile: () => Promise<string | null>;
@@ -283,6 +285,7 @@ export interface ElectronAPI {
   exportTrajectoryFrame: (options: ExportFrameOptions) => Promise<Result<{ pdbPath: string }, AppError>>;
   analyzeTrajectory: (options: AnalysisOptions) => Promise<Result<AnalysisResult, AppError>>;
   generateMdReport: (options: MdReportOptions) => Promise<Result<MdReportResult, AppError>>;
+  runXrayAnalysis: (inputDir: string, outputDir: string) => Promise<Result<XrayAnalysisResult, AppError>>;
   loadMdTorsionAnalysis: (options: LoadMdTorsionAnalysisOptions) => Promise<Result<MdTorsionAnalysis | null, AppError>>;
   scoreMdClusters: (options: ScoreMdClustersOptions) => Promise<Result<ScoreMdClustersResult, AppError>>;
   mapBindingSite: (options: BindingSiteMapOptions) => Promise<Result<BindingSiteMapResult, AppError>>;
@@ -310,6 +313,7 @@ export interface ElectronAPI {
   scanProjects: () => Promise<ProjectInfo[]>;
   scanRunFiles: (runDir: string) => Promise<RunFilesResult>;
   importStructure: (sourcePath: string, projectDir: string) => Promise<Result<string, AppError>>;
+  fetchPdb: (pdbId: string, projectDir: string) => Promise<Result<string, AppError>>;
   renameProject: (oldName: string, newName: string) => Promise<Result<void, AppError>>;
   deleteProject: (projectName: string) => Promise<Result<void, AppError>>;
   getProjectFileCount: (projectName: string) => Promise<{ fileCount: number; totalSizeMb: number }>;

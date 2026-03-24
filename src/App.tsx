@@ -13,6 +13,9 @@ import ConformStepLoad from './components/steps/ConformStepLoad';
 import ConformStepConfigure from './components/steps/ConformStepConfigure';
 import ConformStepProgress from './components/steps/ConformStepProgress';
 import ConformStepResults from './components/steps/ConformStepResults';
+import ScoreStepLoad from './components/steps/ScoreStepLoad';
+import ScoreStepProgress from './components/steps/ScoreStepProgress';
+import ScoreStepResults from './components/steps/ScoreStepResults';
 import { workflowStore } from './stores/workflow';
 
 const App: Component = () => {
@@ -23,7 +26,7 @@ const App: Component = () => {
       {/* ViewerMode stays mounted (CSS-hidden) to preserve NGL Stage + WebGL context.
           Destroying/recreating the stage on every mode switch causes OOM from re-parsing structures. */}
       <div
-        class="h-full"
+        class="h-full w-full min-w-0"
         style={{ display: state().mode === 'viewer' ? 'block' : 'none' }}
       >
         <ViewerMode />
@@ -70,6 +73,17 @@ const App: Component = () => {
         </Match>
         <Match when={state().mode === 'conform' && state().conformStep === 'conform-results'}>
           <ConformStepResults />
+        </Match>
+
+        {/* X-ray scoring mode steps */}
+        <Match when={state().mode === 'score' && state().scoreStep === 'score-load'}>
+          <ScoreStepLoad />
+        </Match>
+        <Match when={state().mode === 'score' && state().scoreStep === 'score-progress'}>
+          <ScoreStepProgress />
+        </Match>
+        <Match when={state().mode === 'score' && state().scoreStep === 'score-results'}>
+          <ScoreStepResults />
         </Match>
 
       </Switch>
