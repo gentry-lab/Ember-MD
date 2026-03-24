@@ -81,7 +81,7 @@ find "$SITE_PKGS" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
 for pkg in notebook jupyterlab jupyterlab_server jupyterlab_pygments \
            jupyter_client jupyter_core jupyter_server jupyter_server_terminals \
            jupyter_events jupyter_lsp jupyterlab_widgets \
-           ipykernel ipywidgets IPython babel statsmodels Bio sqlalchemy \
+           ipykernel ipywidgets IPython babel statsmodels sqlalchemy \
            pytraj packmol_memgen debugpy jedi pip pygments widgetsnbextension; do
     rm -rf "$SITE_PKGS/$pkg" 2>/dev/null || true
     rm -rf "$SITE_PKGS/${pkg}-"*.dist-info 2>/dev/null || true
