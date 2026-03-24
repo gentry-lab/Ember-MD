@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * MD simulation IPC handlers.
  * Covers MD benchmark, simulation run/cancel/pause/resume, dock output loading,
@@ -37,7 +38,6 @@ interface MDConfig {
   temperatureK?: number;
   saltConcentrationM?: number;
   paddingNm?: number;
-  restrainLigandNs?: number;
   seed?: number;
 }
 
@@ -97,7 +97,6 @@ function parseSdfProperties(sdfPath: string): Promise<{
   mw: number;
   logp: number;
   thumbnail?: string;
-  coreRmsd?: number;
 }> {
   return new Promise((resolve) => {
     if (!appState.condaPythonPath || !fs.existsSync(appState.condaPythonPath)) {
@@ -153,7 +152,6 @@ function parseSdfProperties(sdfPath: string): Promise<{
             mw: result.mw || 0,
             logp: result.logp || 0,
             thumbnail: result.thumbnail,
-            coreRmsd: result.coreRMSD != null ? parseFloat(result.coreRMSD) : undefined,
           });
         } catch (e) {
           resolve({
@@ -405,6 +403,9 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[MD:Bench] ${line}`);
+          }
           event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
 
           // Parse SYSTEM_INFO:atomCount:volume
@@ -422,7 +423,11 @@ export function register(): void {
         });
 
         python.stderr.on('data', (data: Buffer) => {
-          const filtered = filterMdStderr(data.toString());
+          const raw = data.toString();
+          for (const line of raw.split('\n')) {
+            if (line.trim()) console.log(`[MD:Bench:err] ${line}`);
+          }
+          const filtered = filterMdStderr(raw);
           if (filtered.trim()) {
             event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: filtered });
           }
@@ -503,10 +508,6 @@ export function register(): void {
           args.push('--ligand', ligandSdf);
         }
 
-        if (config.restrainLigandNs && config.restrainLigandNs > 0) {
-          args.push('--restrain_ligand_ns', String(config.restrainLigandNs));
-        }
-
         if (config.seed && config.seed > 0) {
           args.push('--seed', String(config.seed));
         }
@@ -536,6 +537,9 @@ export function register(): void {
 
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[MD] ${line}`);
+          }
           event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stdout', data: text });
 
           // Parse SUCCESS:path
@@ -546,7 +550,11 @@ export function register(): void {
         });
 
         python.stderr.on('data', (data: Buffer) => {
-          const filtered = filterMdStderr(data.toString());
+          const raw = data.toString();
+          for (const line of raw.split('\n')) {
+            if (line.trim()) console.log(`[MD:err] ${line}`);
+          }
+          const filtered = filterMdStderr(raw);
           if (filtered.trim()) {
             event.sender.send(IpcChannels.MD_OUTPUT, { type: 'stderr', data: filtered });
           }

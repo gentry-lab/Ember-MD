@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show } from 'solid-js';
 
 interface AboutModalProps {
@@ -27,12 +28,12 @@ const AboutModal: Component<AboutModalProps> = (props) => {
             <div class="text-center mb-4">
               <h2 class="text-2xl font-bold">Ember</h2>
               <p class="text-sm text-base-content/70">Molecular Dynamics on Apple Silicon</p>
-              <p class="text-xs text-base-content/50 mt-1">Version 1.0.0</p>
+              <p class="text-xs text-base-content/50 mt-1">Version 0.3.0</p>
             </div>
 
             <p class="text-sm text-base-content/80">
               GPU-accelerated molecular dynamics simulations using AMBER force fields,
-              optimized for Apple M-series chips via OpenCL/Metal.
+              optimized for Apple M-series chips via bundled OpenCL, Metal, and CPU OpenMM backends.
             </p>
 
             {/* Ember License */}
@@ -54,12 +55,26 @@ const AboutModal: Component<AboutModalProps> = (props) => {
             <div class="bg-base-200 rounded-lg p-3">
               <h4 class="text-sm font-semibold mb-2">Open Source Dependencies</h4>
               <div class="space-y-2 text-xs text-base-content/70 max-h-64 overflow-y-auto">
+                {/* --- Simulation Engine --- */}
                 <LicenseEntry
                   name="OpenMM"
                   license="MIT / LGPL"
                   url="https://openmm.org"
                   desc="Molecular simulation engine"
                 />
+                <LicenseEntry
+                  name="OpenMM OpenCL Platform"
+                  license="MIT / LGPL"
+                  url="https://openmm.org"
+                  desc="Bundled OpenCL backend used on macOS through the system OpenCL stack"
+                />
+                <LicenseEntry
+                  name="Ember-Metal"
+                  license="MIT / LGPL"
+                  url="https://github.com/philipturner/openmm-metal"
+                  desc="Bundled native Metal GPU backend for OpenMM, including Amoeba, Drude, and RPMD plugins"
+                />
+                {/* --- Force Fields --- */}
                 <LicenseEntry
                   name="AMBER Force Fields (ff14SB, ff19SB)"
                   license="Public Domain (UCSF)"
@@ -82,12 +97,20 @@ const AboutModal: Component<AboutModalProps> = (props) => {
                   url="https://github.com/openmm/openmmforcefields"
                   desc="Force field XML definitions for OpenMM"
                 />
+                {/* --- Docking --- */}
                 <LicenseEntry
-                  name="openmm-metal"
-                  license="MIT / LGPL"
-                  url="https://github.com/philipturner/openmm-metal"
-                  desc="Metal GPU backend for OpenMM (Philip Turner)"
+                  name="AutoDock Vina"
+                  license="Apache-2.0"
+                  url="https://github.com/ccsb-scripps/AutoDock-Vina"
+                  desc="Molecular docking engine"
                 />
+                <LicenseEntry
+                  name="Meeko"
+                  license="Apache-2.0"
+                  url="https://github.com/forlilab/Meeko"
+                  desc="PDBQT ligand/receptor preparation for Vina"
+                />
+                {/* --- Cheminformatics --- */}
                 <LicenseEntry
                   name="RDKit"
                   license="BSD-3-Clause"
@@ -95,11 +118,18 @@ const AboutModal: Component<AboutModalProps> = (props) => {
                   desc="Cheminformatics toolkit"
                 />
                 <LicenseEntry
+                  name="Molscrub"
+                  license="Apache-2.0"
+                  url="https://github.com/forlilab/Molscrub"
+                  desc="Ligand protonation state enumeration"
+                />
+                <LicenseEntry
                   name="Open Babel"
                   license="GPL-2.0"
                   url="https://openbabel.org"
-                  desc="Chemical file format conversion and bond order perception"
+                  desc="Chemical file format conversion"
                 />
+                {/* --- Structure Preparation --- */}
                 <LicenseEntry
                   name="PDBFixer"
                   license="MIT"
@@ -107,17 +137,67 @@ const AboutModal: Component<AboutModalProps> = (props) => {
                   desc="PDB structure preparation and repair"
                 />
                 <LicenseEntry
-                  name="MDAnalysis"
-                  license="GPL-2.0"
-                  url="https://mdanalysis.org"
-                  desc="Trajectory analysis toolkit"
+                  name="PROPKA"
+                  license="BSD-3-Clause"
+                  url="https://github.com/jensengroup/propka"
+                  desc="Protein pKa prediction for protonation states"
                 />
                 <LicenseEntry
                   name="AmberTools"
                   license="LGPL"
                   url="https://ambermd.org/AmberTools.php"
-                  desc="AM1-BCC partial charge computation (sqm)"
+                  desc="AM1-BCC charges and structure utilities, including sqm, reduce, and cpptraj"
                 />
+                {/* --- Semiempirical QM --- */}
+                <LicenseEntry
+                  name="GFN2-xTB"
+                  license="LGPL-3.0"
+                  url="https://github.com/grimme-lab/xtb"
+                  desc="Semiempirical tight-binding method for conformer ranking and strain energy"
+                />
+                <LicenseEntry
+                  name="CREST"
+                  license="LGPL-3.0"
+                  url="https://github.com/crest-lab/crest"
+                  desc="Conformer-rotamer ensemble sampling via xTB metadynamics"
+                />
+                <LicenseEntry
+                  name="CORDIAL"
+                  license="Apache-2.0"
+                  desc="Neural-network rescoring for docked poses and MD cluster centroids"
+                />
+                <LicenseEntry
+                  name="PyTorch"
+                  license="BSD-3-Clause"
+                  url="https://pytorch.org"
+                  desc="Tensor runtime used by bundled CORDIAL models"
+                />
+                {/* --- Analysis --- */}
+                <LicenseEntry
+                  name="MDAnalysis"
+                  license="LGPL-2.1+ / LGPL-3+"
+                  url="https://mdanalysis.org"
+                  desc="Trajectory analysis toolkit"
+                />
+                <LicenseEntry
+                  name="NumPy"
+                  license="BSD-3-Clause"
+                  url="https://numpy.org"
+                  desc="Core numerical array library used across simulation, scoring, and analysis"
+                />
+                <LicenseEntry
+                  name="Matplotlib"
+                  license="PSF / BSD"
+                  url="https://matplotlib.org"
+                  desc="Scientific plotting for analysis reports"
+                />
+                <LicenseEntry
+                  name="SciPy"
+                  license="BSD-3-Clause"
+                  url="https://scipy.org"
+                  desc="Scientific computing (clustering, spatial algorithms)"
+                />
+                {/* --- Visualization & Desktop --- */}
                 <LicenseEntry
                   name="NGL Viewer"
                   license="MIT"
@@ -135,6 +215,12 @@ const AboutModal: Component<AboutModalProps> = (props) => {
                   license="MIT"
                   url="https://solidjs.com"
                   desc="Reactive UI framework"
+                />
+                <LicenseEntry
+                  name="Tailwind CSS / DaisyUI"
+                  license="MIT"
+                  url="https://daisyui.com"
+                  desc="Utility-first CSS framework and component library"
                 />
                 <LicenseEntry
                   name="VkFFT"

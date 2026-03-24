@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Single-ligand GNINA docking for Node.js-managed parallelism.
 

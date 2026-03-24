@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, For, Show } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Augmented NGL type declarations for Ember's viewer.
  *

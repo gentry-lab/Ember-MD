@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, For, Show, createEffect, createMemo, createSignal } from 'solid-js';
 import type { MdLigandDepictionBond, MdTorsionAnalysis, MdTorsionEntry } from '../../../shared/types/ipc';
 

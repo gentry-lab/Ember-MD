@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 OpenMM MD simulation for FragGen GUI.
 Builds system from GNINA docking output and runs simulation.
@@ -840,21 +841,16 @@ def run_equilibration(simulation: Any, modeller: Any, output_dir: str, job_name:
     return state, platform_name
 
 
-def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_dir: str, job_name: str, production_ns: float, platform_name: str, restrain_ligand_ns: float = 0) -> str:
+def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_dir: str, job_name: str, production_ns: float, platform_name: str) -> str:
     """Run production MD and save trajectory.
 
     Creates a new simulation with 4fs timestep (HMR enabled in system).
     Saves trajectory every 10 ps (2500 steps at 4fs).
     Saves energy every 2 ps (500 steps).
 
-    If restrain_ligand_ns > 0, applies a weak (1 kcal/mol/Å²) harmonic restraint
-    on ligand heavy atoms for the first N ns, then releases. This is useful for
-    IFD-MD workflows where you want the protein to adapt around a docked pose.
     """
     print('PROGRESS:production:0', flush=True)
     print(f'Running production MD ({production_ns} ns) with 4fs timestep (HMR)...', file=sys.stderr)
-    if restrain_ligand_ns > 0:
-        print(f'  Ligand restraint: {restrain_ligand_ns} ns at 1.0 kcal/mol/Å² then release', file=sys.stderr)
 
     # Create new integrator with 4fs timestep for production (HMR enabled in system)
     integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
@@ -885,28 +881,6 @@ def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_d
     simulation.context.setParameter('k_heavy', 0)
     simulation.context.setParameter('k', 0)
 
-    # Add ligand restraint if requested (IFD-MD mode)
-    has_ligand_restraint = False
-    if restrain_ligand_ns > 0:
-        lig_indices, lig_resnames = _find_ligand_indices(modeller.topology)
-        if lig_indices:
-            lig_restraint = CustomExternalForce('k_lig*periodicdistance(x,y,z,x0,y0,z0)^2')
-            lig_restraint.addGlobalParameter('k_lig', 1.0 * KCAL_MOL_A2)
-            lig_restraint.addPerParticleParameter('x0')
-            lig_restraint.addPerParticleParameter('y0')
-            lig_restraint.addPerParticleParameter('z0')
-            eq_positions = equilibrated_state.getPositions()
-            for idx in lig_indices:
-                pos = eq_positions[idx]
-                lig_restraint.addParticle(idx, [pos.x, pos.y, pos.z])
-            system.addForce(lig_restraint)
-            # Must reinitialize context after adding force
-            simulation.context.reinitialize(preserveState=True)
-            has_ligand_restraint = True
-            print(f'  Ligand restraint active: {len(lig_indices)} heavy atoms ({",".join(sorted(lig_resnames))})', file=sys.stderr)
-        else:
-            print('  Warning: no ligand atoms found, skipping ligand restraint', file=sys.stderr)
-
     # Setup trajectory reporter (save every 10 ps = 2500 steps at 4fs)
     # Use job name for self-contained filenames
     dcd_file = os.path.join(output_dir, f'{job_name}_trajectory.dcd')
@@ -924,22 +898,11 @@ def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_d
     # Run production with 4fs timestep: 250000 steps/ns
     # Report every 0.1 ns (25000 steps at 4fs)
     total_steps = int(production_ns * 250000)
-    restrain_steps = int(restrain_ligand_ns * 250000) if has_ligand_restraint else 0
     steps_per_report = 25000  # 0.1 ns at 4fs
 
     steps_completed = 0
     while steps_completed < total_steps:
-        # Release ligand restraint at the boundary
-        if has_ligand_restraint and steps_completed >= restrain_steps:
-            simulation.context.setParameter('k_lig', 0)
-            has_ligand_restraint = False
-            ns_released = steps_completed / 250000
-            print(f'  Ligand restraint released at {ns_released:.1f} ns', file=sys.stderr)
-
         steps_to_run = min(steps_per_report, total_steps - steps_completed)
-        # Don't overshoot the restraint boundary
-        if has_ligand_restraint and steps_completed + steps_to_run > restrain_steps:
-            steps_to_run = restrain_steps - steps_completed
 
         simulation.step(steps_to_run)
         steps_completed += steps_to_run
@@ -1033,8 +996,6 @@ def main() -> None:
     parser.add_argument('--ligand_only', action='store_true',
                         help='Ligand-only mode (no protein, small molecule in solvent)')
     parser.add_argument('--benchmark_only', action='store_true', help='Only run benchmark')
-    parser.add_argument('--restrain_ligand_ns', type=float, default=0,
-                        help='Restrain ligand heavy atoms for first N ns of production (0=off, IFD-MD mode)')
     parser.add_argument('--project_name', default=None,
                         help='Project name prefix for output files (default: use folder name)')
     args = parser.parse_args()
@@ -1134,7 +1095,7 @@ def main() -> None:
     equilibrated_state, actual_platform = run_equilibration(simulation, modeller, args.output_dir, job_name, platform_name=platform_name)
 
     print(f'Running production ({args.production_ns} ns) on {actual_platform}...', file=sys.stderr)
-    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform, args.restrain_ligand_ns)
+    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform)
 
     print(f'SUCCESS:{trajectory}', flush=True)
 

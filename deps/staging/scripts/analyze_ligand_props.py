@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Compute ligand property timeseries over an MD trajectory.
 

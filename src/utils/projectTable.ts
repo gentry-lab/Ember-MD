@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import type { ViewerProjectColumn, ViewerProjectFamily, ViewerProjectRow, ViewerProjectTableState } from '../stores/workflow';
 
 const isPinnedRow = (row: ViewerProjectRow): boolean =>

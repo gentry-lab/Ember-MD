@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Docking mode types (Vina + CORDIAL)
  */
@@ -31,7 +32,6 @@ export interface DockConfig {
   autoboxAdd: number;          // Default: 4 Angstroms, range 2-8
   numCpus: number;             // Default: 0 (auto-detect), range 0 to CPU count
   seed: number;                // Random seed (0 = random, default: 0)
-  coreConstrained: boolean;    // MCS alignment (default: true)
 }
 
 export const DEFAULT_DOCK_CONFIG: DockConfig = {
@@ -40,7 +40,6 @@ export const DEFAULT_DOCK_CONFIG: DockConfig = {
   autoboxAdd: 4,
   numCpus: 0,
   seed: 0,
-  coreConstrained: false,
 };
 
 // Protonation state enumeration configuration
@@ -57,6 +56,17 @@ export const DEFAULT_PROTONATION_CONFIG: ProtonationConfig = {
 };
 
 export const DEFAULT_RECEPTOR_WATER_DISTANCE = 3.5;
+
+// Crystallographic water retention configuration
+export interface WaterRetentionConfig {
+  enabled: boolean;
+  distance: number;  // Angstroms from reference ligand
+}
+
+export const DEFAULT_WATER_RETENTION_CONFIG: WaterRetentionConfig = {
+  enabled: true,
+  distance: DEFAULT_RECEPTOR_WATER_DISTANCE,
+};
 
 // Stereoisomer enumeration configuration
 export interface StereoisomerConfig {
@@ -205,7 +215,6 @@ export interface DockResult {
   cordialExpectedPkd?: number;
   cordialPHighAffinity?: number;
   cordialPVeryHighAffinity?: number;
-  coreRmsd?: number;           // MCS core RMSD vs reference
   xtbEnergyKcal?: number;      // Relative xTB energy per compound (kcal/mol)
 }
 

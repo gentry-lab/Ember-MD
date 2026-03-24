@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { test, expect } from './fixtures';
 
 test.describe('Docking mode', () => {

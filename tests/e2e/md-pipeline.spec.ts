@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * MD simulation pipeline test.
  * Uses PDB ID fetch for receptor + SMILES for ligand (no file dialogs).

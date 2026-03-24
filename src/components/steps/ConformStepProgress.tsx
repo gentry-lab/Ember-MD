@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, onMount, onCleanup, createSignal, Show } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { projectPaths } from '../../utils/projectPaths';
@@ -41,11 +42,13 @@ const ConformStepProgress: Component = () => {
     const baseOutputDir = state().customOutputDir || defaultDir;
     const jobName = state().jobName.trim();
     const paths = projectPaths(baseOutputDir, jobName);
+    const activeMethod = conform.config.method === 'none' ? 'etkdg' : conform.config.method;
     const runFolder = buildConformRunFolderName({
-      method: conform.config.method === 'etkdg' ? 'etkdg' : 'mcmm',
+      method: activeMethod,
       maxConformers: conform.config.maxConformers,
       outputName: conform.outputName,
       ligandName: conform.ligandName,
+      protonation: conform.protonationConfig,
     });
     const outputDir = paths.conformers(runFolder);
     setConformOutputDir(outputDir);
@@ -79,6 +82,7 @@ const ConformStepProgress: Component = () => {
         steps: conform.config.mcmmSteps,
         temperature: conform.config.mcmmTemperature,
         sampleAmides: conform.config.sampleAmides,
+        xtbRerank: conform.config.xtbRerank,
       } : undefined;
 
       const result = await api.runConformGeneration(

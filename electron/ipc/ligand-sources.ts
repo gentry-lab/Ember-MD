@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Multi-input ligand source handlers.
  * File selection, SDF scanning, SMILES/CSV import, X-ray extraction,
@@ -15,7 +16,7 @@ import { IpcChannels } from '../../shared/types/ipc';
 import * as appState from '../app-state';
 import { childProcesses } from '../spawn';
 import { getSpawnEnv as _getSpawnEnv } from '../spawn';
-import { getQupkakeXtbPath, detectBabelDataDir } from '../paths';
+import { getXtbPath } from '../paths';
 
 function getSpawnEnv(): NodeJS.ProcessEnv {
   return _getSpawnEnv(appState.condaEnvBin);
@@ -570,8 +571,10 @@ export function register(): void {
 
         event.sender.send(IpcChannels.DOCK_OUTPUT, {
           type: 'stdout',
-          data: `=== Protonation Enumeration ===\npH range: ${phMin}-${phMax}\nInput molecules: ${ligandSdfPaths.length}\n\n`
+          data: `  Protonation enumeration — pH ${phMin}–${phMax}, ${ligandSdfPaths.length} molecule(s)\n`
         });
+
+        console.log(`[Dock:Protonation] pH ${phMin}-${phMax}, ${ligandSdfPaths.length} molecules`);
 
         const python = spawn(appState.condaPythonPath, args);
         childProcesses.add(python);
@@ -582,13 +585,17 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
-          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Protonation] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
           const text = data.toString();
           stderr += text;
-          // Only show warnings in output, not debug messages
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Protonation:err] ${line}`);
+          }
           if (text.includes('Warning') || text.includes('ERROR')) {
             event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
           }
@@ -703,8 +710,10 @@ export function register(): void {
 
         event.sender.send(IpcChannels.DOCK_OUTPUT, {
           type: 'stdout',
-          data: `=== Stereoisomer Enumeration ===\nMax per molecule: ${maxStereoisomers}\nInput molecules: ${ligandSdfPaths.length}\n\n`
+          data: `  Stereoisomer enumeration — ${maxStereoisomers} max per molecule, ${ligandSdfPaths.length} input(s)\n`
         });
+
+        console.log(`[Dock:Stereo] Max ${maxStereoisomers} per molecule, ${ligandSdfPaths.length} molecules`);
 
         const python = spawn(appState.condaPythonPath, args);
         childProcesses.add(python);
@@ -715,12 +724,17 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
-          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Stereo] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
           const text = data.toString();
           stderr += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Stereo:err] ${line}`);
+          }
           if (text.includes('Warning') || text.includes('ERROR')) {
             event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
           }
@@ -830,20 +844,29 @@ export function register(): void {
         }
 
         // xTB reranking support for docking conformer generation
-        const xtbPathDock = getQupkakeXtbPath();
+        const xtbPathDock = getXtbPath();
+        const shouldRerank = mcmmOptions?.xtbRerank ?? true;
         if (xtbPathDock) {
           args.push('--xtb_binary', xtbPathDock);
-          const shouldRerank = mcmmOptions?.xtbRerank ?? true;
           if (shouldRerank && effectiveMethod !== 'crest') {
             args.push('--xtb_rerank');
           }
         }
 
         const methodLabel = effectiveMethod.toUpperCase();
+        const xtbStatus =
+          effectiveMethod === 'crest'
+            ? 'xTB energy: intrinsic (CREST)'
+            : xtbPathDock
+              ? (shouldRerank ? 'xTB reranking: enabled' : 'xTB reranking: disabled')
+              : 'xTB reranking: unavailable';
         event.sender.send(IpcChannels.DOCK_OUTPUT, {
           type: 'stdout',
-          data: `=== Conformer Generation (${methodLabel}) ===\nMax conformers: ${maxConformers}\nRMSD cutoff: ${rmsdCutoff} A\nEnergy window: ${energyWindow} kcal/mol\nInput molecules: ${ligandSdfPaths.length}\n\n`
+          data: `  ${methodLabel} — ${maxConformers} max, ${rmsdCutoff} Å cutoff, ${xtbStatus}\n`
         });
+
+        console.log(`[Dock:Conform] Starting ${methodLabel} conformer generation for ${ligandSdfPaths.length} molecules`);
+        console.log(`[Dock:Conform] Args: ${args.slice(1).join(' ')}`);
 
         const python = spawn(appState.condaPythonPath, args);
         childProcesses.add(python);
@@ -854,13 +877,17 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
-          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Conform] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
           const text = data.toString();
           stderr += text;
-          // Only show warnings in output, not debug messages
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Conform:err] ${line}`);
+          }
           if (text.includes('Warning') || text.includes('ERROR')) {
             event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
           }
@@ -904,9 +931,15 @@ export function register(): void {
               }));
             }
           } else {
+            const errMsg = stderr.slice(0, 200).trim() || `exit code ${code}`;
+            console.error(`[Dock:Conform] CONFORMER_FAILED: ${errMsg}`);
+            event.sender.send(IpcChannels.DOCK_OUTPUT, {
+              type: 'stderr',
+              data: `  Error [CONFORMER_FAILED]: ${errMsg}\n`
+            });
             resolve(Err({
               type: 'CONFORMER_FAILED',
-              message: `Conformer generation failed: ${stderr.slice(0, 200)}`,
+              message: `Conformer generation failed: ${errMsg}`,
             }));
           }
         });

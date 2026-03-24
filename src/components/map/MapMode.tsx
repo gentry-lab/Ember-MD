@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, For, Show, createSignal, onCleanup } from 'solid-js';
 import type { MapMethod } from '../../stores/workflow';
 import { workflowStore } from '../../stores/workflow';

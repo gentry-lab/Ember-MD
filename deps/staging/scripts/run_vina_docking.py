@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Single-ligand AutoDock Vina docking via Python API.
 
@@ -187,6 +188,25 @@ def pdbqt_poses_to_sdf(pdbqt_path: str, output_sdf_path: str, scores: List[float
 
     writer = Chem.SDWriter(output_sdf_path)
 
+    def rebuild_explicit_hydrogens(mol: Any) -> Any:
+        """Keep docked heavy-atom coordinates, but regenerate explicit H positions.
+
+        Meeko reconstructs explicit polar hydrogens from PDBQT REMARK metadata.
+        For some charged amines, one returned H coordinate can be badly displaced
+        while the heavy-atom pose and protonation state remain correct.
+        Rebuilding hydrogens from the heavy-atom graph preserves the docked pose
+        while restoring chemically sane X-H geometry.
+        """
+        prop_names = list(mol.GetPropNames(includePrivate=True, includeComputed=False))
+        prop_values = {name: mol.GetProp(name) for name in prop_names}
+
+        rebuilt = Chem.AddHs(Chem.RemoveHs(mol), addCoords=True)
+
+        for name, value in prop_values.items():
+            rebuilt.SetProp(name, value)
+
+        return rebuilt
+
     for i, score in enumerate(scores):
         if i >= len(rdkit_results):
             break
@@ -195,6 +215,8 @@ def pdbqt_poses_to_sdf(pdbqt_path: str, output_sdf_path: str, scores: List[float
         if rd_mol is None:
             print(f"WARNING: Pose {i} failed Meeko export, skipping", file=sys.stderr)
             continue
+
+        rd_mol = rebuild_explicit_hydrogens(rd_mol)
 
         rd_mol.SetProp("minimizedAffinity", f"{score:.2f}")
         rd_mol.SetProp("pose_index", str(i))
@@ -230,8 +252,6 @@ def main() -> None:
     parser.add_argument('--autobox_add', type=float, default=4.0, help='Autobox margin in Angstroms')
     parser.add_argument('--seed', type=int, default=0, help='Random seed (0=random)')
     parser.add_argument('--cpu', type=int, default=0, help='Number of CPUs (0=auto)')
-    parser.add_argument('--core_constrain', action='store_true', help='MCS core-constrained alignment')
-    parser.add_argument('--reference_sdf', default=None, help='Reference SDF for MCS alignment')
     parser.add_argument('--project_name', default=None, help='Project name prefix for output files')
     parser.add_argument('--score_only', action='store_true', help='Run Vina score_only on the input ligand instead of docking')
     parser.add_argument('--score_only_output_sdf', default=None, help='Optional output SDF(.gz) with vinaScoreOnlyAffinity property')
@@ -306,59 +326,6 @@ def main() -> None:
         temp_sdf = os.path.join(tmp_dir, f'{name}_docked.sdf')
 
         pdbqt_poses_to_sdf(output_pdbqt, temp_sdf, scores)
-
-        # MCS core-constrained alignment
-        if args.core_constrain and args.reference_sdf:
-            try:
-                from rdkit.Chem import rdFMCS
-                ref_path = args.reference_sdf
-                if ref_path.endswith('.gz'):
-                    with gzip.open(ref_path, 'rt') as f:
-                        ref_mol = Chem.MolFromMolBlock(f.read(), removeHs=False)
-                elif ref_path.endswith('.sdf'):
-                    supplier = Chem.SDMolSupplier(ref_path, removeHs=False)
-                    ref_mol = supplier[0]
-                elif ref_path.endswith('.pdb'):
-                    ref_mol = Chem.MolFromPDBFile(ref_path, removeHs=False)
-                else:
-                    ref_mol = None
-
-                if ref_mol is not None:
-                    # Read poses and align to reference core
-                    aligned_poses = []
-                    supplier = Chem.SDMolSupplier(temp_sdf, removeHs=False)
-                    for pose_mol in supplier:
-                        if pose_mol is None:
-                            continue
-                        try:
-                            mcs = rdFMCS.FindMCS(
-                                [ref_mol, pose_mol],
-                                ringMatchesRingOnly=True,
-                                timeout=10
-                            )
-                            if mcs.numAtoms >= 3:
-                                core_smarts = Chem.MolFromSmarts(mcs.smartsString)
-                                ref_match = ref_mol.GetSubstructMatch(core_smarts)
-                                pose_match = pose_mol.GetSubstructMatch(core_smarts)
-                                if ref_match and pose_match:
-                                    atom_map = list(zip(pose_match, ref_match))
-                                    rmsd = AllChem.AlignMol(pose_mol, ref_mol, atomMap=atom_map)
-                                    pose_mol.SetProp("coreRMSD", f"{rmsd:.3f}")
-                        except Exception as e:
-                            print(f'  MCS alignment warning: {e}', file=sys.stderr)
-                        aligned_poses.append(pose_mol)
-
-                    # Rewrite SDF with aligned poses
-                    if aligned_poses:
-                        writer = Chem.SDWriter(temp_sdf)
-                        for mol in aligned_poses:
-                            writer.write(mol)
-                        writer.close()
-                        print(f'  Core-constrained alignment: {len(aligned_poses)} poses aligned', file=sys.stderr)
-                else:
-                    print(f'  Warning: Could not read reference for MCS alignment', file=sys.stderr)
-            except ImportError:
-                print(f'  Warning: rdFMCS not available, skipping core alignment', file=sys.stderr)
 
         # Gzip the output SDF
         with open(temp_sdf, 'rb') as f_in:

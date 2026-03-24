@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Score docked poses using CORDIAL (COnvolutional Representation of Distance-dependent
 Interactions with Attention Learning).

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, createSignal, createEffect } from 'solid-js';
 
 interface TerminalOutputProps {

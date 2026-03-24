@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Project scanning and management handlers.
  * Covers project creation, scanning, renaming, deletion, structure import,
@@ -140,7 +141,10 @@ export const findDockingRunJobs = (
 
   const manifest = readJsonIfExists<{
     prepared_reference_ligand_sdf?: string;
-  }>(path.join(runPath, 'prep', 'prepared_complex_manifest.json'));
+  }>(path.join(runPath, 'prep', 'complex', 'prepared_complex_manifest.json'))
+    || readJsonIfExists<{
+      prepared_reference_ligand_sdf?: string;
+    }>(path.join(runPath, 'prep', 'prepared_complex_manifest.json'));
   const referenceLigandCandidates = [
     manifest?.prepared_reference_ligand_sdf,
     path.join(runPath, 'inputs', 'reference_ligand.sdf'),
@@ -506,7 +510,7 @@ export function register(): void {
     if (!fs.existsSync(emberDir)) return [];
 
     const projects: any[] = [];
-    const legacyPattern = /^(.+?)_(ff14sb-TIP3P|ff19sb-OPC|ff19sb-OPC3|charmm36-mTIP3P)_MD-/;
+    const legacyPattern = /^(.+?)_(ff14sb-TIP3P|ff19sb-OPC|ff19sb-OPC3)_MD-/;
 
     try {
       const entries = fs.readdirSync(emberDir, { withFileTypes: true });

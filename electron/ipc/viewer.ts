@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { ipcMain, dialog } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
@@ -12,7 +13,7 @@ import * as appState from '../app-state';
 import { childProcesses, loadAndMergeCordialScores, filterMdStderr } from '../spawn';
 import { getSpawnEnv as _getSpawnEnv } from '../spawn';
 import { spawnPythonScript as _spawnPythonScriptRaw } from '../spawn';
-import { getQupkakeXtbPath, getCordialRoot, detectBabelDataDir } from '../paths';
+import { getXtbPath, getCordialRoot, detectBabelDataDir } from '../paths';
 
 function getSpawnEnv(): NodeJS.ProcessEnv {
   return _getSpawnEnv(appState.condaEnvBin);
@@ -177,13 +178,21 @@ const runVinaScoreOnly = async (
 };
 
 const resolveCordialScriptPath = (): string | null => {
-  let scriptPath = path.join(appState.fraggenRoot, 'score_cordial.py');
-  if (fs.existsSync(scriptPath)) {
-    return scriptPath;
-  }
   const projectRoot = path.resolve(__dirname, '..', '..');
-  scriptPath = path.join(projectRoot, 'scripts', 'score_cordial.py');
-  return fs.existsSync(scriptPath) ? scriptPath : null;
+  const candidates = [
+    path.join(appState.fraggenRoot, 'score_cordial.py'),
+    path.join(process.resourcesPath, 'scripts', 'score_cordial.py'),
+    path.join(projectRoot, 'scripts', 'score_cordial.py'),
+    path.join(process.cwd(), 'scripts', 'score_cordial.py'),
+  ];
+
+  for (const scriptPath of candidates) {
+    if (fs.existsSync(scriptPath)) {
+      return scriptPath;
+    }
+  }
+
+  return null;
 };
 
 const runCordialScoringJob = async (
@@ -200,7 +209,7 @@ const runCordialScoringJob = async (
   if (!cordialRoot) {
     return Err({
       type: 'CORDIAL_FAILED',
-      message: 'CORDIAL not found. Set CORDIAL_ROOT environment variable or clone to ~/Desktop/CORDIAL',
+      message: 'CORDIAL not found. Add the macOS-patched fork at ./CORDIAL or set CORDIAL_ROOT.',
     });
   }
 
@@ -1724,7 +1733,7 @@ ipcMain.handle(
     }
 
     // --- Step 3.5: xTB relative energy scoring ---
-    const xtbPath = getQupkakeXtbPath();
+    const xtbPath = getXtbPath();
     if (xtbPath) {
       event.sender.send(IpcChannels.MD_OUTPUT, {
         type: 'stdout',

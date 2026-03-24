@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Generate conformers for ligands using RDKit ETKDG.
 
@@ -914,7 +915,7 @@ def process_ligand(sdf_path: str, output_dir: str, max_conformers: int, rmsd_cut
 
     # xTB reranking (for ETKDG/MCMM — CREST already uses xTB).
     # Always runs when xTB is available; gives real QM energies vs force field.
-    if xtb_binary and method != 'crest' and selected_conformers:
+    if xtb_rerank and xtb_binary and method != 'crest' and selected_conformers:
         selected_conformers = xtb_rerank_conformers(
             mol_with_confs, selected_conformers, xtb_binary, energy_window
         )

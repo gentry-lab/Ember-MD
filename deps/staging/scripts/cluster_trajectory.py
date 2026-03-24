@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Cluster MD trajectory using MDAnalysis and scikit-learn.
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import type { ElectronAPI } from '../../shared/types/electron-api';
 import type { ClusteringResult, ProjectJob, ScoredClusterResult } from '../../shared/types/ipc';
 import { workflowStore } from '../stores/workflow';

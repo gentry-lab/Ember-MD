@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Convert structure CSV rows to 3D SDF files using RDKit ETKDG.
 

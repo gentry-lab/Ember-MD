@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createSignal, createEffect, onCleanup } from 'solid-js';
 
 interface DurationDialProps {
@@ -17,7 +18,8 @@ const CX = 70;
 const CY = 70;
 const TRACK_WIDTH = 8;
 
-// Build snap values from explicit step rules
+// Build snap values from explicit step rules.
+// Keep fine control in the 1-10 us decade where users make longer-production adjustments.
 const SNAP_VALUES: number[] = [];
 {
   const ranges: [number, number, number][] = [
@@ -30,8 +32,7 @@ const SNAP_VALUES: number[] = [];
     [125, 250, 25],     // 125, 150, ... 250
     [300, 500, 50],     // 300, 350, ... 500
     [600, 1000, 100],   // 600, 700, ... 1000
-    [1500, 5000, 500],  // 1500, 2000, ... 5000
-    [6000, 10000, 1000],// 6000, 7000, ... 10000
+    [1100, 10000, 100], // 1.1, 1.2, ... 10.0 us
   ];
   for (const [start, end, step] of ranges) {
     for (let v = start; v <= end + step * 0.01; v += step) {
@@ -39,8 +40,9 @@ const SNAP_VALUES: number[] = [];
     }
   }
 }
-// Tick labels shown on the dial
-const TICK_LABELS = [0.1, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
+
+const MAJOR_TICK_LABELS = [0.1, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
+const MINOR_TICKS = [2000, 3000, 4000, 6000, 7000, 8000, 9000];
 
 const toLog = (v: number, min: number, max: number) =>
   (Math.log10(v) - Math.log10(min)) / (Math.log10(max) - Math.log10(min));
@@ -237,8 +239,23 @@ const DurationDial: Component<DurationDialProps> = (props) => {
           stroke-linecap="round"
         />
 
-        {/* Tick marks and labels */}
-        {TICK_LABELS.map((v) => {
+        {/* Minor ticks in the 1-10 us decade for smoother visual guidance */}
+        {MINOR_TICKS.map((v) => {
+          const angle = valueToAngle(v);
+          const inner = polarToXY(angle, RADIUS - TRACK_WIDTH / 2 - 1);
+          const outer = polarToXY(angle, RADIUS + TRACK_WIDTH / 2 + 1);
+          return (
+            <line
+              x1={inner.x} y1={inner.y}
+              x2={outer.x} y2={outer.y}
+              stroke="oklch(var(--bc) / 0.22)"
+              stroke-width="1"
+            />
+          );
+        })}
+
+        {/* Major tick marks and labels */}
+        {MAJOR_TICK_LABELS.map((v) => {
           const angle = valueToAngle(v);
           const inner = polarToXY(angle, RADIUS - TRACK_WIDTH / 2 - 2);
           const outer = polarToXY(angle, RADIUS + TRACK_WIDTH / 2 + 2);

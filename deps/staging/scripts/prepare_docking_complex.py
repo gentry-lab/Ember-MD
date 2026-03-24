@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Prepare a chemically consistent docking complex from a prepared receptor and X-ray ligand.
 

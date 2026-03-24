@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import * as NGL from 'ngl';
 import type { AtomProxy } from '../types/ngl';
 

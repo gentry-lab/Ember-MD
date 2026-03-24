@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Parse SDF file to extract molecular properties, GNINA scores, and generate thumbnail.
 Outputs JSON to stdout with all extracted data.

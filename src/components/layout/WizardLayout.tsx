@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, JSX, Show, For, createSignal, onMount } from 'solid-js';
 import { workflowStore, WorkflowMode } from '../../stores/workflow';
 import HelpModal from '../HelpModal';
@@ -334,7 +335,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
               onClick={() => handleModeSwitch('score')}
               disabled={!canSwitchMode()}
             >
-              Score X-ray Pose
+              Analyze X-ray
             </button>
             <button
               class={`tab tab-sm ${state().mode === 'conform' ? 'tab-active' : ''}`}

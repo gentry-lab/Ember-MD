@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createSignal, For } from 'solid-js';
 import path from 'path';
 import {

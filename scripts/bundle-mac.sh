@@ -1,10 +1,9 @@
 #!/bin/bash
+# Copyright (c) 2026 Ember Contributors. MIT License.
 set -e
 
-# Bundle OpenSBDD for macOS as a self-contained .dmg.
+# Bundle Ember for macOS as a self-contained .dmg.
 # Source of truth:
-# - QupKake source lives in vendor/QupKake
-# - xTB source runtime lives in vendor/xtb-env (preferred)
 # - bundle-mac/ is a disposable build artifact and must not be used as a dev source tree
 # Usage: bash scripts/bundle-mac.sh
 #   or:  npm run dist:mac
@@ -12,10 +11,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUNDLE_DIR="$PROJECT_DIR/bundle-mac"
-CONDA_ENV="openmm-metal"
-QUPKAKE_ENV="qupkake"
 
-echo "=== OpenSBDD Mac Bundle ==="
+echo "=== Ember Mac Bundle ==="
 echo "Project: $PROJECT_DIR"
 echo ""
 
@@ -25,28 +22,27 @@ cd "$PROJECT_DIR"
 npm run build:electron
 npm run build
 
-# Step 2: Pack conda environment
-echo "[2/5] Packing conda environment ($CONDA_ENV)..."
-CONDA_PACK_FILE="$BUNDLE_DIR/python-env.tar.gz"
-QUPKAKE_PACK_FILE="$BUNDLE_DIR/qupkake-python-env.tar.gz"
+# Step 2: Resolve Python runtime source
+echo "[2/5] Resolving project-local Python runtime..."
 mkdir -p "$BUNDLE_DIR"
 
-if [ ! -f "$CONDA_PACK_FILE" ]; then
-    conda-pack -n "$CONDA_ENV" -o "$CONDA_PACK_FILE" --ignore-editable-packages --ignore-missing-files 2>&1 | tail -5
-    echo "  Packed to $CONDA_PACK_FILE ($(du -sh "$CONDA_PACK_FILE" | cut -f1))"
-else
-    echo "  Using cached pack: $CONDA_PACK_FILE ($(du -sh "$CONDA_PACK_FILE" | cut -f1))"
-    echo "  (Delete $CONDA_PACK_FILE to repack)"
+PYTHON_ENV_SOURCE=""
+for candidate in \
+    "${OPENMM_METAL_ENV_ROOT:-}" \
+    "$PROJECT_DIR/openmm-metal-env"; do
+    if [ -n "$candidate" ] && [ -x "$candidate/bin/python" ]; then
+        PYTHON_ENV_SOURCE="$candidate"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_ENV_SOURCE" ]; then
+    echo "  Required Python runtime not found"
+    echo "  Add ./openmm-metal-env or set OPENMM_METAL_ENV_ROOT"
+    exit 1
 fi
 
-echo "  Packing dedicated QupKake environment ($QUPKAKE_ENV)..."
-if [ ! -f "$QUPKAKE_PACK_FILE" ]; then
-    conda-pack -n "$QUPKAKE_ENV" -o "$QUPKAKE_PACK_FILE" --ignore-editable-packages --ignore-missing-files 2>&1 | tail -5
-    echo "  Packed to $QUPKAKE_PACK_FILE ($(du -sh "$QUPKAKE_PACK_FILE" | cut -f1))"
-else
-    echo "  Using cached pack: $QUPKAKE_PACK_FILE ($(du -sh "$QUPKAKE_PACK_FILE" | cut -f1))"
-    echo "  (Delete $QUPKAKE_PACK_FILE to repack)"
-fi
+echo "  Using Python runtime from $PYTHON_ENV_SOURCE"
 
 # Step 3: Prepare extraResources
 echo "[3/5] Preparing bundled resources..."
@@ -54,70 +50,66 @@ EXTRA_DIR="$BUNDLE_DIR/extra-resources"
 rm -rf "$EXTRA_DIR"
 mkdir -p "$EXTRA_DIR/scripts"
 mkdir -p "$EXTRA_DIR/python"
-mkdir -p "$EXTRA_DIR/qupkake-python"
-mkdir -p "$EXTRA_DIR/qupkake-xtb"
+mkdir -p "$EXTRA_DIR/xtb"
 mkdir -p "$EXTRA_DIR/cordial"
-mkdir -p "$EXTRA_DIR/qupkake-fork"
 
 # Copy Python scripts
 cp -r "$PROJECT_DIR/deps/staging/scripts/"*.py "$EXTRA_DIR/scripts/" 2>/dev/null || true
 cp -r "$PROJECT_DIR/deps/staging/scripts/configs" "$EXTRA_DIR/scripts/configs" 2>/dev/null || true
+cp -r "$PROJECT_DIR/deps/staging/scripts/fonts" "$EXTRA_DIR/scripts/fonts" 2>/dev/null || true
 cp "$PROJECT_DIR/scripts/score_cordial.py" "$EXTRA_DIR/scripts/" 2>/dev/null || true
 
-# Bundle forked QupKake source if available
-if [ -d "$PROJECT_DIR/vendor/QupKake/qupkake" ]; then
-    echo "  Including forked QupKake source..."
-    rm -rf "$EXTRA_DIR/qupkake-fork"
-    mkdir -p "$EXTRA_DIR/qupkake-fork"
-    cp -R "$PROJECT_DIR/vendor/QupKake/"* "$EXTRA_DIR/qupkake-fork/"
+echo "  Copying Python runtime (this takes a minute)..."
+if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$PYTHON_ENV_SOURCE/" "$EXTRA_DIR/python/"
+else
+    cp -R "$PYTHON_ENV_SOURCE/." "$EXTRA_DIR/python/"
 fi
 
-# Extract conda env
-echo "  Extracting conda env (this takes a minute)..."
-tar xzf "$CONDA_PACK_FILE" -C "$EXTRA_DIR/python"
-tar xzf "$QUPKAKE_PACK_FILE" -C "$EXTRA_DIR/qupkake-python"
+echo "  Validating bundled Python runtime..."
+KMP_DUPLICATE_LIB_OK=TRUE "$EXTRA_DIR/python/bin/python" - <<'PY'
+import importlib
+required = [
+    'openmm',
+    'openmmforcefields',
+    'openff',
+    'vina',
+    'meeko',
+    'rdkit',
+    'pdbfixer',
+    'MDAnalysis',
+    'propka',
+    'torch',
+]
+missing = []
+for name in required:
+    try:
+        importlib.import_module(name)
+    except Exception as exc:
+        missing.append(f"{name}: {exc}")
+if missing:
+    raise SystemExit("Bundled Python validation failed:\n" + "\n".join(missing))
+PY
 
-# Fix conda-pack prefixes
-echo "  Fixing conda-pack prefixes..."
-cd "$EXTRA_DIR/python"
-if [ -f bin/conda-unpack ]; then
-    bash bin/conda-unpack 2>/dev/null || true
-fi
-cd "$EXTRA_DIR/qupkake-python"
-if [ -f bin/conda-unpack ]; then
-    bash bin/conda-unpack 2>/dev/null || true
-fi
-cd "$PROJECT_DIR"
-
-# Bundle source-built xTB beside the dedicated QupKake runtime if available.
-QUPKAKE_XTB_ROOT=""
+XTB_SOURCE=""
 for candidate in \
-    "${QUPKAKE_XTB_ROOT:-}" \
-    "$PROJECT_DIR/vendor/xtb-env" \
-    "$PROJECT_DIR/vendor/xtb-6.4.1/install-openblas" \
-    "$PROJECT_DIR/vendor/xtb-6.4.1/install" \
-    "$HOME/xtb-6.4.1/install-openblas" \
-    "$HOME/xtb-6.4.1/install"; do
+    "${XTB_ROOT:-}" \
+    "$PROJECT_DIR/xtb-env"; do
     if [ -n "$candidate" ] && [ -x "$candidate/bin/xtb" ]; then
-        QUPKAKE_XTB_ROOT="$candidate"
+        XTB_SOURCE="$candidate"
         break
     fi
 done
 
-if [ -n "$QUPKAKE_XTB_ROOT" ]; then
-    echo "  Including native xTB from $QUPKAKE_XTB_ROOT..."
-    rm -rf "$EXTRA_DIR/qupkake-xtb"
-    mkdir -p "$EXTRA_DIR/qupkake-xtb"
-    cp -R "$QUPKAKE_XTB_ROOT/bin" "$EXTRA_DIR/qupkake-xtb/"
-    cp -R "$QUPKAKE_XTB_ROOT/lib" "$EXTRA_DIR/qupkake-xtb/" 2>/dev/null || true
-    cp -R "$QUPKAKE_XTB_ROOT/share" "$EXTRA_DIR/qupkake-xtb/" 2>/dev/null || true
-elif [ -x "$EXTRA_DIR/qupkake-python/bin/xtb" ]; then
-    echo "  Falling back to xTB from the dedicated QupKake env..."
-    rm -rf "$EXTRA_DIR/qupkake-xtb"
-    mkdir -p "$EXTRA_DIR/qupkake-xtb/bin"
-    cp "$EXTRA_DIR/qupkake-python/bin/xtb" "$EXTRA_DIR/qupkake-xtb/bin/xtb"
+if [ -n "$XTB_SOURCE" ]; then
+    echo "  Including native xTB from $XTB_SOURCE..."
+    rm -rf "$EXTRA_DIR/xtb"
+    mkdir -p "$EXTRA_DIR/xtb"
+    cp -R "$XTB_SOURCE/bin" "$EXTRA_DIR/xtb/"
+    cp -R "$XTB_SOURCE/lib" "$EXTRA_DIR/xtb/" 2>/dev/null || true
+    cp -R "$XTB_SOURCE/share" "$EXTRA_DIR/xtb/" 2>/dev/null || true
 else
-    echo "  No xTB binary found for QupKake bundling"
+    echo "  No xTB binary found for bundling"
     exit 1
 fi
 
@@ -125,11 +117,7 @@ fi
 CORDIAL_SOURCE=""
 for candidate in \
     "${CORDIAL_ROOT:-}" \
-    "$PROJECT_DIR/CORDIAL" \
-    "$HOME/CORDIAL" \
-    "$HOME/cordial" \
-    "$HOME/Desktop/CORDIAL" \
-    "$HOME/Desktop/FragGen/CORDIAL"; do
+    "$PROJECT_DIR/CORDIAL"; do
     if [ -n "$candidate" ] && [ -d "$candidate" ] && [ -d "$candidate/weights" ] && [ -d "$candidate/modules" ]; then
         CORDIAL_SOURCE="$candidate"
         break
@@ -141,14 +129,33 @@ if [ -n "$CORDIAL_SOURCE" ]; then
     rm -rf "$EXTRA_DIR/cordial"
     mkdir -p "$EXTRA_DIR/cordial"
     cp -R "$CORDIAL_SOURCE/"* "$EXTRA_DIR/cordial/"
+
+    echo "  Validating bundled CORDIAL runtime..."
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH="$EXTRA_DIR/cordial" \
+      "$EXTRA_DIR/python/bin/python" - <<'PY'
+import run_protocols
+from modules.architectures.model_initializer import ModelInitializer
+print("CORDIAL validation OK")
+PY
 else
     echo "  CORDIAL not found locally; skipping bundled CORDIAL resources"
 fi
 
 # Copy Metal plugin dylibs if available
-METAL_BUILD="$HOME/openmm-metal-project/openmm-metal/.build-metal"
-if [ -d "$METAL_BUILD" ]; then
-    echo "  Including Metal plugin dylibs..."
+METAL_BUILD=""
+for candidate in \
+    "${OPENMM_METAL_BUILD:-}" \
+    "$PROJECT_DIR/Ember-Metal/.build-metal" \
+    "$PROJECT_DIR/openmm-metal/.build-metal"; do
+    if [ -n "$candidate" ] && [ -f "$candidate/platforms/metal/libOpenMMMetal.dylib" ]; then
+        METAL_BUILD="$candidate"
+        break
+    fi
+done
+
+if [ -n "$METAL_BUILD" ]; then
+    echo "  Including Metal plugin dylibs from $METAL_BUILD..."
+    mkdir -p "$EXTRA_DIR/python/lib/plugins"
     for lib in \
         "$METAL_BUILD/platforms/metal/libOpenMMMetal.dylib" \
         "$METAL_BUILD/plugins/amoeba/platforms/metal/libOpenMMAmoebaMetal.dylib" \
@@ -159,6 +166,10 @@ if [ -d "$METAL_BUILD" ]; then
             echo "    $(basename "$lib")"
         fi
     done
+else
+    echo "  Required OpenMM Metal plugin build not found"
+    echo "  Set OPENMM_METAL_BUILD or place a build at ./Ember-Metal/.build-metal"
+    exit 1
 fi
 
 echo "  Resources size: $(du -sh "$EXTRA_DIR" | cut -f1)"
@@ -243,7 +254,7 @@ fi
 echo ""
 echo "[5/5] Done!"
 echo ""
-DMG_FILE=$(ls -t dist/OpenSBDD-*.dmg 2>/dev/null | head -1)
+DMG_FILE=$(ls -t "dist/${PRODUCT}-"*.dmg 2>/dev/null | head -1)
 if [ -f "$DMG_FILE" ]; then
     echo "DMG: $DMG_FILE ($(du -sh "$DMG_FILE" | cut -f1))"
 else
@@ -252,4 +263,4 @@ else
 fi
 echo ""
 echo "To rebuild after code changes: npm run dist:mac"
-echo "To repack conda env: rm $CONDA_PACK_FILE && npm run dist:mac"
+echo "Python runtime source: $PYTHON_ENV_SOURCE"

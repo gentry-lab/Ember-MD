@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Type definitions for window.electronAPI
  */
@@ -37,6 +38,7 @@ import type {
   AnalysisOptions,
   AnalysisResult,
   XrayAnalysisResult,
+  XrayDirectoryScanResult,
   MdReportOptions,
   MdReportResult,
   MdTorsionAnalysis,
@@ -49,8 +51,6 @@ import type {
   RunFilesResult,
   BindingSiteMapOptions,
   BindingSiteMapResult,
-  LigandPkaResult,
-  QupkakeCapabilityResult,
   PocketMapOptions,
   SurfacePropsResult,
   FepScoringOptions,
@@ -69,6 +69,7 @@ export interface ElectronAPI {
   createDirectory: (dirPath: string) => Promise<Result<void, AppError>>;
   listSdfFiles: (dirPath: string) => Promise<string[]>;
   listPdbInDirectory: (dirPath: string) => Promise<string[]>;
+  scanXrayDirectory: (dirPath: string) => Promise<Result<XrayDirectoryScanResult, AppError>>;
   openFolder: (folderPath: string) => Promise<void>;
 
   // Preparation steps
@@ -200,7 +201,7 @@ export interface ElectronAPI {
     rmsdCutoff: number,
     energyWindow: number,
     method: string,
-    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean; xtbRerank?: boolean }
   ) => Promise<Result<{ conformerPaths: string[]; parentMapping: Record<string, string>; conformerEnergies: Record<string, number> }, AppError>>;
   onConformOutput: (callback: (data: OutputData) => void) => () => void;
 
@@ -231,8 +232,6 @@ export interface ElectronAPI {
     dockOutputDir: string,
     batchSize: number
   ) => Promise<Result<{ scoresFile: string; count: number }, AppError>>;
-  checkQupkakeInstalled: () => Promise<QupkakeCapabilityResult>;
-  predictLigandPka: (ligandPath: string) => Promise<Result<LigandPkaResult, AppError>>;
 
   // Dock event listener
   onDockOutput: (callback: (data: OutputData) => void) => () => void;

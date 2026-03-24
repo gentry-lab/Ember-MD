@@ -1,8 +1,7 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, onMount, createSignal, createMemo } from 'solid-js';
-import path from 'path';
 import { workflowStore } from '../../stores/workflow';
-import { buildDockFolderName, buildDockConformRunFolderName } from '../../utils/jobName';
-import { projectPaths } from '../../utils/projectPaths';
+import { buildDockFolderName } from '../../utils/jobName';
 
 const DockStepConfigure: Component = () => {
   const {
@@ -15,13 +14,11 @@ const DockStepConfigure: Component = () => {
     setDockConformerConfig,
     setDockRefinementConfig,
     setDockXtbConfig,
+    setDockWaterRetentionConfig,
     setDockCordialAvailable,
-    setDockCachedConformerPaths,
   } = workflowStore;
   const api = window.electronAPI;
   const [cordialChecked, setCordialChecked] = createSignal(false);
-  const [cachedConformers, setCachedConformers] = createSignal<string[]>([]);
-  const [cachedConformersUsed, setCachedConformersUsed] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -33,46 +30,6 @@ const DockStepConfigure: Component = () => {
       setDockCordialConfig({ enabled: false });
     }
     setCordialChecked(true);
-
-    // Scan for cached MCMM/ETKDG conformers from previous runs
-    try {
-      const defaultDir = await api.getDefaultOutputDir();
-      const baseOutputDir = state().customOutputDir || defaultDir;
-      const jobName = state().jobName.trim();
-      const dockFolder = buildDockFolderName({
-        referenceLigandId: state().dock.referenceLigandId,
-        numLigands: state().dock.ligandMolecules.length,
-      });
-      const paths = projectPaths(baseOutputDir, jobName);
-      const dockPaths = paths.docking(dockFolder);
-
-      for (const method of ['mcmm', 'etkdg'] as const) {
-        const conformerRunFolder = buildDockConformRunFolderName({
-          referenceLigandId: state().dock.referenceLigandId,
-          numLigands: state().dock.ligandMolecules.length,
-          method,
-          maxConformers: state().dock.conformerConfig.maxConformers,
-        });
-        const canonicalDir = paths.conformers(conformerRunFolder);
-        const legacyDir = path.join(dockPaths.prep, method);
-
-        try {
-          const canonicalSdfs = await api.listSdfInDirectory(canonicalDir);
-          if (canonicalSdfs.length > 0) {
-            setCachedConformers(canonicalSdfs.map((file) => path.join(canonicalDir, file)));
-            return;
-          }
-        } catch { /* canonical dir doesn't exist */ }
-
-        try {
-          const legacySdfs = await api.listSdfInDirectory(legacyDir);
-          if (legacySdfs.length > 0) {
-            setCachedConformers(legacySdfs.map((file) => path.join(legacyDir, file)));
-            return;
-          }
-        } catch { /* legacy dir doesn't exist */ }
-      }
-    } catch { /* scan failed, no cached conformers */ }
   });
 
   const outputFolderName = createMemo(() =>
@@ -167,18 +124,29 @@ const DockStepConfigure: Component = () => {
                 />
               </div>
             </div>
-            <label class="label cursor-pointer py-0.5 mt-1">
-              <span class="label-text text-xs flex items-center gap-1.5">
-                Core-constrained alignment (MCS)
-                <span class="badge badge-xs badge-warning font-normal" title="Experimental — works best with congeneric series sharing a common scaffold">exp</span>
-              </span>
+            <div class="border-t border-base-300 my-2" />
+            <label class="label cursor-pointer py-0.5">
+              <span class="label-text text-xs">Retain crystallographic waters</span>
               <input
                 type="checkbox"
                 class="checkbox checkbox-sm checkbox-primary"
-                checked={state().dock.config.coreConstrained}
-                onChange={(e) => setDockConfig({ coreConstrained: e.currentTarget.checked })}
+                checked={state().dock.waterRetentionConfig.enabled}
+                onChange={(e) => setDockWaterRetentionConfig({ enabled: e.currentTarget.checked })}
               />
             </label>
+            <Show when={state().dock.waterRetentionConfig.enabled}>
+              <div class="flex items-center gap-2 ml-6">
+                <span class="label-text text-[10px]">within</span>
+                <input
+                  type="number"
+                  class="input input-bordered input-xs w-16"
+                  value={state().dock.waterRetentionConfig.distance}
+                  min={1} max={10} step={0.5}
+                  onInput={(e) => setDockWaterRetentionConfig({ distance: Number(e.currentTarget.value) || 3.5 })}
+                />
+                <span class="label-text text-[10px]">{"\u00C5 of ligand"}</span>
+              </div>
+            </Show>
           </div>
         </div>
 
@@ -303,21 +271,6 @@ const DockStepConfigure: Component = () => {
                   />
                 </label>
               </Show>
-              <Show when={state().dock.conformerConfig.method === 'none' && cachedConformers().length > 0 && !cachedConformersUsed()}>
-                <div class="flex items-center gap-2 ml-6 mt-1 bg-info/10 rounded px-2 py-1">
-                  <span class="text-[10px]">{cachedConformers().length} cached conformers found</span>
-                  <button class="btn btn-xs btn-primary" onClick={() => {
-                    setDockCachedConformerPaths(cachedConformers());
-                    setCachedConformersUsed(true);
-                  }}>Use</button>
-                </div>
-              </Show>
-              <Show when={cachedConformersUsed()}>
-                <div class="flex items-center gap-2 ml-6 mt-1 text-[10px] text-success">
-                  Using {state().dock.cachedConformerPaths.length} cached conformers
-                </div>
-              </Show>
-
               <div class="border-t border-base-300 my-2" />
               <p class="text-[10px] text-base-content/50">
                 {state().dock.conformerConfig.method === 'crest'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { createSignal, createRoot } from 'solid-js';
 import { generateJobName } from '../utils/jobName';
 import {
@@ -26,6 +27,8 @@ import {
   DEFAULT_REFINEMENT_CONFIG,
   XtbConfig,
   DEFAULT_XTB_CONFIG,
+  WaterRetentionConfig,
+  DEFAULT_WATER_RETENTION_CONFIG,
   LigandSource,
   DetectedLigand,
   DetectedLigand as DockDetectedLigand,
@@ -309,6 +312,7 @@ export interface DockState {
   receptorPrepared: string | null;
   referenceLigandId: string | null;
   referenceLigandPath: string | null;
+  preparedLigandPath: string | null;
   detectedLigands: DockDetectedLigand[];
   ligandSource: LigandSource;
   ligandSdfPaths: string[];
@@ -320,6 +324,7 @@ export interface DockState {
   conformerConfig: ConformerConfig;
   refinementConfig: RefinementConfig;
   xtbConfig: XtbConfig;
+  waterRetentionConfig: WaterRetentionConfig;
   cachedConformerPaths: string[];
   dockingOutputDir: string | null;
   totalLigands: number;
@@ -383,6 +388,7 @@ const defaultDockState: DockState = {
   receptorPrepared: null,
   referenceLigandId: null,
   referenceLigandPath: null,
+  preparedLigandPath: null,
   detectedLigands: [],
   ligandSource: 'structure_files',
   ligandSdfPaths: [],
@@ -394,6 +400,7 @@ const defaultDockState: DockState = {
   conformerConfig: { ...DEFAULT_CONFORMER_CONFIG },
   refinementConfig: { ...DEFAULT_REFINEMENT_CONFIG },
   xtbConfig: { ...DEFAULT_XTB_CONFIG },
+  waterRetentionConfig: { ...DEFAULT_WATER_RETENTION_CONFIG },
   cachedConformerPaths: [],
   dockingOutputDir: null,
   totalLigands: 0,
@@ -614,6 +621,9 @@ function createWorkflowStore() {
   const setDockReferenceLigandPath = (referenceLigandPath: string | null) =>
     setState((s) => ({ ...s, dock: { ...s.dock, referenceLigandPath } }));
 
+  const setDockPreparedLigandPath = (preparedLigandPath: string | null) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, preparedLigandPath } }));
+
   const setDockDetectedLigands = (detectedLigands: DockDetectedLigand[]) =>
     setState((s) => ({ ...s, dock: { ...s.dock, detectedLigands } }));
 
@@ -646,6 +656,9 @@ function createWorkflowStore() {
 
   const setDockXtbConfig = (xtbConfig: Partial<XtbConfig>) =>
     setState((s) => ({ ...s, dock: { ...s.dock, xtbConfig: { ...s.dock.xtbConfig, ...xtbConfig } } }));
+
+  const setDockWaterRetentionConfig = (waterRetentionConfig: Partial<WaterRetentionConfig>) =>
+    setState((s) => ({ ...s, dock: { ...s.dock, waterRetentionConfig: { ...s.dock.waterRetentionConfig, ...waterRetentionConfig } } }));
 
   const setDockCachedConformerPaths = (cachedConformerPaths: string[]) =>
     setState((s) => ({ ...s, dock: { ...s.dock, cachedConformerPaths } }));
@@ -1260,6 +1273,7 @@ function createWorkflowStore() {
     setDockReceptorPrepared,
     setDockReferenceLigandId,
     setDockReferenceLigandPath,
+    setDockPreparedLigandPath,
     setDockDetectedLigands,
     setDockLigandSource,
     setDockLigandSdfPaths,
@@ -1271,6 +1285,7 @@ function createWorkflowStore() {
     setDockConformerConfig,
     setDockRefinementConfig,
     setDockXtbConfig,
+    setDockWaterRetentionConfig,
     setDockCachedConformerPaths,
     setDockOutputDir,
     setDockTotalLigands,

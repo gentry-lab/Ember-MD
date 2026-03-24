@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """Enrich torsions_results.json with cluster-centroid torsion values."""
 
 from __future__ import annotations

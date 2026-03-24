@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * MCMM (conformer generation) full pipeline test.
  * Uses SMILES input (no file dialogs needed).
@@ -114,9 +115,10 @@ test.describe('MCMM pipeline', () => {
     const headerText = await table.locator('thead').textContent();
     expect(headerText?.toLowerCase()).toContain('energy');
 
-    // First row energy should be 0.0 (min)
+    // First row energy should be the zeroed minimum, without extra suffix text
     const firstRowEnergy = await rows.first().locator('td').last().textContent();
     expect(firstRowEnergy).toContain('0.0');
+    expect(firstRowEnergy).not.toContain('(min)');
 
     // View 3D button visible
     await expect(window.locator('.btn.btn-primary:visible', { hasText: /View 3D/i })).toBeVisible();

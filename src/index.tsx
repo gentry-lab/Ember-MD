@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /* @refresh reload */
 import { render } from 'solid-js/web';
 import App from './App';

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import type { ConformerMethod } from '../../../shared/types/dock';
@@ -11,12 +12,17 @@ const ConformStepConfigure: Component = () => {
     setConformProtonationConfig,
     setConformConfig,
   } = workflowStore;
+  const activeMethod = (): Exclude<ConformerMethod, 'none'> =>
+    state().conform.config.method === 'none'
+      ? 'etkdg'
+      : state().conform.config.method as Exclude<ConformerMethod, 'none'>;
 
   const outputFolder = () => buildConformRunFolderName({
-    method: state().conform.config.method === 'etkdg' ? 'etkdg' : 'mcmm',
+    method: activeMethod(),
     maxConformers: state().conform.config.maxConformers,
     outputName: state().conform.outputName,
     ligandName: state().conform.ligandName,
+    protonation: state().conform.protonationConfig,
   });
 
   return (

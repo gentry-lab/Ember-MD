@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Path resolution and environment detection for Ember.
  * All functions are pure (fs.existsSync + env vars), no IPC or state mutation.
@@ -5,12 +6,12 @@
 import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as yaml from 'yaml';
 import type { SamplingConfig, RunParameters } from '../shared/types/ipc';
 
 // Bundled installation path (set by .deb package)
 const BUNDLED_INSTALL_PATH = '/opt/fraggen';
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
 export function isBundledInstall(): boolean {
   return fs.existsSync(path.join(BUNDLED_INSTALL_PATH, 'scripts')) &&
@@ -27,12 +28,12 @@ export function getFragGenRoot(): string {
   }
 
   if (isDevRuntime()) {
-    const localScripts = path.join(__dirname, '..', '..', 'deps', 'staging', 'scripts');
+    const localScripts = path.join(PROJECT_ROOT, 'deps', 'staging', 'scripts');
     if (fs.existsSync(localScripts)) {
       return localScripts;
     }
 
-    const devBundledScripts = path.join(path.resolve(__dirname, '..', '..'), 'bundle-mac', 'extra-resources', 'scripts');
+    const devBundledScripts = path.join(PROJECT_ROOT, 'bundle-mac', 'extra-resources', 'scripts');
     if (fs.existsSync(devBundledScripts)) {
       return devBundledScripts;
     }
@@ -86,6 +87,18 @@ export function getCondaPythonPath(): string | null {
     }
   }
 
+  if (isDevRuntime()) {
+    const repoPython = path.join(PROJECT_ROOT, 'openmm-metal-env', 'bin', 'python');
+    if (fs.existsSync(repoPython)) {
+      return repoPython;
+    }
+
+    const devBundledPython = path.join(PROJECT_ROOT, 'bundle-mac', 'extra-resources', 'python', 'bin', 'python');
+    if (fs.existsSync(devBundledPython)) {
+      return devBundledPython;
+    }
+  }
+
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 
   const envNames = process.platform === 'darwin'
@@ -113,12 +126,7 @@ export function getCondaPythonPath(): string | null {
     }
   }
 
-  if (isDevRuntime()) {
-    const devBundledPython = path.join(path.resolve(__dirname, '..', '..'), 'bundle-mac', 'extra-resources', 'python', 'bin', 'python');
-    if (fs.existsSync(devBundledPython)) {
-      return devBundledPython;
-    }
-  } else {
+  if (!isDevRuntime()) {
     const bundledCondaPath = path.join(process.resourcesPath, 'conda/fraggen/bin/python');
     if (fs.existsSync(bundledCondaPath)) {
       return bundledCondaPath;
@@ -129,96 +137,23 @@ export function getCondaPythonPath(): string | null {
 }
 
 export function getDevExtraResourcesPath(...parts: string[]): string {
-  return path.join(path.resolve(__dirname, '..', '..'), 'bundle-mac', 'extra-resources', ...parts);
+  return path.join(PROJECT_ROOT, 'bundle-mac', 'extra-resources', ...parts);
 }
 
-export function getQupkakePythonPath(): string | null {
-  const envPython = process.env.QUPKAKE_PYTHON;
-  if (envPython && fs.existsSync(envPython)) {
-    return envPython;
-  }
-
-  const bundledPython = path.join(process.resourcesPath, 'qupkake-python', 'bin', 'python');
-  if (fs.existsSync(bundledPython)) {
-    return bundledPython;
-  }
-
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  const canonicalLocalPython = path.join(homeDir, 'miniconda3', 'envs', 'qupkake', 'bin', 'python3.9');
-  if (fs.existsSync(canonicalLocalPython)) {
-    return canonicalLocalPython;
-  }
-
-  return null;
-}
-
-export function getQupkakeRoot(): string | null {
-  const envRoot = process.env.QUPKAKE_ROOT;
-  if (envRoot && fs.existsSync(envRoot)) {
-    return envRoot;
-  }
-
-  const repoVendorRoot = path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'QupKake');
-  if (isDevRuntime() && fs.existsSync(path.join(repoVendorRoot, 'qupkake'))) {
-    return repoVendorRoot;
-  }
-
-  const bundledRoot = path.join(process.resourcesPath, 'qupkake-fork');
-  if (fs.existsSync(path.join(bundledRoot, 'qupkake'))) {
-    return bundledRoot;
-  }
-
-  return null;
-}
-
-export function getQupkakeXtbPath(): string | null {
-  const envXtb = process.env.QUPKAKE_XTBPATH || process.env.XTBPATH;
+export function getXtbPath(): string | null {
+  const envXtb = process.env.XTBPATH;
   if (envXtb && fs.existsSync(envXtb)) {
     return envXtb;
   }
 
-  const repoXtb = path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'xtb-env', 'bin', 'xtb');
+  const repoXtb = path.join(PROJECT_ROOT, 'xtb-env', 'bin', 'xtb');
   if (isDevRuntime() && fs.existsSync(repoXtb)) {
     return repoXtb;
   }
 
-  const bundledXtb = path.join(process.resourcesPath, 'qupkake-xtb', 'bin', 'xtb');
+  const bundledXtb = path.join(process.resourcesPath, 'xtb', 'bin', 'xtb');
   if (fs.existsSync(bundledXtb)) {
     return bundledXtb;
-  }
-
-  return null;
-}
-
-export function getQupkakeValidationLigand(): string | null {
-  const explicitLigand = process.env.QUPKAKE_VALIDATE_LIGAND;
-  if (explicitLigand && fs.existsSync(explicitLigand)) {
-    return explicitLigand;
-  }
-
-  const emberRoot = path.join(os.homedir(), 'Ember');
-  if (!fs.existsSync(emberRoot)) {
-    return null;
-  }
-
-  try {
-    const projects = fs.readdirSync(emberRoot).sort();
-    for (const project of projects) {
-      const dockingRoot = path.join(emberRoot, project, 'docking');
-      if (!fs.existsSync(dockingRoot)) continue;
-      const jobs = fs.readdirSync(dockingRoot).sort();
-      for (const job of jobs) {
-        const prepDir = path.join(dockingRoot, job, 'prep');
-        if (!fs.existsSync(prepDir)) continue;
-        const files = fs.readdirSync(prepDir).sort();
-        for (const file of files) {
-          if (!/\.(sdf(\.gz)?|mol2?|MOL2?)$/i.test(file)) continue;
-          return path.join(prepDir, file);
-        }
-      }
-    }
-  } catch (error) {
-    console.warn('[QupKake] Failed to scan validation ligands:', (error as Error).message);
   }
 
   return null;
@@ -310,6 +245,14 @@ export function getCordialRoot(): string | null {
     return process.env.CORDIAL_ROOT;
   }
 
+  const projectCordial = path.join(PROJECT_ROOT, 'CORDIAL');
+  if (isDevRuntime() &&
+      fs.existsSync(projectCordial) &&
+      fs.existsSync(path.join(projectCordial, 'weights')) &&
+      fs.existsSync(path.join(projectCordial, 'modules'))) {
+    return projectCordial;
+  }
+
   const appBundledCordial = path.join(process.resourcesPath, 'cordial');
   if (fs.existsSync(appBundledCordial) &&
       fs.existsSync(path.join(appBundledCordial, 'weights')) &&
@@ -331,22 +274,13 @@ export function getCordialRoot(): string | null {
     return bundledCordial;
   }
 
-  const projectRoot = path.dirname(__dirname);
-  const projectCordial = path.join(projectRoot, 'CORDIAL');
   if (fs.existsSync(projectCordial) &&
       fs.existsSync(path.join(projectCordial, 'weights')) &&
       fs.existsSync(path.join(projectCordial, 'modules'))) {
     return projectCordial;
   }
 
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-
   const candidates = [
-    path.join(homeDir, 'Desktop', 'FragGen', 'CORDIAL'),
-    path.join(homeDir, 'Desktop', 'CORDIAL'),
-    path.join(homeDir, 'CORDIAL'),
-    path.join(homeDir, 'cordial'),
-    path.join(homeDir, 'projects', 'CORDIAL'),
     '/opt/CORDIAL',
   ];
 
@@ -455,9 +389,7 @@ export function initializePaths(): ResolvedPaths {
     console.log('Model checkpoint dir:', getModelCheckpointDir(fraggenRoot));
     console.log('Fragment base:', getFragBase(fraggenRoot));
     console.log('Conda Python (fraggen):', condaPythonPath);
-    console.log('QupKake Python:', getQupkakePythonPath() || 'Not found');
-    console.log('QupKake root:', getQupkakeRoot() || 'Not found');
-    console.log('QupKake xTB:', getQupkakeXtbPath() || 'Not found');
+    console.log('xTB:', getXtbPath() || 'Not found');
     console.log('Conda Python (surface_gen):', surfaceGenPythonPath);
     console.log('Docking backend: Vina (Python API)');
     console.log('CORDIAL root:', getCordialRoot() || 'Not found');

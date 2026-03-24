@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { workflowStore, ViewerQueueItem } from '../../stores/workflow';
 import path from 'path';

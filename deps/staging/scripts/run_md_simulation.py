@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 OpenMM MD simulation for FragGen GUI.
 Builds system from GNINA docking output and runs simulation.
@@ -7,7 +8,6 @@ Force field presets:
   - ff14sb-tip3p: ff14SB + TIP3P (classic validated combination)
   - ff19sb-opc: ff19SB + OPC (modern, higher accuracy, default)
   - ff19sb-opc3: ff19SB + OPC3 (fast modern, nearly OPC accuracy)
-  - charmm36-mtip3p: CHARMM36 + mTIP3P (cross-family validation)
 
 AMBER-style equilibration protocol with positional restraints:
 1. Restrained minimization (heavy atoms, 10 kcal/mol/A²)
@@ -43,7 +43,7 @@ try:
     from openmm.unit import *
     import rdkit.Chem as Chem
     from openff.toolkit import Molecule
-    from openmmforcefields.generators import SMIRNOFFTemplateGenerator
+    from openmmforcefields.generators import SMIRNOFFTemplateGenerator, SystemGenerator
     import openmmforcefields
     from pdbfixer import PDBFixer
 except ImportError as e:
@@ -68,7 +68,6 @@ PRESETS = {
     'ff14sb-tip3p':    {'protein_ff': ['amber14-all.xml'],              'water_ff': ['amber14/tip3p.xml'],         'water_model': 'tip3p',   'water_label': 'TIP3P'},
     'ff19sb-opc':      {'protein_ff': ['amber/protein.ff19SB.xml'],     'water_ff': ['amber/opc_standard.xml'],    'water_model': 'tip4pew', 'water_label': 'OPC'},
     'ff19sb-opc3':     {'protein_ff': ['amber/protein.ff19SB.xml'],     'water_ff': ['amber/opc3_standard.xml'],   'water_model': 'tip3p',   'water_label': 'OPC3'},
-    'charmm36-mtip3p': {'protein_ff': ['charmm36.xml'],                 'water_ff': ['charmm36/water.xml'],        'water_model': 'tip3p',   'water_label': 'mTIP3P'},
 }
 
 # Backward compat mapping for old preset names
@@ -235,37 +234,10 @@ def _patch_forcefield_for_chain_breaks(ff: Any) -> None:
     original_createSystem = ff.createSystem
 
     @functools.wraps(original_createSystem)
-    def _patched_createSystem(
-        topology,
-        nonbondedMethod=NoCutoff,
-        nonbondedCutoff=1.0*nanometers,
-        constraints=None,
-        rigidWater=None,
-        removeCMMotion=True,
-        hydrogenMass=None,
-        residueTemplates=None,
-        ignoreExternalBonds=False,
-        switchDistance=None,
-        flexibleConstraints=False,
-        drudeMass=0.4*amu,
-        **args,
-    ):
-        kwargs = dict(
-            nonbondedMethod=nonbondedMethod,
-            nonbondedCutoff=nonbondedCutoff,
-            constraints=constraints,
-            rigidWater=rigidWater,
-            removeCMMotion=removeCMMotion,
-            hydrogenMass=hydrogenMass,
-            residueTemplates={} if residueTemplates is None else dict(residueTemplates),
-            ignoreExternalBonds=ignoreExternalBonds,
-            switchDistance=switchDistance,
-            flexibleConstraints=flexibleConstraints,
-            drudeMass=drudeMass,
-            **args,
-        )
+    def _patched_createSystem(topology, *create_args, **create_kwargs):
+        kwargs = dict(create_kwargs)
         try:
-            return original_createSystem(topology, **kwargs)
+            return original_createSystem(topology, *create_args, **kwargs)
         except Exception:
             if kwargs.get('ignoreExternalBonds'):
                 raise  # Already tried, don't loop
@@ -276,8 +248,10 @@ def _patch_forcefield_for_chain_breaks(ff: Any) -> None:
                     cys_templates[res] = 'CYS' if 'HG' in atom_names else 'CYX'
             rt = dict(kwargs.pop('residueTemplates', {}))
             rt.update(cys_templates)
+            kwargs['ignoreExternalBonds'] = True
+            kwargs['residueTemplates'] = rt
             return original_createSystem(
-                topology, ignoreExternalBonds=True, residueTemplates=rt, **kwargs
+                topology, *create_args, **kwargs
             )
 
     ff.createSystem = _patched_createSystem
@@ -303,6 +277,28 @@ def _estimate_am1bcc_time(n_atoms: int) -> str:
         return '~2-6min'
     else:
         return '~5min+'
+
+
+def _build_mixed_system_generator(preset: Dict[str, Any], ligand: Any, include_protein: bool = True) -> Any:
+    """Create a SystemGenerator for protein/water + OpenFF ligand systems."""
+    forcefields = [*preset['water_ff']]
+    if include_protein:
+        forcefields = [*preset['protein_ff'], *forcefields]
+    return SystemGenerator(
+        forcefields=forcefields,
+        small_molecule_forcefield='openff-2.3.0',
+        molecules=[ligand],
+        nonperiodic_forcefield_kwargs={
+            'nonbondedMethod': NoCutoff,
+        },
+        periodic_forcefield_kwargs={
+            'nonbondedMethod': PME,
+            'nonbondedCutoff': 1.0*nanometers,
+            'ewaldErrorTolerance': 0.0005,
+            'constraints': HBonds,
+            'hydrogenMass': 1.5*amu,
+        },
+    )
 
 
 def get_backbone_atoms(topology: Any) -> List[int]:
@@ -423,10 +419,8 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
     water_model = preset['water_model']
     water_label = preset['water_label']
     print(f'[{time.time()-t_start:.1f}s] Setting up force fields ({water_label} + OpenFF Sage 2.3.0)...', file=sys.stderr)
-    ff = ForceField(*preset['water_ff'])
-
-    smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand], forcefield='openff-2.3.0')
-    ff.registerTemplateGenerator(smirnoff.generator)
+    system_generator = _build_mixed_system_generator(preset, ligand, include_protein=False)
+    ff = system_generator.forcefield
     print(f'[{time.time()-t_start:.1f}s] Ligand FF: OpenFF Sage 2.3.0', file=sys.stderr)
     print('PROGRESS:building:40', flush=True)
 
@@ -444,7 +438,7 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
     estimate = _estimate_am1bcc_time(n_atoms)
     print(f'[{time.time()-t_start:.1f}s] Computing AM1-BCC partial charges ({n_atoms} atoms, est. {estimate})...', file=sys.stderr)
     print(f'PROGRESS:parameterizing:0:{n_atoms}', flush=True)
-    _temp_sys = ff.createSystem(lig_top, nonbondedMethod=NoCutoff)
+    _temp_sys = system_generator.create_system(lig_top, molecules=[ligand])
     del _temp_sys
     print(f'[{time.time()-t_start:.1f}s] AM1-BCC charges computed', file=sys.stderr)
     print('PROGRESS:parameterizing:100', flush=True)
@@ -489,14 +483,7 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
 
     # 5. Create system with HMR
     print(f'[{time.time()-t_start:.1f}s] Creating OpenMM system with HMR...', file=sys.stderr)
-    system = ff.createSystem(
-        modeller.topology,
-        nonbondedMethod=PME,
-        nonbondedCutoff=1.0*nanometers,
-        ewaldErrorTolerance=0.0005,
-        constraints=HBonds,
-        hydrogenMass=1.5*amu
-    )
+    system = system_generator.create_system(modeller.topology, molecules=[ligand])
     print(f'[{time.time()-t_start:.1f}s] System created', file=sys.stderr)
 
     print('PROGRESS:building:100', flush=True)
@@ -631,7 +618,6 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
         print(f'  Found heterogens in PDB: {het_counts}', file=sys.stderr)
 
     preset = PRESETS[force_field_preset]
-
     prepared_topology: Optional[Any] = None
     prepared_positions: Optional[Any] = None
     prep_report: Dict[str, Any] = {'input_receptor_pdb': receptor_pdb, 'preflight_passed': False}
@@ -748,10 +734,8 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
     water_model = preset['water_model']
     water_label = preset['water_label']
     print(f'Setting up force fields ({", ".join(preset["protein_ff"])} + {water_label} + OpenFF Sage 2.3.0)...', file=sys.stderr)
-    ff = ForceField(*preset['protein_ff'], *preset['water_ff'])
-
-    smirnoff = SMIRNOFFTemplateGenerator(molecules=[ligand], forcefield='openff-2.3.0')
-    ff.registerTemplateGenerator(smirnoff.generator)
+    system_generator = _build_mixed_system_generator(preset, ligand)
+    ff = system_generator.forcefield
     # Patch createSystem to tolerate chain-break bond mismatches (e.g. terminal GLU)
     _patch_forcefield_for_chain_breaks(ff)
     print('Ligand FF: OpenFF Sage 2.3.0', file=sys.stderr)
@@ -766,7 +750,7 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
     estimate = _estimate_am1bcc_time(n_atoms)
     print(f'Computing AM1-BCC partial charges ({n_atoms} atoms, est. {estimate})...', file=sys.stderr)
     print(f'PROGRESS:parameterizing:0:{n_atoms}', flush=True)
-    _temp_sys = ff.createSystem(lig_top, nonbondedMethod=NoCutoff)
+    _temp_sys = system_generator.create_system(lig_top, molecules=[ligand])
     del _temp_sys
     print('PROGRESS:parameterizing:100', flush=True)
 
@@ -824,14 +808,7 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
     # HMR (Hydrogen Mass Repartitioning) allows 4fs timestep for faster production
     # Equilibration uses 2fs for stability, production uses 4fs
     print('Creating OpenMM system with HMR...', file=sys.stderr)
-    system = ff.createSystem(
-        modeller.topology,
-        nonbondedMethod=PME,
-        nonbondedCutoff=1.0*nanometers,
-        ewaldErrorTolerance=0.0005,  # Explicit for reproducibility
-        constraints=HBonds,
-        hydrogenMass=1.5*amu  # HMR for 4fs timestep in production
-    )
+    system = system_generator.create_system(modeller.topology, molecules=[ligand])
 
     print('PROGRESS:building:100', flush=True)
     print(f'System built: {atom_count} atoms, {volume_A3:.0f} A^3', file=sys.stderr)
@@ -1170,21 +1147,16 @@ def run_equilibration(simulation: Any, modeller: Any, output_dir: str, job_name:
     return state, platform_name
 
 
-def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_dir: str, job_name: str, production_ns: float, platform_name: str, temperature_k: float = 300, restrain_ligand_ns: float = 0, seed: int = 0) -> str:
+def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_dir: str, job_name: str, production_ns: float, platform_name: str, temperature_k: float = 300, seed: int = 0) -> str:
     """Run production MD and save trajectory.
 
     Creates a new simulation with 4fs timestep (HMR enabled in system).
     Saves trajectory every 10 ps (2500 steps at 4fs).
     Saves energy every 2 ps (500 steps).
 
-    If restrain_ligand_ns > 0, applies a weak (1 kcal/mol/Å²) harmonic restraint
-    on ligand heavy atoms for the first N ns, then releases. This is useful for
-    IFD-MD workflows where you want the protein to adapt around a docked pose.
     """
     print('PROGRESS:production:0', flush=True)
     print(f'Running production MD ({production_ns} ns) with 4fs timestep (HMR)...', file=sys.stderr)
-    if restrain_ligand_ns > 0:
-        print(f'  Ligand restraint: {restrain_ligand_ns} ns at 1.0 kcal/mol/Å² then release', file=sys.stderr)
 
     # Create new integrator with 4fs timestep for production (HMR enabled in system)
     integrator = LangevinMiddleIntegrator(temperature_k*kelvin, 1/picosecond, 0.004*picoseconds)
@@ -1217,28 +1189,6 @@ def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_d
     simulation.context.setParameter('k_heavy', 0)
     simulation.context.setParameter('k', 0)
 
-    # Add ligand restraint if requested (IFD-MD mode)
-    has_ligand_restraint = False
-    if restrain_ligand_ns > 0:
-        lig_indices, lig_resnames = _find_ligand_indices(modeller.topology)
-        if lig_indices:
-            lig_restraint = CustomExternalForce('k_lig*periodicdistance(x,y,z,x0,y0,z0)^2')
-            lig_restraint.addGlobalParameter('k_lig', 1.0 * KCAL_MOL_A2)
-            lig_restraint.addPerParticleParameter('x0')
-            lig_restraint.addPerParticleParameter('y0')
-            lig_restraint.addPerParticleParameter('z0')
-            eq_positions = equilibrated_state.getPositions()
-            for idx in lig_indices:
-                pos = eq_positions[idx]
-                lig_restraint.addParticle(idx, [pos.x, pos.y, pos.z])
-            system.addForce(lig_restraint)
-            # Must reinitialize context after adding force
-            simulation.context.reinitialize(preserveState=True)
-            has_ligand_restraint = True
-            print(f'  Ligand restraint active: {len(lig_indices)} heavy atoms ({",".join(sorted(lig_resnames))})', file=sys.stderr)
-        else:
-            print('  Warning: no ligand atoms found, skipping ligand restraint', file=sys.stderr)
-
     # Setup trajectory reporter (save every 10 ps = 2500 steps at 4fs)
     # Use job name for self-contained filenames
     dcd_file = os.path.join(output_dir, _prefixed(job_name, 'trajectory.dcd'))
@@ -1256,22 +1206,11 @@ def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_d
     # Run production with 4fs timestep: 250000 steps/ns
     # Report every 0.1 ns (25000 steps at 4fs)
     total_steps = int(production_ns * 250000)
-    restrain_steps = int(restrain_ligand_ns * 250000) if has_ligand_restraint else 0
     steps_per_report = 25000  # 0.1 ns at 4fs
 
     steps_completed = 0
     while steps_completed < total_steps:
-        # Release ligand restraint at the boundary
-        if has_ligand_restraint and steps_completed >= restrain_steps:
-            simulation.context.setParameter('k_lig', 0)
-            has_ligand_restraint = False
-            ns_released = steps_completed / 250000
-            print(f'  Ligand restraint released at {ns_released:.1f} ns', file=sys.stderr)
-
         steps_to_run = min(steps_per_report, total_steps - steps_completed)
-        # Don't overshoot the restraint boundary
-        if has_ligand_restraint and steps_completed + steps_to_run > restrain_steps:
-            steps_to_run = restrain_steps - steps_completed
 
         simulation.step(steps_to_run)
         steps_completed += steps_to_run
@@ -1370,8 +1309,6 @@ def main() -> None:
     parser.add_argument('--temperature', type=float, default=300, help='Production temperature in K (default: 300)')
     parser.add_argument('--salt_concentration', type=float, default=0.15, help='Salt concentration in M (default: 0.15)')
     parser.add_argument('--padding', type=float, default=1.2, help='Box padding in nm (default: 1.2)')
-    parser.add_argument('--restrain_ligand_ns', type=float, default=0,
-                        help='Restrain ligand heavy atoms for first N ns of production (0=off, IFD-MD mode)')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed for velocity generation and Langevin noise (0=auto from clock)')
     parser.add_argument('--project_name', default=None,
@@ -1494,7 +1431,7 @@ def main() -> None:
     equilibrated_state, actual_platform = run_equilibration(simulation, modeller, args.output_dir, job_name, target_temp=args.temperature, platform_name=platform_name, seed=args.seed)
 
     print(f'Running production ({args.production_ns} ns) on {actual_platform}...', file=sys.stderr)
-    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform, args.temperature, args.restrain_ligand_ns, seed=args.seed)
+    trajectory = run_production(system, modeller, equilibrated_state, args.output_dir, job_name, args.production_ns, actual_platform, args.temperature, seed=args.seed)
 
     print(f'SUCCESS:{trajectory}', flush=True)
 

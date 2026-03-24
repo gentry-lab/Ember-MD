@@ -1,6 +1,7 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createMemo, createSignal, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { DEFAULT_RECEPTOR_WATER_DISTANCE, DockMolecule, LigandSource } from '../../../shared/types/dock';
+import { DockMolecule, LigandSource } from '../../../shared/types/dock';
 import { projectPaths, DockingPaths } from '../../utils/projectPaths';
 import { buildDockFolderName } from '../../utils/jobName';
 import ImportInputPanel from '../shared/ImportInputPanel';
@@ -142,11 +143,12 @@ const DockStepLoad: Component = () => {
       setStatusText('Preparing receptor (adding hydrogens)...');
       const receptorPath = path.join(dockPaths.inputs, 'receptor.pdb');
       const receptorPh = (state().dock.protonationConfig.phMin + state().dock.protonationConfig.phMax) / 2;
+      const wrc = state().dock.waterRetentionConfig;
       const receptorResult = await api.prepareReceptor(
         currentPdb,
         ligandId,
         receptorPath,
-        DEFAULT_RECEPTOR_WATER_DISTANCE,
+        wrc.enabled ? wrc.distance : 0,
         receptorPh
       );
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import type { ProjectJobPose } from '../../shared/types/ipc';
 import type { DockResult } from '../../shared/types/dock';
 import type {
@@ -66,8 +67,6 @@ export function buildDockingProjectTable(options: {
       item: { pdbPath: receptorPdb, label: 'Apo receptor' },
       loadKind: 'structure',
       metrics: {},
-      pocketLigandPath: referenceLigandPath ?? null,
-      pocketSourcePdbPath: holoPdb ?? null,
     },
   ];
 
@@ -88,10 +87,10 @@ export function buildDockingProjectTable(options: {
     rows.push({
       id: `${familyId}:prepared-ligand`,
       familyId,
-      label: 'Prepared ligand',
+      label: 'Prepared dock ligand',
       rowKind: 'prepared-ligand',
       jobType: 'docking',
-      item: { pdbPath: preparedLigandPath, label: 'Prepared ligand', type: 'ligand' },
+      item: { pdbPath: preparedLigandPath, label: 'Prepared dock ligand', type: 'ligand' },
       loadKind: 'standalone-ligand',
       metrics: {},
     });

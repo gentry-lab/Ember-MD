@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Pocket map handlers (static / solvation / probe dispatch).
  */

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Analyze hydrogen bonds between protein and ligand over MD trajectory.
 

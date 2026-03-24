@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Viewer NGL state tests.
  * Asserts on NGL stage internal state (compList, reprList, camera) — not screenshots.

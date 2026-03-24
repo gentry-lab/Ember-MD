@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Shared Playwright fixtures for Ember Electron app testing.
  */

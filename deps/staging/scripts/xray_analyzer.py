@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 X-ray Structure Quality Analyzer
 ==================================
@@ -54,6 +55,7 @@ try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    import matplotlib.font_manager as mfont
     import matplotlib.colors as mcolors
     from matplotlib.patches import Circle, Polygon
     import matplotlib.patheffects as pe
@@ -110,6 +112,18 @@ def _register_pdf_font_family():
         boldItalic='Inter-BoldItalic',
     )
     return 'Inter'
+
+
+def _get_inter_semibold_font_properties():
+    """Return Matplotlib font properties for bundled Inter SemiBold, if available."""
+    if not HAS_RDKIT:
+        return None
+
+    font_path = Path(__file__).resolve().parent / 'fonts' / 'Inter-SemiBold.ttf'
+    if not font_path.exists():
+        return None
+
+    return mfont.FontProperties(fname=str(font_path), weight='semibold')
 
 class PDBAnalyzer:
     """Core PDB analyzer with enhanced R-value detection"""
@@ -1528,9 +1542,9 @@ def generate_ligand_image(pdb_path, mtz_path, lig_result, header_data, output_pa
         ('#CC2222', '> 80    unreliable'),
     ]
 
-    FONT_V = 'monospace'
     DARK_V = '#1a1a1a'
     LABEL_SIZE_V = 14
+    FONT_PROPS_V = _get_inter_semibold_font_properties()
 
     def _compute_labels(values, fmt):
         labels = []
@@ -1644,7 +1658,7 @@ def generate_ligand_image(pdb_path, mtz_path, lig_result, header_data, output_pa
         for lb in _compute_labels(values, fmt):
             ax.text(lb['x'], lb['y'], lb['text'],
                     ha=lb['ha'], va=lb['va'], fontsize=LABEL_SIZE_V,
-                    color=DARK_V, zorder=4, family=FONT_V, fontweight='demibold',
+                    color=DARK_V, zorder=4, fontproperties=FONT_PROPS_V,
                     path_effects=[mpe.withStroke(linewidth=4, foreground='white')])
 
         m = 3.2
@@ -1658,12 +1672,12 @@ def generate_ligand_image(pdb_path, mtz_path, lig_result, header_data, output_pa
         ax.set_ylim(mol_ymin, mol_ymax)
         ax.set_aspect('equal')
         ax.axis('off')
-        ax.set_title(title, fontsize=16, fontweight='demibold', pad=24,
-                     family=FONT_V, color=DARK_V)
+        ax.set_title(title, fontsize=16, pad=24,
+                     fontproperties=FONT_PROPS_V, color=DARK_V)
 
         ax.text(mol_xmin + 0.5, mol_ymax - 0.5, pocket_label,
                 ha='left', va='top', fontsize=LABEL_SIZE_V,
-                color='#555555', family=FONT_V, fontweight='demibold',
+                color='#555555', fontproperties=FONT_PROPS_V,
                 path_effects=[mpe.withStroke(linewidth=3, foreground='white')])
 
         n_tiers = len(tiers)
@@ -1677,10 +1691,10 @@ def generate_ligand_image(pdb_path, mtz_path, lig_result, header_data, output_pa
                                  linewidth=1.5, zorder=5))
             ax.text(legend_x + legend_w + 0.5, y_bot + seg_h / 2, label,
                     ha='left', va='center', fontsize=LABEL_SIZE_V,
-                    color=DARK_V, family=FONT_V, fontweight='demibold', zorder=5)
+                    color=DARK_V, fontproperties=FONT_PROPS_V, zorder=5)
         ax.text(legend_x + legend_w / 2, mol_ymax + 0.6, unit,
                 ha='center', va='bottom', fontsize=LABEL_SIZE_V,
-                color=DARK_V, family=FONT_V, fontweight='demibold')
+                color=DARK_V, fontproperties=FONT_PROPS_V)
 
         plt.savefig(path_out, dpi=200, bbox_inches='tight',
                     facecolor='white', pad_inches=0.15)

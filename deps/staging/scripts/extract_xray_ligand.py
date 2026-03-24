@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Extract a ligand from an X-ray PDB structure and convert to SDF for MD simulation.
 

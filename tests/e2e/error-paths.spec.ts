@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Error path tests — verify graceful handling of bad input.
  * No file dialogs; uses SMILES input and direct IPC.

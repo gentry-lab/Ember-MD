@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Ember Contributors. MIT License.
 import lmdb
 import pickle
 from utils.pdb_parser import PDBProtein

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createMemo, createSignal, For, onMount } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { useMdOutput } from '../../hooks/useElectronApi';
@@ -329,39 +330,6 @@ const MDStepConfigure: Component = () => {
                 {MD_PRESET_PARAMS[state().md.config.forceFieldPreset].description}
               </p>
             </div>
-
-            {/* Ligand Restraint (IFD-MD) — only for holo */}
-            <Show when={!isLigandOnly() && !isApo()}>
-              <div class="mb-4">
-                <div class="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-sm checkbox-primary"
-                    checked={state().md.config.restrainLigandNs > 0}
-                    onChange={(e) => setMdConfig({
-                      restrainLigandNs: e.currentTarget.checked ? 2 : 0
-                    })}
-                  />
-                  <span class="text-sm">Restrain ligand pose</span>
-                  <Show when={state().md.config.restrainLigandNs > 0}>
-                    <input
-                      type="number"
-                      class="input input-bordered input-xs w-16"
-                      value={state().md.config.restrainLigandNs}
-                      min={0.5}
-                      step={0.5}
-                      onInput={(e) => setMdConfig({ restrainLigandNs: Number(e.currentTarget.value) || 2 })}
-                    />
-                    <span class="text-xs text-base-content/70">ns</span>
-                  </Show>
-                </div>
-                <p class="text-[10px] text-base-content/60 mt-1 ml-7">
-                  {state().md.config.restrainLigandNs > 0
-                    ? `Weak restraint (1 kcal/mol/\u00C5\u00B2) on ligand for ${state().md.config.restrainLigandNs} ns, then release (IFD-MD)`
-                    : 'Hold docked pose while protein adapts (induced fit)'}
-                </p>
-              </div>
-            </Show>
 
             <h3 class="text-sm font-semibold mb-3">Simulation Parameters</h3>
             <div class="space-y-2 text-xs">

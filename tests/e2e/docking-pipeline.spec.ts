@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Docking full pipeline test.
  * Uses PDB ID fetch for receptor + SMILES for ligand (no file dialogs).
@@ -192,6 +193,12 @@ test.describe('Docking pipeline', () => {
     });
     await window.waitForTimeout(300);
 
+    // Disable protonation (requires Molscrub)
+    const protonationCheckbox = window.locator('label', { hasText: /Protonation/i }).locator('input[type="checkbox"]');
+    if (await protonationCheckbox.isChecked()) {
+      await protonationCheckbox.uncheck();
+    }
+
     // Disable pocket refinement for speed
     const refinementCheckbox = window.locator('label', { hasText: /Pocket refinement/i }).locator('input[type="checkbox"]');
     if (await refinementCheckbox.isChecked()) {
@@ -301,7 +308,7 @@ test.describe('Docking pipeline', () => {
     expect(compCount).toBeGreaterThan(0);
     await expect(window.locator('[data-testid^="project-family-"]')).toBeVisible();
     await expect(window.locator('[data-testid^="project-row-"]', { hasText: /Apo receptor/i })).toBeVisible();
-    await expect(window.locator('[data-testid^="project-row-"]', { hasText: /Prepared ligand/i })).toBeVisible();
+    await expect(window.locator('[data-testid^="project-row-"]', { hasText: /Prepared dock ligand/i })).toBeVisible();
 
     // --- Docking pose queue verification ---
     const queueState = await window.evaluate(() => {
@@ -321,12 +328,12 @@ test.describe('Docking pipeline', () => {
     // Queue should have poses
     expect(queueState.queueLen).toBeGreaterThan(0);
 
-    // If multiple poses exist, test queue navigation
+    // If multiple poses exist, test queue navigation via project table
     if (queueState.queueLen > 1) {
       const receptorBefore = queueState.pdbPath;
 
-      // Click Next
-      const nextBtn = window.locator('button[title="Next"]');
+      // Click Next structure in project table
+      const nextBtn = window.locator('[data-testid="project-table-nav-next"]');
       await expect(nextBtn).toBeVisible({ timeout: 3_000 });
       await nextBtn.click();
       await window.waitForTimeout(1_000);
@@ -358,6 +365,9 @@ test.describe('Docking pipeline', () => {
       if (store) store.setDockConfig({ exhaustiveness: 1, poses: 1 });
     });
     await window.waitForTimeout(300);
+
+    const protonationCheckbox2 = window.locator('label', { hasText: /Protonation/i }).locator('input[type="checkbox"]');
+    if (await protonationCheckbox2.isChecked()) await protonationCheckbox2.uncheck();
 
     const refinementCheckbox = window.locator('label', { hasText: /Pocket refinement/i }).locator('input[type="checkbox"]');
     if (await refinementCheckbox.isChecked()) await refinementCheckbox.uncheck();
