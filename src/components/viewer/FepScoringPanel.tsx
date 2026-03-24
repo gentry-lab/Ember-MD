@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createSignal, createEffect, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import type { FepSnapshotResult, FepScoringResult } from '../../../shared/types/ipc';

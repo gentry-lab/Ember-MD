@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Compute secondary structure elements (SSE) over MD trajectory using mdtraj DSSP.
 

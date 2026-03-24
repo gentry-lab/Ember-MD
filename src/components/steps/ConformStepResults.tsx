@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, For, Show, createMemo } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { buildConformerProjectTable, buildConformerViewerQueue } from '../../utils/viewerQueue';
@@ -102,7 +103,7 @@ const ConformStepResults: Component = () => {
                             <td class="text-right font-mono text-xs">
                               {energy != null ? (
                                 i() === 0 && energy === 0 ? (
-                                  <span class="text-success">0.0 (min)</span>
+                                  <span class="text-success">0.00</span>
                                 ) : (
                                   <span class={energy > 5 ? 'text-warning' : ''}>{energy.toFixed(2)}</span>
                                 )

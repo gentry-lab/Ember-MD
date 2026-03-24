@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Shared utilities for Ember staging scripts.
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Legacy FragGen generation handlers.
  * PREP_PDB, GENERATE_SURFACE, RUN_GENERATION, GENERATE_THUMBNAIL,

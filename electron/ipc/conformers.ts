@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Standalone conformer generation handler (MCMM/ETKDG/CREST).
  */
@@ -9,7 +10,7 @@ import { Ok, Err, Result } from '../../shared/types/result';
 import { AppError } from '../../shared/types/errors';
 import * as appState from '../app-state';
 import { childProcesses } from '../spawn';
-import { getQupkakeXtbPath } from '../paths';
+import { getXtbPath } from '../paths';
 
 export function register(): void {
   ipcMain.handle(
@@ -76,10 +77,10 @@ export function register(): void {
         }
 
         // xTB reranking (default on for ETKDG/MCMM) and CREST support
-        const xtbPath = getQupkakeXtbPath();
+        const xtbPath = getXtbPath();
+        const shouldRerank = mcmmOptions?.xtbRerank ?? true;
         if (xtbPath) {
           args.push('--xtb_binary', xtbPath);
-          const shouldRerank = mcmmOptions?.xtbRerank ?? true;
           if (shouldRerank && effectiveMethod !== 'crest') {
             args.push('--xtb_rerank');
           }
@@ -97,10 +98,19 @@ export function register(): void {
         }
 
         const methodLabel = effectiveMethod.toUpperCase();
+        const xtbStatus =
+          effectiveMethod === 'crest'
+            ? 'xTB energy: intrinsic (CREST)'
+            : xtbPath
+              ? (shouldRerank ? 'xTB reranking: enabled' : 'xTB reranking: disabled')
+              : 'xTB reranking: unavailable';
         event.sender.send('conform:output', {
           type: 'stdout',
-          data: `=== Conformer Generation (${methodLabel}) ===\nMax conformers: ${maxConformers}\nRMSD cutoff: ${rmsdCutoff} A\nEnergy window: ${energyWindow} kcal/mol\nInput: ${path.basename(ligandSdfPath)}\n\n`
+          data: `${methodLabel} conformer search — ${maxConformers} max, ${rmsdCutoff} Å cutoff, ${xtbStatus}\n`
         });
+
+        console.log(`[Conform] Starting ${methodLabel} conformer generation for ${path.basename(ligandSdfPath)}`);
+        console.log(`[Conform] Args: ${args.slice(1).join(' ')}`);
 
         const python = spawn(appState.condaPythonPath, args);
         childProcesses.add(python);
@@ -111,12 +121,19 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
-          event.sender.send('conform:output', { type: 'stdout', data: text });
+          // Verbose output to file log only
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Conform] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
           const text = data.toString();
           stderr += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Conform:err] ${line}`);
+          }
+          // Only surface warnings/errors to user
           if (text.includes('Warning') || text.includes('ERROR')) {
             event.sender.send('conform:output', { type: 'stderr', data: text });
           }
@@ -154,9 +171,15 @@ export function register(): void {
               }));
             }
           } else {
+            const errMsg = stderr.slice(0, 200).trim() || `exit code ${code}`;
+            console.error(`[Conform] CONFORMER_FAILED: ${errMsg}`);
+            event.sender.send('conform:output', {
+              type: 'stderr',
+              data: `Error [CONFORMER_FAILED]: ${errMsg}\n`
+            });
             resolve(Err({
               type: 'CONFORMER_FAILED',
-              message: `Conformer generation failed: ${stderr.slice(0, 200)}`,
+              message: `Conformer generation failed: ${errMsg}`,
             }));
           }
         });

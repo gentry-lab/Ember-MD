@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, onMount, onCleanup, createSignal, createEffect, Show, batch } from 'solid-js';
 import * as NGL from 'ngl';
 import type { Vector3 } from 'ngl';
@@ -23,7 +24,7 @@ import { loadProjectJob } from '../../utils/projectJobLoader';
 import { getVisibleProjectRows } from '../../utils/projectTable';
 import { theme } from '../../utils/theme';
 import type { AtomProxy, ResidueProxy, SelectionSchemeEntry, NglLoadOptions, BindingSiteResultsJson, PreparedPath } from '../../types/ngl';
-import type { ProjectJob, LigandPkaResult, QupkakeCapabilityResult } from '../../../shared/types/ipc';
+import type { ProjectJob } from '../../../shared/types/ipc';
 import {
   LIGAND_REP_MAP, NGL_LABEL_RADIUS_SIZE, INTERACTION_COLORS, INTERACTION_RADIUS,
   detectInteractions, collectAtoms,
@@ -99,6 +100,7 @@ const ViewerMode: Component = () => {
   let lastQueueIndex = -1;
   let lastQueueLength = 0;
   let isFirstFrameLoad = true;
+  let cachedProteinTopology: { atomCount: number; sessionKey: number } | null = null;
   let viewerCanvasShellRef: HTMLDivElement | undefined;
   let projectTablePanelRef: HTMLDivElement | undefined;
   let resizeObserver: ResizeObserver | null = null;
@@ -117,60 +119,16 @@ const ViewerMode: Component = () => {
   const [viewerPdbIdInput, setViewerPdbIdInput] = createSignal('');
   const [isLoadingSmiles, setIsLoadingSmiles] = createSignal(false);
   const [isFetchingViewerPdb, setIsFetchingViewerPdb] = createSignal(false);
-  const [isCheckingQupkake, setIsCheckingQupkake] = createSignal(false);
-  const [qupkakeCapability, setQupkakeCapability] = createSignal<QupkakeCapabilityResult | null>(null);
-  const [isComputingPka, setIsComputingPka] = createSignal(false);
-  const [pkaResult, setPkaResult] = createSignal<LigandPkaResult | null>(null);
-  const [pkaError, setPkaError] = createSignal<string | null>(null);
   const [projectTableWidth, setProjectTableWidth] = createSignal(300);
   const [structureLoadTick, setStructureLoadTick] = createSignal(0);
   const surfacePropsCache = new Map<string, SurfacePropsCacheEntry>();
   const surfacePropsInflight = new Map<string, Promise<SurfacePropsCacheEntry | null>>();
   let lastViewerSessionKey = state().viewer.sessionKey;
   let recentJobsRequestId = 0;
-  let qupkakeAvailabilityRequestId = 0;
-  let pkaRequestId = 0;
-  let lastPkaContextKey: string | null = null;
   let isResizingProjectTable = false;
   let shouldFitProjectTableResize = false;
 
   const api = window.electronAPI;
-
-  const checkQupkakeCapability = () => {
-    if (isCheckingQupkake() || qupkakeCapability()) return;
-
-    const requestId = ++qupkakeAvailabilityRequestId;
-    setIsCheckingQupkake(true);
-
-    void (async () => {
-      try {
-        const capability = await api.checkQupkakeInstalled();
-        if (requestId !== qupkakeAvailabilityRequestId) return;
-        if (!capability.validated) {
-          console.warn('[Viewer][QupKake] runtime not validated', {
-            failureStage: capability.failureStage,
-            runtimeFingerprint: capability.runtimeFingerprint,
-            runtimeProbe: capability.runtimeProbe,
-            validationCase: capability.validationCase,
-            validationReport: capability.validationReport,
-            warning: capability.warning,
-          });
-        }
-        setQupkakeCapability(capability);
-      } catch (err) {
-        if (requestId !== qupkakeAvailabilityRequestId) return;
-        setQupkakeCapability({
-          available: false,
-          validated: false,
-          message: `Failed to check QupKake availability: ${(err as Error).message}`,
-        });
-      } finally {
-        if (requestId === qupkakeAvailabilityRequestId) {
-          setIsCheckingQupkake(false);
-        }
-      }
-    })();
-  };
   const surfacePropsLoading = () => surfacePropsLoadingCount() > 0;
 
   const sortedRecentJobs = (jobs: ProjectJob[]) => {
@@ -235,6 +193,7 @@ const ViewerMode: Component = () => {
     ligandComponent = null;
     pocketReferenceLigandComponent = null;
     interactionShapeComponent = null;
+    cachedProteinTopology = null;
     alignedComponents.clear();
     layerComponents.clear();
     setStructureLoadTick((tick) => tick + 1);
@@ -242,11 +201,6 @@ const ViewerMode: Component = () => {
     surfacePropsCache.clear();
     surfacePropsInflight.clear();
     setSurfacePropsLoadingCount(0);
-    pkaRequestId++;
-    lastPkaContextKey = null;
-    setIsComputingPka(false);
-    setPkaResult(null);
-    setPkaError(null);
     setError(null);
   };
 
@@ -659,7 +613,6 @@ const ViewerMode: Component = () => {
   };
 
   onMount(() => {
-    checkQupkakeCapability();
     if (containerRef) {
       stage = new NGL.Stage(containerRef, {
         backgroundColor: '#ffffff',
@@ -1163,54 +1116,6 @@ const ViewerMode: Component = () => {
       });
     }
 
-    const pka = pkaResult();
-    if (pka?.entries.length) {
-      const structure = (target as NGL.StructureComponent).structure;
-      if (structure) {
-        const atomLabels = new Map<number, string[]>();
-
-        for (const entry of pka.entries) {
-          const atomIndex = entry.atomIndices?.[0];
-          if (atomIndex === undefined || atomIndex === null) continue;
-          const existing = atomLabels.get(atomIndex) || [];
-          const suffix = entry.type === 'basic' ? 'b' : entry.type === 'acidic' ? 'a' : '';
-          existing.push(`${entry.pka.toFixed(2)}${suffix ? ` ${suffix}` : ''}`);
-          atomLabels.set(atomIndex, existing);
-        }
-
-        if (atomLabels.size > 0) {
-          const labelText: Record<number, string> = {};
-          const labelIndices = Array.from(atomLabels.keys());
-          const labelSele = `@${labelIndices.join(',')}`;
-
-          structure.eachAtom((atom: AtomProxy) => {
-            const labels = atomLabels.get(atom.index);
-            if (!labels || labels.length === 0) return;
-            labelText[atom.index] = labels.join(' / ');
-          }, new NGL.Selection(labelSele));
-
-          if (Object.keys(labelText).length > 0) {
-            target.addRepresentation('label', {
-              sele: labelSele,
-              labelType: 'text',
-              labelText,
-              color: 'white',
-              fontWeight: 'bold',
-              xOffset: 0,
-              yOffset: 0,
-              zOffset: 2.0,
-              fixedSize: true,
-              radiusType: 'size',
-              radiusSize: NGL_LABEL_RADIUS_SIZE,
-              showBackground: true,
-              backgroundColor: 'black',
-              backgroundOpacity: 0.7,
-              depthWrite: false,
-            });
-          }
-        }
-      }
-    }
   };
 
   // Load PDB file into viewer (used by both browse and auto-load)
@@ -1268,6 +1173,15 @@ const ViewerMode: Component = () => {
 
         updateProteinStyle();
         setStructureLoadTick((tick) => tick + 1);
+
+        // Cache topology for fast coordinate updates (MD clusters, same-protein docking)
+        const loadedStructure = (proteinComponent as NGL.StructureComponent)?.structure;
+        if (loadedStructure) {
+          cachedProteinTopology = {
+            atomCount: loadedStructure.atomCount,
+            sessionKey: state().viewer.sessionKey,
+          };
+        }
 
         // Detect ligands in the PDB in the background (don't block the viewer)
         if (!preserveExternalLigand) {
@@ -1450,8 +1364,6 @@ const ViewerMode: Component = () => {
           pocketReferenceLigandComponent?.setVisibility(false);
         }
 
-        // Wait for structure to be parsed (NGL parses asynchronously)
-        await new Promise(resolve => setTimeout(resolve, 100));
         if (state().viewer.sessionKey !== viewerSessionKey) return;
 
         if (target === 'visible') {
@@ -1514,6 +1426,69 @@ const ViewerMode: Component = () => {
     }
   };
 
+  /**
+   * Fast path: update protein coordinates in-place without destroying/recreating
+   * the NGL component or its representations. Used for MD cluster centroids and
+   * other same-topology navigation where only atom positions change.
+   *
+   * Returns true if update succeeded, false if caller should fall back to full reload.
+   */
+  const updateProteinCoordinatesInPlace = async (rawPdbPath: string): Promise<boolean> => {
+    if (!stage || !proteinComponent || !cachedProteinTopology) return false;
+    if (cachedProteinTopology.sessionKey !== state().viewer.sessionKey) return false;
+
+    const existingStructure = (proteinComponent as NGL.StructureComponent)?.structure;
+    if (!existingStructure) return false;
+
+    try {
+      const pdbPath = await prepareStructure(rawPdbPath);
+
+      // Load new PDB structure-only (no representations — cheap PDB parse)
+      const tempComp = await stage.loadFile(pdbPath, {
+        defaultRepresentation: false,
+      }) as NGL.Component | null;
+      if (!tempComp) return false;
+
+      const newStructure = (tempComp as NGL.StructureComponent)?.structure;
+      const atomMatch = newStructure && newStructure.atomCount === existingStructure.atomCount;
+
+      if (atomMatch) {
+        // Extract xyz coordinates from the new structure's atom store
+        const n = newStructure.atomCount;
+        const coords = new Float32Array(n * 3);
+        const store = newStructure.atomStore as { x: Float32Array; y: Float32Array; z: Float32Array };
+        for (let i = 0; i < n; i++) {
+          coords[i * 3]     = store.x[i];
+          coords[i * 3 + 1] = store.y[i];
+          coords[i * 3 + 2] = store.z[i];
+        }
+
+        // Apply to existing component — NGL refreshes representations automatically
+        existingStructure.updatePosition(coords);
+
+        // Update store + surface cache
+        setViewerPdbPath(pdbPath);
+        surfacePropsCache.delete(pdbPath);
+        setStructureLoadTick((tick) => tick + 1);
+
+        // Re-center on ligand if one is detected
+        const ligandSele = getLigandSelection();
+        if (ligandSele) {
+          (proteinComponent as NGL.StructureComponent).autoView(ligandSele);
+        } else {
+          proteinComponent!.autoView();
+        }
+      }
+
+      // Always clean up the temp component (whether match or not)
+      stage.removeComponent(tempComp);
+      return !!atomMatch;
+    } catch (err) {
+      console.warn('[Viewer] Coordinate update failed, falling back to full reload:', err);
+      return false;
+    }
+  };
+
   const loadViewerQueueItem = async (item: ViewerQueueItem) => {
     if (item.type === 'conformer' || item.type === 'ligand') {
       console.log(`[Viewer] Queue nav (conformer): ${item.label} — ${item.pdbPath}`);
@@ -1537,6 +1512,21 @@ const ViewerMode: Component = () => {
       }
       proteinComponent = alignedComponents.get(state().viewer.pdbQueueIndex) || null;
       return;
+    }
+
+    // Fast path: update coordinates in-place when topology matches (MD clusters)
+    if (cachedProteinTopology && proteinComponent && !isAligned()) {
+      setIsLoading(true);
+      try {
+        const updated = await updateProteinCoordinatesInPlace(item.pdbPath);
+        if (updated) {
+          console.log('[Viewer] Fast coordinate update:', item.label);
+          return;
+        }
+      } finally {
+        setIsLoading(false);
+      }
+      console.log('[Viewer] Atom count mismatch, full reload:', item.label);
     }
 
     console.log('[Viewer] Queue navigation to:', item.label, item.pdbPath);
@@ -2231,8 +2221,10 @@ const ViewerMode: Component = () => {
     const preparedPath = `${dir}/${baseName}_prepared.pdb`;
 
     // Skip files that already have hydrogens or are simulation/docking outputs
+    // MD centroid PDBs are full-system trajectory snapshots — hydrogens already present
     if (fileName.includes('_prepared') || fileName.includes('system') ||
-        fileName === 'receptor.pdb' || fileName === 'final.pdb') return rawPath as PreparedPath;
+        fileName === 'receptor.pdb' || fileName === 'final.pdb' ||
+        fileName.startsWith('centroid_')) return rawPath as PreparedPath;
     const exists = await api.fileExists(preparedPath);
     if (exists) return preparedPath as PreparedPath;
 
@@ -3005,49 +2997,6 @@ const ViewerMode: Component = () => {
     && !isLigandLikePath(state().viewer.pdbPath)
     && hasAnyLigand();
   const canExportCurrentView = () => !!state().viewer.pdbPath || !!state().viewer.ligandPath;
-  const canEstimateLigandPka = () =>
-    !state().viewer.trajectoryPath
-    && state().viewer.detectedLigands.length === 0
-    && !state().viewer.selectedLigandId
-    && state().viewer.layers.filter((layer) => layer.type === 'protein').length === 0
-    && getStandaloneLigandPath() !== null;
-  const getPkaContextKey = () => {
-    const ligandPath = getStandaloneLigandPath();
-    if (!canEstimateLigandPka() || !ligandPath) return null;
-    return `${state().viewer.sessionKey}:${ligandPath}`;
-  };
-  const qupkakeAvailable = () => qupkakeCapability()?.available === true;
-  const qupkakeValidated = () => qupkakeCapability()?.validated === true;
-  const qupkakeWarning = () => {
-    const capability = qupkakeCapability();
-    if (!capability?.available || capability.validated) return null;
-    return capability.warning || 'QupKake is blocked until the required acid/base validation controls pass.';
-  };
-
-  createEffect(() => {
-    const contextKey = getPkaContextKey();
-    if (contextKey === lastPkaContextKey) return;
-    lastPkaContextKey = contextKey;
-
-    pkaRequestId++;
-    setIsComputingPka(false);
-    setPkaResult(null);
-    setPkaError(null);
-
-    if (!contextKey) {
-      return;
-    }
-
-    checkQupkakeCapability();
-  });
-
-  createEffect(() => {
-    pkaResult();
-    pkaError();
-    if (ligandComponent) {
-      updateExternalLigandStyle();
-    }
-  });
 
   const handleSimulate = () => {
     const pdbPath = state().viewer.pdbPath;
@@ -3060,45 +3009,10 @@ const ViewerMode: Component = () => {
     setMdLigandSdf(ligandPath);
     setMdLigandName(ligandName);
     setMdPdbPath(pdbPath);
-    setMdConfig({ restrainLigandNs: 0 });
     batch(() => {
       setMode('md');
       setMdStep('md-configure');
     });
-  };
-
-  const handlePredictLigandPka = async () => {
-    const ligandPath = getStandaloneLigandPath();
-    if (!ligandPath || !qupkakeAvailable() || !qupkakeValidated() || isComputingPka()) return;
-
-    const viewerSessionKey = state().viewer.sessionKey;
-    const requestId = ++pkaRequestId;
-    setIsComputingPka(true);
-    setPkaError(null);
-
-    try {
-      const result = await api.predictLigandPka(ligandPath);
-      if (state().viewer.sessionKey !== viewerSessionKey || requestId !== pkaRequestId) return;
-      if (result.ok) {
-        setPkaResult(result.value);
-      } else {
-        console.error('[Viewer][QupKake] ligand pKa prediction failed', {
-          ligandPath,
-          error: result.error,
-        });
-        setPkaResult(null);
-        setPkaError(result.error?.message || 'Failed to predict pKa');
-      }
-    } catch (err) {
-      if (state().viewer.sessionKey !== viewerSessionKey || requestId !== pkaRequestId) return;
-      console.error('[Viewer][QupKake] ligand pKa prediction threw', { ligandPath, error: err });
-      setPkaResult(null);
-      setPkaError(`Failed to predict pKa: ${(err as Error).message}`);
-    } finally {
-      if (state().viewer.sessionKey === viewerSessionKey && requestId === pkaRequestId) {
-        setIsComputingPka(false);
-      }
-    }
   };
 
   const viewerLoadPanel = (fillHeight: boolean) => (
@@ -3206,12 +3120,6 @@ const ViewerMode: Component = () => {
         </div>
       </Show>
 
-      <Show when={canEstimateLigandPka() && qupkakeWarning()}>
-        <div class="alert alert-warning text-xs py-1">
-          {qupkakeWarning()}
-        </div>
-      </Show>
-
       {/* NGL Viewer Canvas + Project Table */}
       <div class="flex-1 min-h-0 min-w-0 w-full flex gap-2">
         <div
@@ -3223,27 +3131,6 @@ const ViewerMode: Component = () => {
             class="absolute inset-0"
             style={{ width: '100%', height: '100%' }}
           />
-          {/* Floating buttons */}
-          <Show when={canEstimateLigandPka() && qupkakeAvailable() && qupkakeValidated()}>
-            <div class="absolute top-2 right-2 z-10 flex flex-col items-end gap-2">
-              <div class="flex gap-1.5">
-                <Show when={canEstimateLigandPka() && qupkakeAvailable() && qupkakeValidated()}>
-                  <button
-                    class="btn btn-sm btn-ghost px-2 bg-base-300/80 hover:bg-base-300"
-                    onClick={handlePredictLigandPka}
-                    disabled={isComputingPka()}
-                    title={isCheckingQupkake()
-                      ? 'Checking QupKake...'
-                      : 'Predict micro-pKa with QupKake'}
-                  >
-                    <Show when={isComputingPka()} fallback={<span class="font-semibold text-xs leading-none">pKa</span>}>
-                      <span class="loading loading-spinner loading-xs" />
-                    </Show>
-                  </button>
-                </Show>
-              </div>
-            </div>
-          </Show>
           <Show when={isLoading()}>
             <div class="absolute inset-0 bg-base-300/50 flex items-center justify-center">
               <span class="loading loading-spinner loading-lg text-primary" />

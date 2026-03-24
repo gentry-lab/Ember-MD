@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, For, Show, createSignal, onMount } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { formatJobCountLabel, generateJobName, sanitizeJobName } from '../../utils/jobName';

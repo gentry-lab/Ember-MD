@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """Targeted regression checks for pocket-focused receptor protonation helpers."""
 
 from __future__ import annotations

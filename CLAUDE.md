@@ -100,9 +100,9 @@ Three-zone layout: mode tabs on the left, project name + job selector in the cen
 **Post-simulation pipeline**: After production completes, the app automatically clusters the trajectory into 10 centroids (K-means, ligand RMSD) and scores each with xTB strain energy, Vina rescore, and CORDIAL (if installed). Results are displayed as a sorted table in MDStepResults. The PDF analysis report (RMSD, RMSF, H-bonds, contacts, SSE, torsions) is also generated automatically. Output goes to `analysis/scored_clusters/` (scoring) and `analysis/` (report).
 
 ## Dock Mode
-Pipeline: receptor prep (Meeko Polymer) → ligand PDBQT prep (Meeko) → autobox from reference ligand → Vina docking → optional xTB strain filter → optional post-dock pocket refinement (OpenMM, Sage 2.3.0 + OBC2, receptor-restrained) → optional CORDIAL rescoring → multi-pose SDF.gz output. Also supports MCS core-constrained RMSD, protonation via Molscrub, stereoisomer enumeration via RDKit, and conformer generation (ETKDG/MCMM/CREST) before docking.
+Pipeline: receptor prep (Meeko Polymer) → ligand PDBQT prep (Meeko) → autobox from reference ligand → Vina docking → optional xTB strain filter → optional post-dock pocket refinement (OpenMM, Sage 2.3.0 + OBC2, receptor-restrained) → optional CORDIAL rescoring → multi-pose SDF.gz output. Also supports protonation via Molscrub, stereoisomer enumeration via RDKit, and conformer generation (ETKDG/MCMM/CREST) before docking.
 
-**Receptor prep**: removes the docking ligand and common crystallization artifacts, keeps nearby crystallographic waters, metal ions, and relevant cofactors near the binding site. Metals are re-injected into PDBQT after Meeko processing with explicit AD4 atom types and charges.
+**Receptor prep**: removes the docking ligand and common crystallization artifacts, retains crystallographic waters within a configurable distance of the ligand (default 3.5 A, toggle in DockStepConfigure), metal ions, and relevant cofactors near the binding site. Metals are re-injected into PDBQT after Meeko processing with explicit AD4 atom types and charges.
 
 **xTB strain filter**: Optional post-docking step (`xtbConfig.strainFilter`). Computes GFN2-xTB strain energy per pose via batch mode (`score_xtb_strain.py --mode batch_strain`). Uses per-molecule SMILES-keyed reference energies (each unique molecule gets its own optimized free minimum). Results in `results/xtb_strain.json`. Displayed as "Strain" column in DockStepResults (yellow >5 kcal/mol, red >8).
 
@@ -111,7 +111,11 @@ Pipeline: receptor prep (Meeko Polymer) → ligand PDBQT prep (Meeko) → autobo
 ## Receptor Preparation (Unified)
 Single core function: `receptor_protonation.py::prepare_receptor_with_propka()`. Accepts optional `fixer=` kwarg for pre-modified PDBFixer.
 
-**Pipeline:** Reduce → PROPKA → PDBFixer (`findMissingResidues` → `findMissingAtoms` → `addMissingAtoms`, models missing loops) → variant plan (disulfides, PROPKA, HIS tautomers) → `addHydrogens` → write PDB + metadata.
+**Pipeline:** Reduce → PROPKA → PDBFixer (`findMissingResidues` → `findMissingAtoms` → `addMissingAtoms`, models missing loops) → variant plan (disulfides, PROPKA, HIS tautomers) → **HIS tautomer energy scoring** → `addHydrogens` → **hydrogen minimization** (ff19SB + OBC2, heavy atoms restrained at 50 kcal/mol/A^2, L-BFGS 500 iter, ~4-6s) → write PDB + metadata.
+
+**HIS tautomer energy scoring**: For each neutral histidine (HID or HIE from geometric heuristic), evaluates both tautomers by building the full ff19SB+OBC2 system and running a short 50-iteration minimization. Picks the lower-energy tautomer if the delta exceeds 4 kJ/mol; otherwise keeps the geometric pick. Per-residue independent scoring (~1.6s per HIS). Gated on `minimize_hydrogens=True`. Results in `.prep.json` under `his_tautomer_scoring`.
+
+**Hydrogen minimization**: On by default (`minimize_hydrogens=True`). Resolves template-placed H clashes and optimizes H-bond networks/hydroxyl orientations using gradient minimization with implicit solvent. Skips OBC2 for systems >15k atoms. Falls back to un-minimized positions on any failure.
 
 **How it's called:**
 - **Docking**: `detect_pdb_ligands.py` calls `prepare_receptor_with_propka()` directly (self-contained)
@@ -148,7 +152,7 @@ GFN2-xTB 6.7.1 is vendored at `vendor/xtb-env/bin/xtb` (conda env, arm64). Detec
 
 xTB docking strain filter and viewer SCORE button removed from UI (strain methodology unsound — uses local minimum, not CREST global minimum). `score_xtb_strain.py` still exists for future CREST-based strain.
 
-**Note**: xTB 6.4.1 (still at `vendor/xtb-6.4.1/`) has ALPB solvation bugs. Always use 6.7.1. CREST must be 2.12 (3.x crashes on arm64).
+**Note**: CREST must be 2.12 (3.x crashes on arm64).
 
 ## Logging
 `~/Ember/logs/ember-<timestamp>.log` captures main-process and renderer console output. Tags commonly include `[Viewer]`, `[Dock]`, `[MD]`, `[FEP]`, `[Score]`, `[Nav]`, and `[Store]`.
@@ -178,7 +182,7 @@ loadAndMergeCordialScores(dir, items, key) // read cordial_scores.json + merge i
 ```
 
 ## Path Resolution (main.ts)
-Bundled app paths prefer `process.resourcesPath/scripts` and `process.resourcesPath/python/bin/python`. Dev mode falls back to `deps/staging/scripts/` and typical `openmm-metal`/`fraggen` conda env paths. Legacy env vars such as `FRAGGEN_ROOT` and `FRAGGEN_PYTHON` are still honored. xTB binary is resolved by `getQupkakeXtbPath()` which searches `vendor/xtb-env/bin/xtb` first, then `vendor/xtb-6.4.1/`, then conda envs.
+Bundled app paths prefer `process.resourcesPath/scripts` and `process.resourcesPath/python/bin/python`. Dev mode falls back to `deps/staging/scripts/` and typical `openmm-metal`/`fraggen` conda env paths. Legacy env vars such as `FRAGGEN_ROOT` and `FRAGGEN_PYTHON` are still honored. xTB binary is resolved by `getXtbPath()` which searches `vendor/xtb-env/bin/xtb` first, then the bundled `xtb/` directory.
 
 ## GPU Platform Cascade
 For the canonical bundled MD runner in `deps/staging/scripts/run_md_simulation.py`, the runtime platform order is `CUDA → OpenCL (cl2Metal) → Metal → CPU`. OpenCL is currently tried before Metal in both benchmarking and full simulation setup.

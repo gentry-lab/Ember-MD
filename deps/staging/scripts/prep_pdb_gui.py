@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Prep PDB for FragGen GUI
 Extracts pocket and ligand from a protein-ligand complex PDB file.

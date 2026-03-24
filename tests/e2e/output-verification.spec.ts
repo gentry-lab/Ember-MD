@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Computational output verification tests.
  * Verifies that pipelines produce real output files with valid data.

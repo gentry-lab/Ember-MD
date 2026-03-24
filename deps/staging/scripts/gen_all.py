@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Ember Contributors. MIT License.
 import subprocess
 from glob import glob 
 import os.path as osp

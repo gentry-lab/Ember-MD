@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Viewer UI controls tests.
  * Loads a holo complex (8TCE — protein + ligand), then exercises each viewer

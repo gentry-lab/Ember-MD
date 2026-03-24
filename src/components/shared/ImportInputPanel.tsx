@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show } from 'solid-js';
 import type { JSXElement } from 'solid-js';
 

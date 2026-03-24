@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Shared dependency interface for IPC handler modules.
  * Each module receives this context via its register() function.
@@ -29,9 +30,6 @@ export interface IpcContext {
 
   /** Build spawn env with conda bin on PATH */
   getSpawnEnv: () => NodeJS.ProcessEnv;
-
-  /** Build spawn env with QupKake/xTB paths */
-  getQupkakeSpawnEnv: () => NodeJS.ProcessEnv;
 
   /** Load and merge CORDIAL scores into a result array */
   loadAndMergeCordialScores: (

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Result type for explicit error handling
  * Inspired by Rust's Result<T, E>

@@ -16,6 +16,8 @@ dist/
 dist-webpack/
 electron-dist/
 bundle-mac/
+openmm-metal-env/
+test-results/
 
 # Local installers and packed archives
 Miniconda3-latest-Linux-x86_64.sh

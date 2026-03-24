@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Subprocess management for Ember.
  * Handles Python script spawning, process tracking, stderr filtering, and CORDIAL score merging.
@@ -5,12 +6,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
-import {
-  getQupkakePythonPath,
-  getQupkakeRoot,
-  getQupkakeXtbPath,
-  getQupkakeValidationLigand,
-} from './paths';
 
 // Track spawned processes for cleanup
 export const childProcesses = new Set<ChildProcess>();
@@ -150,38 +145,4 @@ export function loadAndMergeCordialScores(
   } catch (e) {
     console.error('Failed to load CORDIAL scores:', e);
   }
-}
-
-/** Build spawn env with QupKake/xTB paths and library dirs */
-export function getQupkakeSpawnEnv(condaEnvBin: string | null): NodeJS.ProcessEnv {
-  const env = { ...getSpawnEnv(condaEnvBin) };
-  const qupkakePythonPath = getQupkakePythonPath();
-  const qupkakeRoot = getQupkakeRoot();
-  const xtbPath = getQupkakeXtbPath();
-  const validationLigand = getQupkakeValidationLigand();
-
-  if (qupkakePythonPath) {
-    env.QUPKAKE_PYTHON = qupkakePythonPath;
-    env.PATH = `${path.dirname(qupkakePythonPath)}:${env.PATH || ''}`;
-  }
-  if (qupkakeRoot) {
-    env.QUPKAKE_ROOT = qupkakeRoot;
-  }
-  if (xtbPath) {
-    const xtbBinDir = path.dirname(xtbPath);
-    const xtbRoot = path.dirname(xtbBinDir);
-    const xtbLibDir = path.join(xtbRoot, 'lib');
-    env.QUPKAKE_XTBPATH = xtbPath;
-    env.XTBPATH = xtbPath;
-    env.PATH = `${xtbBinDir}:${env.PATH || ''}`;
-    if (fs.existsSync(xtbLibDir)) {
-      env.DYLD_LIBRARY_PATH = `${xtbLibDir}:${env.DYLD_LIBRARY_PATH || ''}`;
-      env.LD_LIBRARY_PATH = `${xtbLibDir}:${env.LD_LIBRARY_PATH || ''}`;
-    }
-  }
-  if (validationLigand) {
-    env.QUPKAKE_VALIDATE_LIGAND = validationLigand;
-  }
-
-  return env;
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """Generate a 2D structure thumbnail from SDF using shared depiction helpers."""
 import argparse
 import sys

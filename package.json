@@ -1,6 +1,6 @@
 {
   "name": "ember-md",
-  "version": "0.2.54",
+  "version": "0.3.0",
   "description": "Ember - Molecular Dynamics on Apple Silicon",
   "main": "electron-dist/electron/main.js",
   "type": "commonjs",
@@ -9,7 +9,7 @@
     "dev": "npm run build:electron && npm run build && electron .",
     "build": "webpack --mode production",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "pack:mac": "npm run build:electron && npm run build && electron-builder --mac dmg",
+    "pack:mac": "bash scripts/bundle-mac.sh",
     "pack:linux": "npm run build:electron && npm run build && electron-builder --linux",
     "dist": "bash deps/bundle.sh",
     "dist:pack": "bash deps/bundle.sh --pack",
@@ -81,15 +81,8 @@
         ]
       },
       {
-        "from": "bundle-mac/extra-resources/qupkake-python",
-        "to": "qupkake-python",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "bundle-mac/extra-resources/qupkake-xtb",
-        "to": "qupkake-xtb",
+        "from": "bundle-mac/extra-resources/xtb",
+        "to": "xtb",
         "filter": [
           "**/*"
         ]
@@ -97,13 +90,6 @@
       {
         "from": "bundle-mac/extra-resources/cordial",
         "to": "cordial",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "bundle-mac/extra-resources/qupkake-fork",
-        "to": "qupkake-fork",
         "filter": [
           "**/*"
         ]

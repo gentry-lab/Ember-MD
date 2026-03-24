@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Shared receptor protonation helpers for Dock and MD.
 
@@ -111,6 +112,296 @@ def build_protein_forcefield() -> Any:
         )
     except Exception:
         return ForceField("amber/protein.ff19SB.xml", "amber/tip3p_standard.xml")
+
+
+def _add_gbsa_obc2_protein(system: Any, topology: Any) -> None:
+    """Add GBSA-OBC2 implicit solvent for protein-only systems.
+
+    Inline version of utils.add_gbsa_obc2_force (canonical source) specialised
+    for receptor prep — no RDKit mol needed, uses topology bonds for H-N lookup.
+    """
+    import openmm
+    import openmm.unit as unit
+
+    RADII_NM = {
+        'H': 0.12, 'C': 0.17, 'N': 0.155, 'O': 0.15, 'F': 0.15,
+        'S': 0.18, 'P': 0.185, 'Cl': 0.17, 'Br': 0.185, 'I': 0.198,
+        'Na': 0.102, 'K': 0.138, 'Mg': 0.072, 'Ca': 0.10, 'Zn': 0.074,
+        'Fe': 0.064, 'Mn': 0.067,
+    }
+    SCREEN = {
+        'H': 0.85, 'C': 0.72, 'N': 0.79, 'O': 0.85, 'F': 0.88,
+        'S': 0.96, 'P': 0.86, 'Cl': 0.80, 'Br': 0.80, 'I': 0.80,
+        'Na': 0.80, 'K': 0.80, 'Mg': 0.80, 'Ca': 0.80, 'Zn': 0.80,
+        'Fe': 0.80, 'Mn': 0.80,
+    }
+
+    nb_force = None
+    for force in system.getForces():
+        if isinstance(force, openmm.NonbondedForce):
+            nb_force = force
+            break
+    if nb_force is None:
+        return
+
+    h_bonded_to_n: set = set()
+    for a1, a2 in topology.bonds():
+        sym1 = a1.element.symbol if a1.element else ''
+        sym2 = a2.element.symbol if a2.element else ''
+        if sym1 == 'H' and sym2 == 'N':
+            h_bonded_to_n.add(a1.index)
+        elif sym2 == 'H' and sym1 == 'N':
+            h_bonded_to_n.add(a2.index)
+
+    gbsa = openmm.GBSAOBCForce()
+    gbsa.setSolventDielectric(78.5)
+    gbsa.setSoluteDielectric(1.0)
+    gbsa.setNonbondedMethod(openmm.GBSAOBCForce.NoCutoff)
+
+    for idx, atom in enumerate(topology.atoms()):
+        charge, _sigma, _epsilon = nb_force.getParticleParameters(idx)
+        q = charge.value_in_unit(unit.elementary_charge)
+        symbol = atom.element.symbol if atom.element else 'C'
+        radius = RADII_NM.get(symbol, 0.15)
+        screen = SCREEN.get(symbol, 0.80)
+        if symbol == 'H' and idx in h_bonded_to_n:
+            radius = 0.13  # mbondi3 adjustment
+        gbsa.addParticle(q, radius, screen)
+
+    system.addForce(gbsa)
+
+
+def _minimize_hydrogens(
+    topology: Any,
+    positions: Any,
+    force_constant_kcal: float = 50.0,
+    max_iterations: int = 500,
+    tolerance: float = 1.0,
+) -> Tuple[Any, Dict[str, Any]]:
+    """Minimize hydrogen positions while restraining all heavy atoms.
+
+    Uses ff19SB + OBC2 implicit solvent (vacuum fallback) with Cartesian
+    heavy-atom restraints.  Returns (minimized_positions, report_dict).
+    """
+    import time
+    import openmm
+    from openmm import app as omm_app
+    import openmm.unit as unit
+
+    try:
+        t0 = time.monotonic()
+
+        # --- Build force field system (with CYS/CYX fallback) ---
+        ff = build_protein_forcefield()
+        try:
+            system = ff.createSystem(
+                topology,
+                nonbondedMethod=omm_app.NoCutoff,
+                constraints=None,
+                rigidWater=False,
+            )
+        except Exception:
+            cys_templates = {}
+            for res in topology.residues():
+                if res.name in ('CYS', 'CYX', 'CYM'):
+                    atom_names = {a.name for a in res.atoms()}
+                    cys_templates[res] = 'CYS' if 'HG' in atom_names else 'CYX'
+            system = ff.createSystem(
+                topology,
+                nonbondedMethod=omm_app.NoCutoff,
+                constraints=None,
+                rigidWater=False,
+                ignoreExternalBonds=True,
+                residueTemplates=cys_templates,
+            )
+
+        # --- OBC2 implicit solvent (skip for very large systems) ---
+        used_gbsa = False
+        n_atoms = topology.getNumAtoms()
+        if n_atoms <= 15000:
+            try:
+                _add_gbsa_obc2_protein(system, topology)
+                used_gbsa = True
+            except Exception as exc:
+                print(f"  Warning: OBC2 setup failed ({exc}), minimizing in vacuum",
+                      file=sys.stderr)
+        else:
+            print(f"  Skipping OBC2 for large system ({n_atoms} atoms), using vacuum",
+                  file=sys.stderr)
+
+        # --- Heavy-atom Cartesian restraints ---
+        k_kjmol_nm2 = force_constant_kcal * 4.184 * 100.0
+        restraint = openmm.CustomExternalForce("k*((x-x0)^2+(y-y0)^2+(z-z0)^2)")
+        restraint.addGlobalParameter("k", k_kjmol_nm2)
+        restraint.addPerParticleParameter("x0")
+        restraint.addPerParticleParameter("y0")
+        restraint.addPerParticleParameter("z0")
+        for idx, atom in enumerate(topology.atoms()):
+            if atom.element is not None and atom.element.symbol != 'H':
+                pos = positions[idx]
+                restraint.addParticle(idx, [pos[0], pos[1], pos[2]])
+        system.addForce(restraint)
+
+        # --- Minimise ---
+        integrator = openmm.VerletIntegrator(0.001 * unit.picoseconds)
+        platform = openmm.Platform.getPlatformByName("CPU")
+        context = openmm.Context(system, integrator, platform)
+        context.setPositions(positions)
+
+        energy_before = (context.getState(getEnergy=True)
+                         .getPotentialEnergy()
+                         .value_in_unit(unit.kilojoules_per_mole))
+
+        openmm.LocalEnergyMinimizer.minimize(
+            context, tolerance=tolerance, maxIterations=max_iterations,
+        )
+
+        state_after = context.getState(getEnergy=True, getPositions=True)
+        energy_after = state_after.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
+        minimized_positions = state_after.getPositions()
+
+        elapsed = time.monotonic() - t0
+        return minimized_positions, {
+            "applied": True,
+            "energy_before_kjmol": round(energy_before, 1),
+            "energy_after_kjmol": round(energy_after, 1),
+            "energy_reduction_kjmol": round(energy_before - energy_after, 1),
+            "used_gbsa": used_gbsa,
+            "wall_time_s": round(elapsed, 2),
+            "max_iterations": max_iterations,
+            "force_constant_kcal_mol_a2": force_constant_kcal,
+        }
+
+    except Exception as exc:
+        print(f"  Warning: hydrogen minimization failed ({exc}), using template positions",
+              file=sys.stderr)
+        return positions, {"applied": False, "error": str(exc)}
+
+
+def _evaluate_variant_energy(
+    topology: Any,
+    positions: Any,
+    protonation_ph: float,
+    variants: Sequence[Optional[str]],
+    max_iterations: int = 50,
+) -> Optional[float]:
+    """Add hydrogens with the given variant list and return minimized energy (kJ/mol).
+
+    Returns None if hydrogen addition or minimization fails.
+    """
+    try:
+        topo, pos, _ = add_hydrogens_with_variants(
+            topology, positions, protonation_ph, variants,
+        )
+        _, report = _minimize_hydrogens(topo, pos, max_iterations=max_iterations)
+        if report.get("applied"):
+            return report["energy_after_kjmol"]
+        return None
+    except Exception:
+        return None
+
+
+def score_histidine_variants(
+    topology: Any,
+    positions: Any,
+    protonation_ph: float,
+    variant_plan: Dict[str, Any],
+    energy_threshold_kjmol: float = 4.0,
+) -> Dict[str, Any]:
+    """Score HID vs HIE for each neutral histidine using short energy minimization.
+
+    For each neutral HIS in the variant plan, builds the full system twice (once
+    with HID, once with HIE), runs a 50-iteration L-BFGS minimization, and picks
+    the lower-energy tautomer if the difference exceeds the threshold.
+
+    Returns a dict with 'variants_changed', 'updated_plan', and 'his_scoring_report'.
+    """
+    import time
+
+    resolved = variant_plan["resolved_variants"]
+    variants = list(variant_plan["variants"])
+    residues = list(topology.residues())
+
+    # Find neutral HIS residues (HID or HIE) and their indices
+    neutral_his: List[Tuple[str, str, int]] = []  # (residue_key, current_variant, residue_index)
+    for res in residues:
+        family = residue_family(res.name)
+        if family != "HIS":
+            continue
+        key = topology_residue_key(res)
+        current = resolved.get(key)
+        if current in ("HID", "HIE"):
+            neutral_his.append((key, current, res.index))
+
+    report: Dict[str, Any] = {
+        "scored_count": len(neutral_his),
+        "changes_made": 0,
+        "wall_time_s": 0.0,
+        "per_residue": [],
+    }
+
+    if not neutral_his:
+        return {"variants_changed": False, "updated_plan": variant_plan, "his_scoring_report": report}
+
+    t0 = time.monotonic()
+    changes_made = 0
+
+    for key, current_variant, res_idx in neutral_his:
+        # Build variant lists for HID and HIE
+        variants_hid = list(variants)
+        variants_hid[res_idx] = "HID"
+        variants_hie = list(variants)
+        variants_hie[res_idx] = "HIE"
+
+        energy_hid = _evaluate_variant_energy(topology, positions, protonation_ph, variants_hid)
+        energy_hie = _evaluate_variant_energy(topology, positions, protonation_ph, variants_hie)
+
+        entry: Dict[str, Any] = {
+            "residue_key": key,
+            "geometric_pick": current_variant,
+            "hid_energy_kjmol": round(energy_hid, 1) if energy_hid is not None else None,
+            "hie_energy_kjmol": round(energy_hie, 1) if energy_hie is not None else None,
+        }
+
+        # Compare energies and decide
+        if energy_hid is not None and energy_hie is not None:
+            delta = energy_hie - energy_hid  # positive means HID is lower
+            entry["delta_kjmol"] = round(delta, 1)
+            if delta > energy_threshold_kjmol:
+                best = "HID"
+            elif delta < -energy_threshold_kjmol:
+                best = "HIE"
+            else:
+                best = current_variant  # keep geometric pick within threshold
+
+            entry["final_pick"] = best
+            entry["changed"] = best != current_variant
+
+            if best != current_variant:
+                variants[res_idx] = best
+                resolved[key] = best
+                changes_made += 1
+                print(f"  HIS {key}: {current_variant} → {best} (delta={delta:.1f} kJ/mol)",
+                      file=sys.stderr)
+        else:
+            entry["delta_kjmol"] = None
+            entry["final_pick"] = current_variant
+            entry["changed"] = False
+
+        report["per_residue"].append(entry)
+
+    report["changes_made"] = changes_made
+    report["wall_time_s"] = round(time.monotonic() - t0, 2)
+
+    updated_plan = dict(variant_plan)
+    updated_plan["variants"] = variants
+    updated_plan["resolved_variants"] = resolved
+
+    return {
+        "variants_changed": changes_made > 0,
+        "updated_plan": updated_plan,
+        "his_scoring_report": report,
+    }
 
 
 def identify_pocket_residue_keys_from_pdb(
@@ -541,6 +832,7 @@ def prepare_receptor_with_propka(
     reduce_report: Optional[Dict[str, Any]] = None,
     extra_metadata: Optional[Dict[str, Any]] = None,
     keep_terminal_missing: bool = False,
+    minimize_hydrogens: bool = True,
 ) -> Dict[str, Any]:
     """Unified receptor preparation: PDBFixer + PROPKA-guided protonation.
 
@@ -590,12 +882,46 @@ def prepare_receptor_with_propka(
         pocket_residue_keys=pocket_residue_keys,
         shifted_residues=propka_report.get("shifted_residues", []),
     )
+
+    # HIS tautomer energy scoring — evaluate HID vs HIE for each neutral histidine
+    his_scoring_report: Dict[str, Any] = {"scored_count": 0}
+    if minimize_hydrogens:
+        try:
+            scoring_result = score_histidine_variants(
+                fixer.topology, fixer.positions, protonation_ph, variant_plan,
+            )
+            his_scoring_report = scoring_result.get("his_scoring_report", his_scoring_report)
+            if scoring_result.get("variants_changed"):
+                variant_plan = scoring_result["updated_plan"]
+                print(f"  HIS scoring: {his_scoring_report['changes_made']} tautomer(s) swapped",
+                      file=sys.stderr)
+            elif his_scoring_report["scored_count"] > 0:
+                print(f"  HIS scoring: {his_scoring_report['scored_count']} evaluated, geometric picks confirmed",
+                      file=sys.stderr)
+        except Exception as exc:
+            print(f"  Warning: HIS tautomer scoring failed ({exc}), using geometric picks",
+                  file=sys.stderr)
+
     protonated_topology, protonated_positions, actual_variants = add_hydrogens_with_variants(
         fixer.topology,
         fixer.positions,
         protonation_ph,
         variant_plan["variants"],
     )
+
+    # Hydrogen minimization — relaxes template-placed H with heavy atoms frozen.
+    h_min_report: Dict[str, Any] = {"applied": False}
+    if minimize_hydrogens:
+        print("  Minimizing hydrogen positions (ff19SB + OBC2)...", file=sys.stderr)
+        protonated_positions, h_min_report = _minimize_hydrogens(
+            protonated_topology, protonated_positions,
+        )
+        if h_min_report.get("applied"):
+            reduction = h_min_report.get("energy_reduction_kjmol", 0)
+            wall = h_min_report.get("wall_time_s", 0)
+            print(f"  H-min: {reduction:.0f} kJ/mol reduction in {wall:.1f}s",
+                  file=sys.stderr)
+
     write_prepared_receptor_pdb(
         protonated_topology,
         protonated_positions,
@@ -623,6 +949,8 @@ def prepare_receptor_with_propka(
         "prepared_chain_count": sum(1 for _ in protonated_topology.chains()),
         "prepared_residue_count": sum(1 for _ in protonated_topology.residues()),
         "prepared_atom_count": protonated_topology.getNumAtoms(),
+        "hydrogen_minimization": h_min_report,
+        "his_tautomer_scoring": his_scoring_report,
     }
     if extra_metadata:
         metadata.update(extra_metadata)

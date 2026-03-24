@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { onCleanup, onMount } from 'solid-js';
 import type { OutputData } from '../../shared/types/ipc';
 

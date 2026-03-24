@@ -1,9 +1,9 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, onMount, onCleanup, createSignal, Show } from 'solid-js';
 import path from 'path';
 import { workflowStore } from '../../stores/workflow';
 import { buildDockFolderName, buildDockConformRunFolderName } from '../../utils/jobName';
 import { projectPaths } from '../../utils/projectPaths';
-import { DEFAULT_RECEPTOR_WATER_DISTANCE } from '../../../shared/types/dock';
 import TerminalOutput from '../shared/TerminalOutput';
 
 const DockStepProgress: Component = () => {
@@ -15,6 +15,8 @@ const DockStepProgress: Component = () => {
     setDockCompletedLigands,
     setDockResults,
     setDockOutputDir,
+    setDockPreparedLigandPath,
+    setDockReferenceLigandPath,
     setDockCordialScored,
     setIsRunning,
     setCurrentPhase,
@@ -54,6 +56,7 @@ const DockStepProgress: Component = () => {
     clearLogs();
     setDockTotalLigands(dock.ligandSdfPaths.length);
     setDockCompletedLigands(0);
+    setDockPreparedLigandPath(null);
 
     // Build output directory path
     const defaultDir = await api.getDefaultOutputDir();
@@ -73,6 +76,7 @@ const DockStepProgress: Component = () => {
       let dockingReceptorPath = dock.receptorPrepared;
       let dockingReferenceLigandPath = dock.referenceLigandPath;
       const receptorPh = (dock.protonationConfig.phMin + dock.protonationConfig.phMax) / 2;
+      const waterDist = dock.waterRetentionConfig.enabled ? dock.waterRetentionConfig.distance : 0;
 
       appendLog('--- Preparing canonical receptor... ---\n');
       const canonicalReceptorPath = path.join(dockPaths.prep, 'canonical_receptor.pdb');
@@ -80,7 +84,7 @@ const DockStepProgress: Component = () => {
         dock.receptorPdbPath,
         dock.referenceLigandId,
         canonicalReceptorPath,
-        DEFAULT_RECEPTOR_WATER_DISTANCE,
+        waterDist,
         receptorPh
       );
       if (!canonicalReceptorResult.ok) {
@@ -115,6 +119,7 @@ const DockStepProgress: Component = () => {
       }
       dockingReceptorPath = preparedComplexResult.value.preparedReceptorPdb;
       dockingReferenceLigandPath = preparedComplexResult.value.preparedReferenceLigandSdf;
+      setDockReferenceLigandPath(dockingReferenceLigandPath);
       appendLog(`  Canonical receptor: ${path.basename(dockingReceptorPath)}\n`);
       appendLog(`  Canonical X-ray ligand: ${path.basename(dockingReferenceLigandPath)}\n\n`);
 
@@ -159,12 +164,6 @@ const DockStepProgress: Component = () => {
         }
       }
 
-      // Use cached conformers if available (user selected "Use" on configure page)
-      if (dock.cachedConformerPaths.length > 0 && dock.conformerConfig.method === 'none') {
-        ligandPaths = [...dock.cachedConformerPaths];
-        appendLog(`--- Using ${ligandPaths.length} cached conformers ---\n\n`);
-      }
-
       // Preprocessing: conformer generation
       if (dock.conformerConfig.method !== 'none' && ligandPaths.length > 0) {
         const methodLabel = dock.conformerConfig.method.toUpperCase();
@@ -174,6 +173,7 @@ const DockStepProgress: Component = () => {
           numLigands: dock.ligandMolecules.length,
           method: dock.conformerConfig.method,
           maxConformers: dock.conformerConfig.maxConformers,
+          protonation: dock.protonationConfig,
         });
         const confDir = paths.conformers(conformerRunFolder);
         const mcmmOpts = dock.conformerConfig.method === 'mcmm' ? {
@@ -221,6 +221,7 @@ const DockStepProgress: Component = () => {
 
       // Update total count after preprocessing may have expanded the ligand set
       setDockTotalLigands(ligandPaths.length);
+      setDockPreparedLigandPath(ligandPaths[0] || null);
 
       console.log(`[Dock] Starting Vina docking: ${ligandPaths.length} ligands → ${outputDir}`);
       const result = await api.runVinaDocking(

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createMemo, createSignal, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { projectPaths } from '../../utils/projectPaths';

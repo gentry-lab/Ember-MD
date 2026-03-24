@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * FEP (ABFE free energy) scoring handlers.
  * Removed from UI but handlers preserved for future use.

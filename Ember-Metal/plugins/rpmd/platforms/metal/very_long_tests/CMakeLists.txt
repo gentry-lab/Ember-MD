@@ -1,0 +1,30 @@
+#
+# Testing
+#
+
+ENABLE_TESTING()
+
+INCLUDE_DIRECTORIES(${OPENMM_SOURCE_DIR}/plugins/rpmd/tests)
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/platforms/metal/tests)
+
+# Automatically create tests using files named "Test*.cpp"
+FILE(GLOB TEST_PROGS "*Test*.cpp")
+FOREACH(TEST_PROG ${TEST_PROGS})
+    GET_FILENAME_COMPONENT(TEST_ROOT ${TEST_PROG} NAME_WE)
+
+    # Link with shared library
+    ADD_EXECUTABLE(${TEST_ROOT} ${TEST_PROG})
+    TARGET_LINK_LIBRARIES(${TEST_ROOT} ${SHARED_RPMD_TARGET} ${SHARED_TARGET})
+    SET_TARGET_PROPERTIES(${TEST_ROOT} PROPERTIES LINK_FLAGS "${EXTRA_LINK_FLAGS}" COMPILE_FLAGS "${EXTRA_COMPILE_FLAGS}")
+    
+    # RPMD tests take way too long.
+    #
+    # This is causing problems; becoming part of the quick tests when I don't
+    # want that. I don't have much use for RPMD right now, and this is
+    # excessively long even for a "very long test". I will not be maintaining
+    # support for this.
+    # ADD_TEST(${TEST_ROOT}Single ${EXECUTABLE_OUTPUT_PATH}/${TEST_ROOT} single ${OPENCL_TEST_PLATFORM_INDEX} ${OPENCL_TEST_DEVICE_INDEX})
+
+
+ENDFOREACH(TEST_PROG ${TEST_PROGS})
+

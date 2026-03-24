@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """Direct regression runner for MD receptor preparation/preflight."""
 
 from __future__ import annotations

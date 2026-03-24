@@ -1,9 +1,10 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, For, createSignal, createMemo, createEffect, onMount, onCleanup, batch } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { buildDockingProjectTable, buildDockingViewerQueue } from '../../utils/viewerQueue';
 import path from 'path';
 
-type SortField = 'ligandName' | 'vinaAffinity' | 'xtbEnergyKcal' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity' | 'qed' | 'coreRmsd';
+type SortField = 'ligandName' | 'vinaAffinity' | 'xtbEnergyKcal' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity' | 'qed';
 type SortDirection = 'asc' | 'desc';
 
 const PAGE_SIZE = 25;
@@ -25,7 +26,6 @@ const DockStepResults: Component = () => {
   const referenceCount = createMemo(() => results().filter(r => r.isReferencePose).length);
   const uniqueLigandCount = createMemo(() => new Set(dockedResults().map(r => r.ligandName)).size);
   const outputDir = () => state().dock.dockingOutputDir;
-  const coreConstrained = () => state().dock.config.coreConstrained;
   const scoreValue = (row: any) => row.vinaAffinity ?? row.vinaScoreOnlyAffinity ?? null;
   const formatScore = (row: any) => {
     const value = scoreValue(row);
@@ -201,7 +201,7 @@ const DockStepResults: Component = () => {
       title: outputDir()?.split('/').pop() || 'Docking job',
       receptorPdb: viewerReceptor,
       holoPdb: state().dock.receptorPdbPath,
-      preparedLigandPath: state().dock.cachedConformerPaths[0] || state().dock.ligandSdfPaths[0] || null,
+      preparedLigandPath: state().dock.preparedLigandPath || null,
       referenceLigandPath: state().dock.referenceLigandPath,
       poses: allResults,
       poseQueue: queue,
@@ -224,7 +224,6 @@ const DockStepResults: Component = () => {
     setMdLigandSdf(pose.outputSdf);
     setMdLigandName(pose.ligandName);
     setMdPdbPath(receptor || null);
-    setMdConfig({ restrainLigandNs: 0 });
     batch(() => {
       setMode('md');
       setMdStep('md-configure');
@@ -282,11 +281,6 @@ const DockStepResults: Component = () => {
                   <th class="cursor-pointer select-none text-right text-xs font-semibold w-12" onClick={() => handleSort('qed')}>
                     QED{sortIndicator('qed')}
                   </th>
-                  <Show when={coreConstrained()}>
-                    <th class="cursor-pointer select-none text-right text-xs font-semibold w-16" onClick={() => handleSort('coreRmsd')}>
-                      RMSD{sortIndicator('coreRmsd')}
-                    </th>
-                  </Show>
                 </tr>
               </thead>
               <tbody>
@@ -329,11 +323,6 @@ const DockStepResults: Component = () => {
                           </td>
                         </Show>
                         <td class="text-right font-mono text-xs">{row.qed.toFixed(2)}</td>
-                        <Show when={coreConstrained()}>
-                          <td class="text-right font-mono text-xs">
-                            {row.coreRmsd != null ? row.coreRmsd.toFixed(2) : '-'}
-                          </td>
-                        </Show>
                       </tr>
                     );
                   }}

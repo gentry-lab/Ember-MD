@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createEffect, onCleanup } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import type { PlaybackSpeed, CenterTarget } from '../../stores/workflow';

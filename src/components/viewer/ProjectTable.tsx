@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, For, Show } from 'solid-js';
 import type { ViewerProjectColumn, ViewerProjectFamily, ViewerProjectTableState } from '../../stores/workflow';
 import { getSortedRowsForFamily, getVisibleColumnsForFamily } from '../../utils/projectTable';

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Export GNINA docking results to CSV for FragGen GUI.
 Includes CORDIAL rescoring results if available.

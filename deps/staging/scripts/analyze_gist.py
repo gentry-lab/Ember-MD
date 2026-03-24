@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 GIST (Grid Inhomogeneous Solvation Theory) water thermodynamics analysis.
 

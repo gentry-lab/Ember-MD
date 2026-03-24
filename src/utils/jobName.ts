@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Utilities for generating and formatting job names
  */
@@ -162,11 +163,19 @@ export function buildConformRunFolderName(params: {
   maxConformers: number;
   outputName?: string | null;
   ligandName?: string | null;
+  protonation?: {
+    enabled: boolean;
+    phMin: number;
+    phMax: number;
+  };
 }): string {
   const descriptor = sanitizeConformOutputName(
     params.outputName?.trim() || params.ligandName?.trim() || 'molecule'
   ) || 'molecule';
-  return `${descriptor}_${params.method.toUpperCase()}-${params.maxConformers}conf`;
+  const protonationSuffix = !params.protonation?.enabled
+    ? ''
+    : `_prot-ph${formatPhToken(params.protonation.phMin)}-${formatPhToken(params.protonation.phMax)}`;
+  return `${descriptor}_${params.method.toUpperCase()}-${params.maxConformers}conf${protonationSuffix}`;
 }
 
 export function buildDockConformRunFolderName(params: {
@@ -174,6 +183,11 @@ export function buildDockConformRunFolderName(params: {
   numLigands?: number;
   method: Exclude<ConformerMethod, 'none'>;
   maxConformers: number;
+  protonation?: {
+    enabled: boolean;
+    phMin: number;
+    phMax: number;
+  };
 }): string {
   const dockRunName = buildDockFolderName({
     referenceLigandId: params.referenceLigandId,
@@ -184,7 +198,13 @@ export function buildDockConformRunFolderName(params: {
     method: params.method,
     maxConformers: params.maxConformers,
     outputName: dockRunName,
+    protonation: params.protonation,
   });
+}
+
+function formatPhToken(value: number): string {
+  const normalized = Number.isFinite(value) ? value : 7.0;
+  return normalized.toFixed(1).replace('.', 'p');
 }
 
 export function formatJobCountLabel(count: number): string {

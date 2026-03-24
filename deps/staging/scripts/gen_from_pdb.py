@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Ember Contributors. MIT License.
 import os
 import shutil
 import os.path as osp

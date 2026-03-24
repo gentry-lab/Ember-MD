@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Generate results CSV from SDF files with molecular properties.
 """

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Post-docking pocket refinement using OpenMM with OpenFF Sage 2.3.0 + OBC2.
 

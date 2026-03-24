@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { contextBridge, ipcRenderer } from 'electron';
 
 // Inline IPC channel names (can't require external modules in preload sandbox)
@@ -57,8 +58,6 @@ const IpcChannels = {
   // CORDIAL rescoring
   CHECK_CORDIAL_INSTALLED: 'check-cordial-installed',
   RUN_CORDIAL_SCORING: 'run-cordial-scoring',
-  CHECK_QUPKAKE_INSTALLED: 'check-qupkake-installed',
-  PREDICT_LIGAND_PKA: 'predict-ligand-pka',
   // Viewer channels
   PREPARE_FOR_VIEWING: 'prepare-for-viewing',
   SAVE_PDB_FILE: 'save-pdb-file',
@@ -75,6 +74,7 @@ const IpcChannels = {
   // Trajectory viewer channels
   SELECT_DCD_FILE: 'select-dcd-file',
   LIST_PDB_IN_DIRECTORY: 'list-pdb-in-directory',
+  SCAN_XRAY_DIRECTORY: 'xray:scan-directory',
   GET_TRAJECTORY_INFO: 'get-trajectory-info',
   GET_TRAJECTORY_FRAME: 'get-trajectory-frame',
   GET_TRAJECTORY_COORDS: 'get-trajectory-coords',
@@ -147,7 +147,6 @@ interface DockConfig {
   autoboxAdd: number;
   numCpus: number;
   seed: number;
-  coreConstrained: boolean;
 }
 
 interface MDConfig {
@@ -241,6 +240,7 @@ const electronAPI = {
   createDirectory: (dirPath: string) => ipcRenderer.invoke(IpcChannels.CREATE_DIRECTORY, dirPath),
   listSdfFiles: (dirPath: string) => ipcRenderer.invoke(IpcChannels.LIST_SDF_FILES, dirPath),
   listPdbInDirectory: (dirPath: string) => ipcRenderer.invoke(IpcChannels.LIST_PDB_IN_DIRECTORY, dirPath),
+  scanXrayDirectory: (dirPath: string) => ipcRenderer.invoke(IpcChannels.SCAN_XRAY_DIRECTORY, dirPath),
   openFolder: (folderPath: string) => ipcRenderer.invoke(IpcChannels.OPEN_FOLDER, folderPath),
 
   // Preparation steps
@@ -457,7 +457,7 @@ const electronAPI = {
     rmsdCutoff: number,
     energyWindow: number,
     method: string,
-    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean }
+    mcmmOptions?: { steps: number; temperature: number; sampleAmides: boolean; xtbRerank?: boolean }
   ) => ipcRenderer.invoke(
     IpcChannels.RUN_CONFORM_GENERATION,
     ligandSdfPath,
@@ -500,11 +500,6 @@ const electronAPI = {
 
   runCordialScoring: (dockOutputDir: string, batchSize: number) =>
     ipcRenderer.invoke(IpcChannels.RUN_CORDIAL_SCORING, dockOutputDir, batchSize),
-
-  checkQupkakeInstalled: () => ipcRenderer.invoke(IpcChannels.CHECK_QUPKAKE_INSTALLED),
-
-  predictLigandPka: (ligandPath: string) =>
-    ipcRenderer.invoke(IpcChannels.PREDICT_LIGAND_PKA, ligandPath),
 
   // Dock event listener
   onDockOutput: (callback: (data: OutputData) => void) => {

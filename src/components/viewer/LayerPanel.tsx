@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, For, Show, createSignal } from 'solid-js';
 import type { ViewerLayer, ViewerLayerGroup } from '../../stores/workflow';
 import type { ProjectJob } from '../../../shared/types/ipc';

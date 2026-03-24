@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Ember Contributors. MIT License.
 # cdk2 1.800, -8.937, -28.294
 import os
 import shutil

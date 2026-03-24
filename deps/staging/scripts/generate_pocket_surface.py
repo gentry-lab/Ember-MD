@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Generate pocket surface PLY file for FragGen using MaSIF pipeline.
 

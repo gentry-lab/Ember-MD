@@ -1,9 +1,10 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Docking-related IPC handlers.
  *
  * Extracted from main.ts — covers parallel Vina docking, result parsing,
  * receptor/ligand preparation, pose refinement, CORDIAL rescoring,
- * QupKake pKa prediction, xTB scoring, and MD cluster scoring.
+ * xTB scoring, and MD cluster scoring.
  */
 import { ipcMain } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
@@ -15,24 +16,17 @@ import { Ok, Err, Result } from '../../shared/types/result';
 import { AppError } from '../../shared/types/errors';
 import type { PreparedComplexManifest } from '../../shared/types/dock';
 import { IpcChannels } from '../../shared/types/ipc';
-import type {
-  ClusteringResult,
-  QupkakeCapabilityResult,
-  LigandPkaResult,
-  ScoredClusterResult,
-} from '../../shared/types/ipc';
+import type { ClusteringResult, ScoredClusterResult } from '../../shared/types/ipc';
 import * as appState from '../app-state';
 import {
   childProcesses,
   loadAndMergeCordialScores,
   getSpawnEnv as _getSpawnEnv,
   spawnPythonScript as _spawnPythonScriptRaw,
-  getQupkakeSpawnEnv as _getQupkakeSpawnEnv,
 } from '../spawn';
 import {
-  getQupkakeXtbPath,
+  getXtbPath,
   getCordialRoot,
-  detectBabelDataDir,
 } from '../paths';
 
 // ---------------------------------------------------------------------------
@@ -52,7 +46,6 @@ interface VinaDockConfig {
   autoboxAdd: number;
   numCpus: number;
   seed: number;
-  coreConstrained: boolean;
 }
 
 interface PreparedComplexRunResult {
@@ -73,10 +66,6 @@ function getSpawnEnv(): NodeJS.ProcessEnv {
   return _getSpawnEnv(appState.condaEnvBin);
 }
 
-function getQupkakeSpawnEnv(): NodeJS.ProcessEnv {
-  return _getQupkakeSpawnEnv(appState.condaEnvBin);
-}
-
 function spawnPythonScript(
   args: string[],
   options?: {
@@ -93,60 +82,19 @@ function spawnPythonScript(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function truncateQupkakeLogText(text: string | undefined, maxLength = 12000): string | undefined {
-  if (!text) return undefined;
-  return text.length > maxLength
-    ? `${text.slice(0, maxLength)}\n... [truncated ${text.length - maxLength} chars]`
-    : text;
-}
+function clearDockingResultArtifacts(outputDir: string): void {
+  const resultsDir = path.join(outputDir, 'results');
+  const legacyPosesDir = path.join(outputDir, 'poses');
 
-function logQupkakeCapabilityDiagnostics(
-  context: string,
-  capability: QupkakeCapabilityResult,
-  stdout?: string,
-  stderr?: string
-): void {
-  console.warn(`[QupKake] ${context}`, {
-    available: capability.available,
-    validated: capability.validated,
-    message: capability.message,
-    warning: capability.warning,
-    failureStage: capability.failureStage,
-    runtimeFingerprint: capability.runtimeFingerprint,
-    runtimeProbe: capability.runtimeProbe ? {
-      ...capability.runtimeProbe,
-      rawStdout: truncateQupkakeLogText(capability.runtimeProbe.rawStdout),
-      rawStderr: truncateQupkakeLogText(capability.runtimeProbe.rawStderr),
-    } : undefined,
-    validationLigand: capability.validationLigand,
-    validationCase: capability.validationCase ? {
-      ...capability.validationCase,
-      rawStdout: truncateQupkakeLogText(capability.validationCase.rawStdout),
-      rawStderr: truncateQupkakeLogText(capability.validationCase.rawStderr),
-    } : undefined,
-    validationReport: capability.validationReport,
-    rawStdout: truncateQupkakeLogText(stdout),
-    rawStderr: truncateQupkakeLogText(stderr),
-  });
-}
+  fs.rmSync(resultsDir, { recursive: true, force: true });
+  fs.rmSync(legacyPosesDir, { recursive: true, force: true });
 
-function logQupkakePredictionFailure(
-  context: string,
-  details: {
-    ligandPath: string,
-    code?: number | null,
-    stdout?: string,
-    stderr?: string,
-    error?: string,
+  if (!fs.existsSync(outputDir)) return;
+  for (const file of fs.readdirSync(outputDir)) {
+    if (file.endsWith('_docked.sdf.gz') || file.endsWith('_docked.sdf')) {
+      fs.rmSync(path.join(outputDir, file), { force: true });
+    }
   }
-): void {
-  console.error(`[QupKake] ${context}`, {
-    ligandPath: details.ligandPath,
-    code: details.code,
-    error: details.error,
-    rawStdout: truncateQupkakeLogText(details.stdout),
-    rawStderr: truncateQupkakeLogText(details.stderr),
-  });
 }
 
 function rebuildDockingPool(resultsDir: string, posesDir: string): void {
@@ -175,9 +123,9 @@ function rebuildDockingPool(resultsDir: string, posesDir: string): void {
 }
 
 /**
- * Concurrency-limited parallel execution helper with staggered starts.
+ * Concurrency-limited parallel execution helper.
  * Executes async functions with a maximum number of concurrent operations.
- * Adds a delay between starting each new job to avoid resource contention.
+ * Optional stagger delay between starting each new job.
  */
 async function runWithConcurrency<T, R>(
   items: T[],
@@ -198,7 +146,7 @@ async function runWithConcurrency<T, R>(
         const currentIndex = index++;
         running++;
 
-        // Stagger job starts to avoid resource contention (e.g., Open Babel init)
+        // Optional stagger between job starts
         if (staggerDelayMs > 0) {
           const now = Date.now();
           const elapsed = now - lastStartTime;
@@ -269,18 +217,9 @@ function dockSingleLigandVina(
       args.push('--seed', String(config.seed));
     }
 
-    if (config.coreConstrained) {
-      args.push('--core_constrain', '--reference_sdf', reference);
-    }
+    console.log(`[Dock:Vina] Docking ${name}`);
 
-    // Set BABEL_DATADIR to help Open Babel find its data files
-    const babelDataDir = process.env.BABEL_DATADIR || detectBabelDataDir();
-    const env = {
-      ...process.env,
-      ...(babelDataDir ? { BABEL_DATADIR: babelDataDir } : {}),
-    };
-
-    const python = spawn(appState.condaPythonPath!, args, { env });
+    const python = spawn(appState.condaPythonPath!, args);
     childProcesses.add(python);
     dockingProcesses.add(python);
 
@@ -288,11 +227,19 @@ function dockSingleLigandVina(
     let stderr = '';
 
     python.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
+      const text = data.toString();
+      stdout += text;
+      for (const line of text.split('\n')) {
+        if (line.trim()) console.log(`[Dock:Vina:${name}] ${line}`);
+      }
     });
 
     python.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
+      const text = data.toString();
+      stderr += text;
+      for (const line of text.split('\n')) {
+        if (line.trim()) console.log(`[Dock:Vina:${name}:err] ${line}`);
+      }
     });
 
     python.on('close', (code: number | null) => {
@@ -300,16 +247,19 @@ function dockSingleLigandVina(
       dockingProcesses.delete(python);
       if (code === 0) {
         const match = stdout.match(/SUCCESS:([^:]+):(.+)/);
+        console.log(`[Dock:Vina:${name}] Complete`);
         resolve({
           ligand: name,
           success: true,
           output: match ? match[2].trim() : undefined,
         });
       } else {
+        const errMsg = stderr.slice(0, 200) || 'Unknown error';
+        console.error(`[Dock:Vina:${name}] Failed: ${errMsg}`);
         resolve({
           ligand: name,
           success: false,
-          error: stderr.slice(0, 200) || 'Unknown error',
+          error: errMsg,
         });
       }
     });
@@ -317,6 +267,7 @@ function dockSingleLigandVina(
     python.on('error', (err: Error) => {
       childProcesses.delete(python);
       dockingProcesses.delete(python);
+      console.error(`[Dock:Vina:${name}] Spawn error: ${err.message}`);
       resolve({ ligand: name, success: false, error: err.message });
     });
   });
@@ -351,11 +302,6 @@ const runVinaScoreOnly = async (
 
   try {
     fs.mkdirSync(path.dirname(outputSdfGz), { recursive: true });
-    const babelDataDir = process.env.BABEL_DATADIR || detectBabelDataDir();
-    const env = {
-      ...getSpawnEnv(),
-      ...(babelDataDir ? { BABEL_DATADIR: babelDataDir } : {}),
-    };
 
     const args = [
       vinaScript,
@@ -373,7 +319,6 @@ const runVinaScoreOnly = async (
     }
 
     const { stdout, stderr, code } = await spawnPythonScript(args, {
-      env,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
     });
@@ -436,7 +381,6 @@ function parseSdfProperties(sdfPath: string): Promise<{
   mw: number;
   logp: number;
   thumbnail?: string;
-  coreRmsd?: number;
 }> {
   return new Promise((resolve) => {
     if (!appState.condaPythonPath || !fs.existsSync(appState.condaPythonPath)) {
@@ -492,7 +436,6 @@ function parseSdfProperties(sdfPath: string): Promise<{
             mw: result.mw || 0,
             logp: result.logp || 0,
             thumbnail: result.thumbnail,
-            coreRmsd: result.coreRMSD != null ? parseFloat(result.coreRMSD) : undefined,
           });
         } catch (e) {
           resolve({
@@ -578,13 +521,21 @@ const mergeClusterScoresWithCanonical = (
 };
 
 const resolveCordialScriptPath = (): string | null => {
-  let scriptPath = path.join(appState.fraggenRoot, 'score_cordial.py');
-  if (fs.existsSync(scriptPath)) {
-    return scriptPath;
-  }
   const projectRoot = path.resolve(__dirname, '..', '..');
-  scriptPath = path.join(projectRoot, 'scripts', 'score_cordial.py');
-  return fs.existsSync(scriptPath) ? scriptPath : null;
+  const candidates = [
+    path.join(appState.fraggenRoot, 'score_cordial.py'),
+    path.join(process.resourcesPath, 'scripts', 'score_cordial.py'),
+    path.join(projectRoot, 'scripts', 'score_cordial.py'),
+    path.join(process.cwd(), 'scripts', 'score_cordial.py'),
+  ];
+
+  for (const scriptPath of candidates) {
+    if (fs.existsSync(scriptPath)) {
+      return scriptPath;
+    }
+  }
+
+  return null;
 };
 
 const runCordialScoringJob = async (
@@ -601,7 +552,7 @@ const runCordialScoringJob = async (
   if (!cordialRoot) {
     return Err({
       type: 'CORDIAL_FAILED',
-      message: 'CORDIAL not found. Set CORDIAL_ROOT environment variable or clone to ~/Desktop/CORDIAL',
+      message: 'CORDIAL not found. Add the macOS-patched fork at ./CORDIAL or set CORDIAL_ROOT.',
     });
   }
 
@@ -743,14 +694,24 @@ export function register(): void {
 
       // Create output directory and inputs/ subdir
       fs.mkdirSync(outputDir, { recursive: true });
+      clearDockingResultArtifacts(outputDir);
       const inputsDir = path.join(outputDir, 'inputs');
       fs.mkdirSync(inputsDir, { recursive: true });
+      const inputsLigandsDir = path.join(inputsDir, 'ligands');
+      fs.rmSync(inputsLigandsDir, { recursive: true, force: true });
+      fs.mkdirSync(inputsLigandsDir, { recursive: true });
 
       // Copy receptor and reference ligand to inputs/ (no project prefix)
       const receptorOutputPath = path.join(inputsDir, 'receptor.pdb');
       const referenceOutputPath = path.join(inputsDir, 'reference_ligand.sdf');
       fs.copyFileSync(receptorPdb, receptorOutputPath);
       fs.copyFileSync(referenceLigand, referenceOutputPath);
+
+      ligandSdfPaths.forEach((ligandPath, index) => {
+        const sourceName = path.basename(ligandPath);
+        const stagedName = `${String(index + 1).padStart(4, '0')}_${sourceName}`;
+        fs.copyFileSync(ligandPath, path.join(inputsLigandsDir, stagedName));
+      });
 
       // Write ligands list to inputs/ligands.json
       const ligandsJsonPath = path.join(inputsDir, 'ligands.json');
@@ -762,84 +723,42 @@ export function register(): void {
       // Emit header
       event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
-        data: `=== Vina Parallel Docking ===\nWorkers: ${concurrency}\nLigands: ${ligandSdfPaths.length}\nReceptor: ${receptorPdb}\nReference: ${referenceLigand}\nOutput: ${outputDir}\n\n`
+        data: `  Vina docking — ${ligandSdfPaths.length} ligand(s), ${concurrency} workers\n`
       });
 
-      console.log(`Starting Vina parallel docking: ${ligandSdfPaths.length} ligands, ${concurrency} workers`);
+      console.log(`[Dock:Vina] Starting parallel docking: ${ligandSdfPaths.length} ligands, ${concurrency} workers`);
 
       let successful = 0;
       let failed = 0;
 
-      // Run first ligand sequentially before opening parallel workers
-      if (ligandSdfPaths.length > 0) {
-        event.sender.send(IpcChannels.DOCK_OUTPUT, {
-          type: 'stdout',
-          data: `Preparing first ligand...\n`
-        });
+      await runWithConcurrency(
+        ligandSdfPaths,
+        concurrency,
+        async (ligandPath) => {
+          return dockSingleLigandVina(ligandPath, receptorPdb, referenceLigand, outputDir, config);
+        },
+        (completed, total, result) => {
+          if (result.success) successful++;
+          else failed++;
 
-        const firstResult = await dockSingleLigandVina(
-          ligandSdfPaths[0],
-          receptorPdb,
-          referenceLigand,
-          outputDir,
-          config
-        );
+          const statusLine = result.success
+            ? `  ${completed}/${total} ${result.ligand} — OK\n`
+            : `  ${completed}/${total} ${result.ligand} — FAILED: ${result.error}\n`;
 
-        if (firstResult.success) successful++;
-        else failed++;
-
-        const firstStatusLine = firstResult.success
-          ? `DOCKING: 1/${ligandSdfPaths.length} - ${firstResult.ligand} - OK\n  ${firstResult.output}\n`
-          : `DOCKING: 1/${ligandSdfPaths.length} - ${firstResult.ligand} - FAILED\n  ${firstResult.error}\n`;
-
-        console.log(firstStatusLine.trim());
-        event.sender.send(IpcChannels.DOCK_OUTPUT, {
-          type: 'stdout',
-          data: firstStatusLine
-        });
-
-        await new Promise(r => setTimeout(r, 100));
-      }
-
-      // Process remaining ligands in parallel
-      const remainingLigands = ligandSdfPaths.slice(1);
-
-      if (remainingLigands.length > 0) {
-        event.sender.send(IpcChannels.DOCK_OUTPUT, {
-          type: 'stdout',
-          data: `\nDocking ${remainingLigands.length} remaining ligands (${concurrency} workers)...\n\n`
-        });
-
-        await runWithConcurrency(
-          remainingLigands,
-          concurrency,
-          async (ligandPath) => {
-            return dockSingleLigandVina(ligandPath, receptorPdb, referenceLigand, outputDir, config);
-          },
-          (completed, total, result) => {
-            if (result.success) successful++;
-            else failed++;
-
-            const statusLine = result.success
-              ? `DOCKING: ${completed + 1}/${ligandSdfPaths.length} - ${result.ligand} - OK\n  ${result.output}\n`
-              : `DOCKING: ${completed + 1}/${ligandSdfPaths.length} - ${result.ligand} - FAILED\n  ${result.error}\n`;
-
-            console.log(statusLine.trim());
-            event.sender.send(IpcChannels.DOCK_OUTPUT, {
-              type: 'stdout',
-              data: statusLine
-            });
-          },
-          100  // minimal stagger -- OBabel already initialized by first ligand
-        );
-      }
+          console.log(`[Dock:Vina] ${statusLine.trim()}`);
+          event.sender.send(IpcChannels.DOCK_OUTPUT, {
+            type: 'stdout',
+            data: statusLine
+          });
+        },
+      );
 
       event.sender.send(IpcChannels.DOCK_OUTPUT, {
         type: 'stdout',
-        data: `\n=== COMPLETE ===\nSuccessful: ${successful}/${ligandSdfPaths.length}\nFailed: ${failed}\n`
+        data: `  Docking complete: ${successful}/${ligandSdfPaths.length} successful${failed > 0 ? `, ${failed} failed` : ''}\n`
       });
 
-      console.log(`Vina docking complete: ${successful} successful, ${failed} failed`);
+      console.log(`[Dock:Vina] Complete: ${successful} successful, ${failed} failed`);
 
       if (failed === ligandSdfPaths.length) {
         return Err({ type: 'DOCKING_FAILED', message: 'All docking jobs failed' });
@@ -909,7 +828,6 @@ export function register(): void {
       cordialExpectedPkd?: number;
       cordialPHighAffinity?: number;
       cordialPVeryHighAffinity?: number;
-      coreRmsd?: number;
     }>, AppError>> => {
       try {
         if (!fs.existsSync(outputDir)) {
@@ -946,7 +864,6 @@ export function register(): void {
             conformerIndex: null,
             isReferencePose,
             refinementEnergy: props.refinementEnergy,
-            coreRmsd: props.coreRmsd,
           };
         });
         const results: Array<any> = await Promise.all(parsePromises);
@@ -1047,6 +964,8 @@ export function register(): void {
           return;
         }
 
+        console.log(`[Dock:Detect] Scanning ${path.basename(pdbPath)} for ligands`);
+
         const python = spawn(appState.condaPythonPath, [
           scriptPath,
           '--pdb', pdbPath,
@@ -1057,11 +976,19 @@ export function register(): void {
         let stderr = '';
 
         python.stdout.on('data', (data: Buffer) => {
-          stdout += data.toString();
+          const text = data.toString();
+          stdout += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Detect] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
+          const text = data.toString();
+          stderr += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Detect:err] ${line}`);
+          }
         });
 
         python.on('close', (code: number | null) => {
@@ -1123,6 +1050,8 @@ export function register(): void {
 
         fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
+        console.log(`[Dock:Extract] Extracting ${ligandId} from ${path.basename(pdbPath)}`);
+
         const python = spawn(appState.condaPythonPath, [
           scriptPath,
           '--pdb', pdbPath,
@@ -1135,11 +1064,19 @@ export function register(): void {
         let stderr = '';
 
         python.stdout.on('data', (data: Buffer) => {
-          stdout += data.toString();
+          const text = data.toString();
+          stdout += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Extract] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
+          const text = data.toString();
+          stderr += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Extract:err] ${line}`);
+          }
         });
 
         python.on('close', (code: number | null) => {
@@ -1205,23 +1142,35 @@ export function register(): void {
           '--ph', String(protonationPh),
         ];
 
+        console.log(`[Dock:RecPrep] Preparing receptor ${path.basename(pdbPath)}, ligand ${ligandId}`);
+
         const python = spawn(appState.condaPythonPath, prepArgs);
 
         let stdout = '';
         let stderr = '';
 
         python.stdout.on('data', (data: Buffer) => {
-          stdout += data.toString();
+          const text = data.toString();
+          stdout += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:RecPrep] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
+          const text = data.toString();
+          stderr += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:RecPrep:err] ${line}`);
+          }
         });
 
         python.on('close', (code: number | null) => {
           if (code === 0) {
+            console.log(`[Dock:RecPrep] Complete: ${outputPath}`);
             resolve(Ok(outputPath));
           } else {
+            console.error(`[Dock:RecPrep] Failed: ${stderr.slice(0, 200)}`);
             resolve(Err({
               type: 'PARSE_FAILED',
               message: `Receptor preparation failed: ${stderr}`,
@@ -1285,8 +1234,10 @@ export function register(): void {
 
         event.sender.send(IpcChannels.DOCK_OUTPUT, {
           type: 'stdout',
-          data: `=== Preparing Docking Complex ===\nReceptor: ${path.basename(receptorPdb)}\nReference ligand: ${path.basename(xrayLigandSdf)}\nReference protonation: ${protonateReference ? 'enabled' : 'disabled'}\nCharges: ${chargeMethod}\npH range: ${phMin}-${phMax}\n\n`,
+          data: `  Preparing docking complex — ${path.basename(receptorPdb)}, pH ${phMin}–${phMax}\n`,
         });
+
+        console.log(`[Dock:Prep] Receptor: ${receptorPdb}, Reference: ${xrayLigandSdf}, charges: ${chargeMethod}, pH ${phMin}-${phMax}`);
 
         const python = spawn(appState.condaPythonPath, args);
         childProcesses.add(python);
@@ -1297,12 +1248,17 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
-          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Prep] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
           const text = data.toString();
           stderr += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Prep:err] ${line}`);
+          }
           if (text.includes('Warning') || text.includes('ERROR') || text.includes('Traceback')) {
             event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
           }
@@ -1426,6 +1382,8 @@ export function register(): void {
           return;
         }
 
+        console.log(`[Dock:ExportPDB] ${path.basename(ligandSdf)} pose ${poseIndex}`);
+
         const python = spawn(appState.condaPythonPath, [
           scriptPath,
           '--receptor', receptorPdb,
@@ -1442,13 +1400,18 @@ export function register(): void {
         });
 
         python.stderr.on('data', (data: Buffer) => {
-          stderr += data.toString();
+          const text = data.toString();
+          stderr += text;
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:ExportPDB:err] ${line}`);
+          }
         });
 
         python.on('close', (code: number | null) => {
           if (code === 0) {
             resolve(Ok(outputPath));
           } else {
+            console.error(`[Dock:ExportPDB] Failed: ${stderr.slice(0, 200)}`);
             resolve(Err({
               type: 'PARSE_FAILED',
               message: `Complex export failed: ${stderr}`,
@@ -1506,8 +1469,10 @@ export function register(): void {
 
         event.sender.send(IpcChannels.DOCK_OUTPUT, {
           type: 'stdout',
-          data: `=== Pocket Refinement (Sage 2.3.0 + OBC2) ===\nReceptor: ${path.basename(receptorPdb)}\nPoses: ${posesDir}\nMax iterations: ${maxIterations}\n\n`
+          data: `  Pocket refinement (Sage 2.3.0 + OBC2) — ${maxIterations} max iterations\n`
         });
+
+        console.log(`[Dock:Refine] Receptor: ${receptorPdb}, Poses: ${posesDir}, maxIter: ${maxIterations}`);
 
         const envVars = { ...process.env };
         if (appState.condaEnvBin) {
@@ -1523,13 +1488,17 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
-          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Refine] ${line}`);
+          }
         });
 
         python.stderr.on('data', (data: Buffer) => {
           const text = data.toString();
           stderr += text;
-          // Only show warnings/errors -- suppress Metal transform noise and OpenMM debug output
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:Refine:err] ${line}`);
+          }
           if (text.includes('Warning') || text.includes('ERROR') || text.includes('Traceback')) {
             event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
           }
@@ -1588,210 +1557,6 @@ export function register(): void {
     }
   });
 
-  // Check if QupKake is installed
-  async function runQupkakeCapabilityCheck(): Promise<QupkakeCapabilityResult> {
-    if (appState.qupkakeCapabilityCache) {
-      return appState.qupkakeCapabilityCache;
-    }
-
-    const pythonPath = appState.condaPythonPath;
-    if (!pythonPath || !fs.existsSync(pythonPath)) {
-      return {
-        available: false,
-        validated: false,
-        message: 'Primary app Python environment not found, so the QupKake wrapper cannot run.',
-      };
-    }
-
-    const scriptPath = path.join(appState.fraggenRoot, 'predict_ligand_pka.py');
-    if (!fs.existsSync(scriptPath)) {
-      return {
-        available: false,
-        validated: false,
-        message: `Ligand pKa script not found: ${scriptPath}`,
-      };
-    }
-
-    return await new Promise((resolve) => {
-      const proc: ChildProcess = spawn(pythonPath, [scriptPath, '--check'], { env: getQupkakeSpawnEnv() });
-      childProcesses.add(proc);
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      proc.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      proc.on('close', (code: number | null) => {
-        childProcesses.delete(proc);
-        if (code !== 0) {
-          const result = {
-            available: false,
-            validated: false,
-            message: stderr || `QupKake capability check failed with exit code ${code}`,
-          };
-          logQupkakeCapabilityDiagnostics('capability check process failed', result, stdout, stderr);
-          resolve(result);
-          return;
-        }
-
-        try {
-          const result = JSON.parse(stdout.trim()) as QupkakeCapabilityResult;
-          if (!result.validated) {
-            logQupkakeCapabilityDiagnostics('capability check reported unavailable or unvalidated runtime', result, stdout, stderr);
-          }
-          appState.setQupkakeCapabilityCache(result);
-          resolve(result);
-        } catch {
-          console.warn('[QupKake] Failed to parse availability output:', stderr || stdout);
-          const result = {
-            available: false,
-            validated: false,
-            message: stderr || stdout || 'Failed to parse QupKake capability output.',
-          };
-          logQupkakeCapabilityDiagnostics('capability check output parse failed', result, stdout, stderr);
-          resolve(result);
-        }
-      });
-
-      proc.on('error', (error: Error) => {
-        childProcesses.delete(proc);
-        const result = {
-          available: false,
-          validated: false,
-          message: `Failed to start QupKake capability check: ${error.message}`,
-        };
-        logQupkakeCapabilityDiagnostics('capability check process launch failed', result, stdout, stderr);
-        resolve(result);
-      });
-    });
-  }
-
-  ipcMain.handle(IpcChannels.CHECK_QUPKAKE_INSTALLED, async (): Promise<QupkakeCapabilityResult> => {
-    return await runQupkakeCapabilityCheck();
-  });
-
-  // Predict ligand pKa via QupKake
-  ipcMain.handle(
-    IpcChannels.PREDICT_LIGAND_PKA,
-    async (_event, ligandPath: string): Promise<Result<LigandPkaResult, AppError>> => {
-      const capability = await runQupkakeCapabilityCheck();
-      if (!capability.available) {
-        return Err({
-          type: 'QUPKAKE_FAILED',
-          message: capability.message || 'QupKake is unavailable.',
-        });
-      }
-      if (!capability.validated) {
-        logQupkakeCapabilityDiagnostics('prediction blocked because runtime validation failed', capability);
-        return Err({
-          type: 'QUPKAKE_FAILED',
-          message: capability.warning || 'QupKake runtime failed validation and is blocked.',
-        });
-      }
-
-      const pythonPath = appState.condaPythonPath;
-      if (!pythonPath || !fs.existsSync(pythonPath)) {
-        return Err({
-          type: 'PYTHON_NOT_FOUND',
-          message: 'Primary app Python environment not found, so the QupKake wrapper cannot run.',
-        });
-      }
-
-      const scriptPath = path.join(appState.fraggenRoot, 'predict_ligand_pka.py');
-      if (!fs.existsSync(scriptPath)) {
-        return Err({
-          type: 'SCRIPT_NOT_FOUND',
-          path: scriptPath,
-          message: `Ligand pKa script not found: ${scriptPath}`,
-        });
-      }
-
-      return await new Promise((resolve) => {
-        const proc: ChildProcess = spawn(pythonPath, [scriptPath, '--ligand', ligandPath], { env: getQupkakeSpawnEnv() });
-        childProcesses.add(proc);
-
-        let stdout = '';
-        let stderr = '';
-
-        proc.stdout?.on('data', (data: Buffer) => {
-          stdout += data.toString();
-        });
-
-        proc.stderr?.on('data', (data: Buffer) => {
-          stderr += data.toString();
-        });
-
-        proc.on('close', (code: number | null) => {
-          childProcesses.delete(proc);
-
-          if (code !== 0) {
-            logQupkakePredictionFailure('ligand pKa prediction failed', {
-              ligandPath,
-              code,
-              stdout,
-              stderr,
-            });
-            resolve(Err({
-              type: 'QUPKAKE_FAILED',
-              message: stderr || `QupKake prediction failed with exit code ${code}`,
-            }));
-            return;
-          }
-
-          try {
-            const result = JSON.parse(stdout.trim()) as LigandPkaResult & { error?: string };
-            if (result?.error) {
-              logQupkakePredictionFailure('ligand pKa prediction returned an error payload', {
-                ligandPath,
-                code,
-                stdout,
-                stderr,
-                error: result.error,
-              });
-              resolve(Err({
-                type: 'QUPKAKE_FAILED',
-                message: result.error,
-              }));
-              return;
-            }
-            resolve(Ok(result));
-          } catch {
-            logQupkakePredictionFailure('ligand pKa prediction output parse failed', {
-              ligandPath,
-              code,
-              stdout,
-              stderr,
-            });
-            resolve(Err({
-              type: 'PARSE_FAILED',
-              message: `Failed to parse QupKake output: ${stderr || stdout}`,
-            }));
-          }
-        });
-
-        proc.on('error', (err: Error) => {
-          childProcesses.delete(proc);
-          logQupkakePredictionFailure('ligand pKa prediction process launch failed', {
-            ligandPath,
-            stdout,
-            stderr,
-            error: err.message,
-          });
-          resolve(Err({
-            type: 'QUPKAKE_FAILED',
-            message: `Failed to start QupKake prediction: ${err.message}`,
-          }));
-        });
-      });
-    }
-  );
-
   // Score a single protein-ligand complex (viewer scoring)
   ipcMain.handle(
     IpcChannels.SCORE_COMPLEX,
@@ -1821,7 +1586,7 @@ export function register(): void {
         cordialPVeryHighAffinity?: number;
       } = {};
 
-      const xtbPath = getQupkakeXtbPath();
+      const xtbPath = getXtbPath();
       const strainScript = path.join(appState.fraggenRoot, 'score_xtb_strain.py');
       const vinaScript = path.join(appState.fraggenRoot, 'run_vina_docking.py');
 
@@ -1891,7 +1656,7 @@ export function register(): void {
         return Ok({ optimizedLigandPaths: [], optimizedCount: 0, failedCount: 0 });
       }
 
-      const xtbPath = getQupkakeXtbPath();
+      const xtbPath = getXtbPath();
       if (!xtbPath) {
         return Err({ type: 'DOCKING_FAILED', message: 'xTB binary not found' });
       }
@@ -1976,7 +1741,7 @@ export function register(): void {
       event,
       dockOutputDir: string
     ): Promise<Result<{ count: number }, AppError>> => {
-      const xtbPath = getQupkakeXtbPath();
+      const xtbPath = getXtbPath();
       if (!xtbPath) {
         return Err({ type: 'DOCKING_FAILED', message: 'xTB binary not found' });
       }
@@ -2010,6 +1775,8 @@ export function register(): void {
           '--output_json', outputJson,
         ];
 
+        console.log(`[Dock:xTB] Scoring poses in ${posesDir}`);
+
         const python = spawn(appState.condaPythonPath!, args);
         childProcesses.add(python);
 
@@ -2017,10 +1784,18 @@ export function register(): void {
         python.stdout.on('data', (data: Buffer) => {
           const text = data.toString();
           stdout += text;
-          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stdout', data: text });
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:xTB] ${line}`);
+          }
         });
         python.stderr.on('data', (data: Buffer) => {
-          event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: data.toString() });
+          const text = data.toString();
+          for (const line of text.split('\n')) {
+            if (line.trim()) console.log(`[Dock:xTB:err] ${line}`);
+          }
+          if (text.includes('Warning') || text.includes('ERROR')) {
+            event.sender.send(IpcChannels.DOCK_OUTPUT, { type: 'stderr', data: text });
+          }
         });
 
         python.on('close', (code: number | null) => {

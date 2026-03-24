@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * IPC channel types and payloads
  */
@@ -184,8 +185,6 @@ export const IpcChannels = {
   // CORDIAL rescoring
   CHECK_CORDIAL_INSTALLED: 'check-cordial-installed',
   RUN_CORDIAL_SCORING: 'run-cordial-scoring',
-  CHECK_QUPKAKE_INSTALLED: 'check-qupkake-installed',
-  PREDICT_LIGAND_PKA: 'predict-ligand-pka',
 
   // Viewer channels
   PREPARE_FOR_VIEWING: 'prepare-for-viewing',
@@ -215,6 +214,7 @@ export const IpcChannels = {
   EXPORT_TRAJECTORY_FRAME: 'export-trajectory-frame',
   ANALYZE_TRAJECTORY: 'analyze-trajectory',
   GENERATE_MD_REPORT: 'generate-md-report',
+  SCAN_XRAY_DIRECTORY: 'xray:scan-directory',
   RUN_XRAY_ANALYSIS: 'xray:run-analysis',
   SCORE_MD_CLUSTERS: 'md:score-clusters',
   LOAD_MD_TORSION_ANALYSIS: 'md:load-torsion-analysis',
@@ -379,6 +379,13 @@ export interface XrayAnalysisResult {
   inputDir: string;
   outputDir: string;
   pdfPaths: string[];
+}
+
+export interface XrayDirectoryScanResult {
+  pdbCount: number;
+  mtzCount: number;
+  pairedCount: number;
+  unpairedPdbCount: number;
 }
 
 export interface MdReportOptions {
@@ -639,119 +646,6 @@ export interface SurfacePropsResult {
   hydrophobic: number[];    // current-structure atom field, normalized to [-1, 1]
   electrostatic: number[];  // current-structure electrostatic potential, normalized to [-1, 1]
   cachedPath: string;       // where the JSON was stored
-}
-
-export interface LigandPkaEntry {
-  label: string;
-  pka: number;
-  type?: 'acidic' | 'basic';
-  atomIndices?: number[];
-}
-
-export interface LigandPkaResult {
-  name: string;
-  smiles?: string;
-  method: 'qupkake';
-  methodLabel: 'QupKake';
-  runtimeMs?: number;
-  entries: LigandPkaEntry[];
-}
-
-export type QupkakeFailureStage =
-  | 'runtime_setup'
-  | 'xtb_execution'
-  | 'xtb_parse'
-  | 'feature_generation'
-  | 'dataset_build'
-  | 'site_inference'
-  | 'pair_dataset_generation'
-  | 'pka_inference'
-  | 'no_sites'
-  | 'prediction_failed';
-
-export interface QupkakeRuntimeFingerprint {
-  pythonPath?: string;
-  pythonVersion?: string;
-  rdkitVersion?: string;
-  qupkakeVersion?: string;
-  runtimeProbeOk?: boolean;
-  runtimeProbeModuleErrors?: Record<string, string>;
-  xtbPath?: string;
-  xtbVersion?: string;
-  fukuiCompatibilityMode?: string;
-  fukuiCompatibilitySource?: string;
-  qupkakeRoot?: string;
-}
-
-export interface QupkakeRuntimeProbe {
-  ok: boolean;
-  returnCode?: number;
-  signal?: string;
-  message?: string;
-  failureStage?: QupkakeFailureStage;
-  pythonVersion?: string;
-  moduleVersions?: Record<string, string | null>;
-  moduleErrors?: Record<string, string>;
-  xtbVersion?: string;
-  xtbRawVersion?: string;
-  fukuiCompatibilityMode?: string;
-  fukuiCompatibilitySource?: string;
-  rawStdout?: string;
-  rawStderr?: string;
-}
-
-export interface QupkakeValidationControlResult {
-  name: string;
-  required: boolean;
-  smiles?: string;
-  expectedTypeCounts?: Record<string, number>;
-  forbiddenTypes?: string[];
-  observedTypeCounts?: Record<string, number>;
-  entries?: LigandPkaEntry[];
-  entryCount: number;
-  passed: boolean;
-  reasons?: string[];
-  failureStage?: QupkakeFailureStage;
-}
-
-export interface QupkakeValidationReport {
-  controls: QupkakeValidationControlResult[];
-  requiredControlNames: string[];
-  informationalControlNames: string[];
-  validated: boolean;
-  summary?: string;
-  overallFailureStage?: QupkakeFailureStage;
-  runtimeFingerprint?: QupkakeRuntimeFingerprint;
-}
-
-export interface QupkakeValidationCase {
-  name: string;
-  inputPath?: string;
-  smiles?: string;
-  outputCreated: boolean;
-  entryCount: number;
-  entries?: LigandPkaEntry[];
-  runtimeMs?: number;
-  returnCode?: number;
-  rawStdout?: string;
-  rawStderr?: string;
-  failureStage?: QupkakeFailureStage;
-}
-
-export interface QupkakeCapabilityResult {
-  available: boolean;
-  validated: boolean;
-  warning?: string;
-  message?: string;
-  failureStage?: QupkakeFailureStage;
-  pythonPath?: string;
-  xtbPath?: string;
-  qupkakeRoot?: string;
-  validationLigand?: string;
-  runtimeFingerprint?: QupkakeRuntimeFingerprint;
-  runtimeProbe?: QupkakeRuntimeProbe;
-  validationCase?: QupkakeValidationCase;
-  validationReport?: QupkakeValidationReport;
 }
 
 // === FEP scoring types ===

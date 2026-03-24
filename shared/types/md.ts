@@ -1,8 +1,9 @@
+// Copyright (c) 2026 Ember Contributors. MIT License.
 /**
  * Molecular Dynamics simulation types
  */
 
-export type MDForceFieldPreset = 'ff14sb-tip3p' | 'ff19sb-opc' | 'ff19sb-opc3' | 'charmm36-mtip3p';
+export type MDForceFieldPreset = 'ff14sb-tip3p' | 'ff19sb-opc' | 'ff19sb-opc3';
 
 export interface MDConfig {
   // User-adjustable
@@ -12,7 +13,6 @@ export interface MDConfig {
   temperatureK: number;           // Kelvin (default: 300)
   saltConcentrationM: number;     // Molar (default: 0.15 = 150 mM)
   paddingNm: number;              // nm (default: 1.2)
-  restrainLigandNs: number;       // ns of ligand restraint in production (0 = off, default: 0)
   seed: number;                   // Random seed for velocities + Langevin noise (0 = auto)
 }
 
@@ -23,7 +23,6 @@ export const DEFAULT_MD_CONFIG: MDConfig = {
   temperatureK: 300,
   saltConcentrationM: 0.15,
   paddingNm: 1.2,
-  restrainLigandNs: 0,
   seed: 0,
 };
 
@@ -56,13 +55,6 @@ export const MD_PRESET_PARAMS: Record<MDForceFieldPreset, {
     folderSuffix: 'ff19sb-OPC',
     recommended: true,
   },
-  'ff14sb-tip3p': {
-    label: 'ff14SB + TIP3P',
-    forceFieldProtein: 'ff14SB (AMBER)',
-    forceFieldWater: 'TIP3P',
-    description: 'Classic AMBER, fast (3-site water)',
-    folderSuffix: 'ff14sb-TIP3P',
-  },
   'ff19sb-opc3': {
     label: 'ff19SB + OPC3',
     forceFieldProtein: 'ff19SB (AMBER)',
@@ -70,12 +62,12 @@ export const MD_PRESET_PARAMS: Record<MDForceFieldPreset, {
     description: 'Fast modern AMBER (3-site, nearly OPC accuracy)',
     folderSuffix: 'ff19sb-OPC3',
   },
-  'charmm36-mtip3p': {
-    label: 'CHARMM36 + mTIP3P',
-    forceFieldProtein: 'CHARMM36',
-    forceFieldWater: 'mTIP3P',
-    description: 'Mature all-atom force field — strong for membranes, nucleic acids, and general proteins',
-    folderSuffix: 'charmm36-mTIP3P',
+  'ff14sb-tip3p': {
+    label: 'ff14SB + TIP3P',
+    forceFieldProtein: 'ff14SB (AMBER)',
+    forceFieldWater: 'TIP3P',
+    description: 'Classic AMBER, fast (3-site water)',
+    folderSuffix: 'ff14sb-TIP3P',
   },
 };
 

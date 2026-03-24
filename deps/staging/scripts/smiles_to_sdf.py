@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Ember Contributors. MIT License.
 """
 Convert a single SMILES string or MOL/SDF file to a 3D SDF file + 2D PNG thumbnail.
 
