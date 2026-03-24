@@ -30,7 +30,7 @@ const AboutModal: Component<AboutModalProps> = (props) => {
             <div class="text-center mb-4">
               <h2 class="text-2xl font-bold">Ember</h2>
               <p class="text-sm text-base-content/70">Molecular Dynamics on Apple Silicon</p>
-              <p class="text-xs text-base-content/50 mt-1">Version 0.3.3</p>
+              <p class="text-xs text-base-content/50 mt-1">Version 0.3.4</p>
             </div>
 
             <Show when={props.updateInfo}>

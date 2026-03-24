@@ -403,13 +403,39 @@ def load_sdf(path: str, remove_hs: bool = False) -> Any:
     import gzip
     from rdkit import Chem
 
+    def _sanitize_with_kekulize_fallback(mol: Any) -> Any:
+        try:
+            Chem.SanitizeMol(mol)
+        except Exception:
+            try:
+                Chem.SanitizeMol(
+                    mol,
+                    sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE,
+                )
+            except Exception:
+                return None
+        return mol
+
     lower = path.lower()
     if lower.endswith('.sdf.gz'):
         with gzip.open(path, 'rb') as fh:
-            suppl = Chem.ForwardSDMolSupplier(fh, removeHs=remove_hs)
-            return next(suppl, None)
-    suppl = Chem.SDMolSupplier(path, removeHs=remove_hs)
-    return suppl[0] if len(suppl) > 0 else None
+            suppl = Chem.ForwardSDMolSupplier(fh, removeHs=False, sanitize=False)
+            mol = next(suppl, None)
+    else:
+        suppl = Chem.SDMolSupplier(path, removeHs=False, sanitize=False)
+        mol = suppl[0] if len(suppl) > 0 else None
+
+    if mol is None:
+        return None
+
+    mol = _sanitize_with_kekulize_fallback(mol)
+    if mol is None:
+        return None
+
+    if remove_hs:
+        mol = Chem.RemoveHs(mol, sanitize=False)
+
+    return mol
 
 
 def add_gbsa_obc2_force(

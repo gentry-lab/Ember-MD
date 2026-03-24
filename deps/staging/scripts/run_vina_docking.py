@@ -149,13 +149,8 @@ def pdb_to_pdbqt_string(pdb_path: str) -> str:
 
 def get_box_from_reference(reference_path: str, autobox_add: float = 4.0) -> Tuple[List[float], List[float]]:
     """Compute docking box center and size from a reference ligand."""
-    if reference_path.endswith('.gz'):
-        with gzip.open(reference_path, 'rt') as f:
-            sdf_content = f.read()
-        mol = Chem.MolFromMolBlock(sdf_content, removeHs=False)
-    elif reference_path.endswith('.sdf'):
-        supplier = Chem.SDMolSupplier(reference_path, removeHs=False)
-        mol = supplier[0]
+    if reference_path.endswith('.gz') or reference_path.endswith('.sdf'):
+        mol = load_sdf(reference_path, remove_hs=False)
     elif reference_path.endswith('.pdb'):
         mol = Chem.MolFromPDBFile(reference_path, removeHs=False)
     else:
@@ -298,8 +293,7 @@ def main() -> None:
             score = float(score_terms[0])
 
             if args.score_only_output_sdf:
-                input_supplier = Chem.SDMolSupplier(args.ligand, removeHs=False)
-                input_mol = input_supplier[0] if len(input_supplier) > 0 else None
+                input_mol = load_sdf(args.ligand, remove_hs=False)
                 if input_mol is None:
                     raise ValueError(f'Failed to load input ligand for score_only output: {args.ligand}')
                 input_mol.SetProp('vinaScoreOnlyAffinity', f'{score:.2f}')

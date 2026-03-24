@@ -19,6 +19,40 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, Descriptors, Draw, QED
 
 
+def _load_first_mol_with_kekulize_fallback(sdf_path: str):
+    def _sanitize(mol):
+        try:
+            Chem.SanitizeMol(mol)
+        except Exception:
+            try:
+                Chem.SanitizeMol(
+                    mol,
+                    sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE,
+                )
+            except Exception:
+                return None
+        return mol
+
+    if sdf_path.endswith('.gz'):
+        with gzip.open(sdf_path, 'rt') as f:
+            sdf_content = f.read()
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sdf', delete=False) as tmp:
+            tmp.write(sdf_content)
+            tmp_path = tmp.name
+        try:
+            suppl = Chem.SDMolSupplier(tmp_path, sanitize=False)
+            mol = next(iter(suppl), None)
+        finally:
+            os.unlink(tmp_path)
+    else:
+        suppl = Chem.SDMolSupplier(sdf_path, sanitize=False)
+        mol = next(iter(suppl), None)
+
+    if mol is None:
+        return None
+    return _sanitize(mol)
+
+
 def parse_sdf_properties(sdf_path: str, generate_thumbnail: bool = True, thumbnail_size: int = 300) -> dict:
     """
     Parse an SDF file and extract all properties.
@@ -48,22 +82,7 @@ def parse_sdf_properties(sdf_path: str, generate_thumbnail: bool = True, thumbna
     }
 
     try:
-        # Handle gzipped files
-        if sdf_path.endswith('.gz'):
-            with gzip.open(sdf_path, 'rt') as f:
-                sdf_content = f.read()
-            # Write to temp file for RDKit
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sdf', delete=False) as tmp:
-                tmp.write(sdf_content)
-                tmp_path = tmp.name
-            try:
-                suppl = Chem.SDMolSupplier(tmp_path, sanitize=True)
-                mol = next(iter(suppl), None)
-            finally:
-                os.unlink(tmp_path)
-        else:
-            suppl = Chem.SDMolSupplier(sdf_path, sanitize=True)
-            mol = next(iter(suppl), None)
+        mol = _load_first_mol_with_kekulize_fallback(sdf_path)
 
         if mol is None:
             result['error'] = 'Failed to parse molecule from SDF'

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
 
 const REPO = 'gentry-lab/Ember-MD';
-const APP_VERSION = '0.3.3'; // Kept in sync with package.json
+const APP_VERSION = '0.3.4'; // Kept in sync with package.json
 
 export interface UpdateInfo {
   version: string;
