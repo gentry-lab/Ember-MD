@@ -2618,6 +2618,11 @@ const ViewerMode: Component = () => {
 
       addViewerLayer({ id, type: 'ligand', label, filePath: sdfPath, visible: true });
       setViewerLigandPath(sdfPath);
+
+      // Add to project table
+      const { family, rows } = buildImportFamily({ filePaths: [sdfPath], fileTypes: ['ligand'] });
+      addViewerProjectFamily(family, rows);
+
       setSmilesInput('');
     } catch (err) {
       setError(`SMILES conversion failed: ${(err as Error).message}`);
