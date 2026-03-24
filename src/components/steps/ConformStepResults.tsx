@@ -8,6 +8,7 @@ const ConformStepResults: Component = () => {
     state,
     setConformStep,
     openViewerSession,
+    addViewerProjectFamily,
     resetConform,
   } = workflowStore;
   const api = window.electronAPI;
@@ -43,8 +44,8 @@ const ConformStepResults: Component = () => {
       pdbPath: queue[0].pdbPath,
       pdbQueue: queue,
       pdbQueueIndex: 0,
-      projectTable,
     });
+    addViewerProjectFamily(projectTable.families[0], projectTable.rows);
   };
 
   const handleOpenFolder = () => {

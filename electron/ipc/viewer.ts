@@ -2141,4 +2141,61 @@ ipcMain.handle(
   }
 );
 
+// --- Molecule alignment ---
+
+ipcMain.handle(
+  IpcChannels.ALIGN_MOLECULES_MCS,
+  async (_event, refSdf: string, mobileSdf: string, outPath: string) => {
+    try {
+      const scriptPath = path.join(appState.fraggenRoot, 'align_molecules.py');
+      const { stdout, stderr, code } = await spawnPythonScript(
+        [scriptPath, '--mode', 'mcs', '--ref', refSdf, '--mobile', mobileSdf, '--out', outPath],
+        { env: getSpawnEnv() }
+      );
+      if (code !== 0) return Err({ type: 'ALIGNMENT_FAILED', message: stderr.slice(0, 500) });
+      const result = JSON.parse(stdout);
+      return Ok(result);
+    } catch (err) {
+      return Err({ type: 'ALIGNMENT_FAILED', message: (err as Error).message });
+    }
+  }
+);
+
+ipcMain.handle(
+  IpcChannels.ALIGN_DETECT_SCAFFOLDS,
+  async (_event, refSdf: string, mobileSdf: string) => {
+    try {
+      const scriptPath = path.join(appState.fraggenRoot, 'align_molecules.py');
+      const { stdout, stderr, code } = await spawnPythonScript(
+        [scriptPath, '--mode', 'scaffolds', '--ref', refSdf, '--mobile', mobileSdf],
+        { env: getSpawnEnv() }
+      );
+      if (code !== 0) return Err({ type: 'ALIGNMENT_FAILED', message: stderr.slice(0, 500) });
+      const result = JSON.parse(stdout);
+      return Ok(result);
+    } catch (err) {
+      return Err({ type: 'ALIGNMENT_FAILED', message: (err as Error).message });
+    }
+  }
+);
+
+ipcMain.handle(
+  IpcChannels.ALIGN_BY_SCAFFOLD,
+  async (_event, refSdf: string, mobileSdf: string, scaffoldIndex: number, outPath: string) => {
+    try {
+      const scriptPath = path.join(appState.fraggenRoot, 'align_molecules.py');
+      const { stdout, stderr, code } = await spawnPythonScript(
+        [scriptPath, '--mode', 'align_scaffold', '--ref', refSdf, '--mobile', mobileSdf,
+         '--scaffold-index', String(scaffoldIndex), '--out', outPath],
+        { env: getSpawnEnv() }
+      );
+      if (code !== 0) return Err({ type: 'ALIGNMENT_FAILED', message: stderr.slice(0, 500) });
+      const result = JSON.parse(stdout);
+      return Ok(result);
+    } catch (err) {
+      return Err({ type: 'ALIGNMENT_FAILED', message: (err as Error).message });
+    }
+  }
+);
+
 } // end register()

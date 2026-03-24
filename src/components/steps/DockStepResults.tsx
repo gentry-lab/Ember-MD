@@ -10,7 +10,7 @@ type SortDirection = 'asc' | 'desc';
 const PAGE_SIZE = 25;
 
 const DockStepResults: Component = () => {
-  const { state, openViewerSession, setMode, setMdStep, setMdReceptorPdb, setMdLigandSdf, setMdLigandName, setMdPdbPath, setMdConfig, resetDock } = workflowStore;
+  const { state, openViewerSession, addViewerProjectFamily, setMode, setMdStep, setMdReceptorPdb, setMdLigandSdf, setMdLigandName, setMdPdbPath, setMdConfig, resetDock } = workflowStore;
   const api = window.electronAPI;
 
   const results = () => state().dock.results;
@@ -212,8 +212,8 @@ const DockStepResults: Component = () => {
       ligandPath: pose.outputSdf,
       pdbQueue: queue,
       pdbQueueIndex: selIdx !== null && selIdx >= 0 ? selIdx : 0,
-      projectTable,
     });
+    addViewerProjectFamily(projectTable.families[0], projectTable.rows);
   };
 
   const handleSimulate = () => {

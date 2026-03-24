@@ -66,6 +66,30 @@ else
     cp -R "$PYTHON_ENV_SOURCE/." "$EXTRA_DIR/python/"
 fi
 
+echo "  Pruning bundled Python runtime..."
+SITE_PKGS="$EXTRA_DIR/python/lib/python3.12/site-packages"
+
+# Remove bytecode caches (regenerated on first import)
+find "$EXTRA_DIR/python" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find "$EXTRA_DIR/python" -name "*.pyc" -delete 2>/dev/null || true
+
+# Remove test suites embedded in packages
+find "$SITE_PKGS" -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+find "$SITE_PKGS" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
+
+# Remove packages not needed at runtime
+for pkg in notebook jupyterlab jupyterlab_server jupyterlab_pygments \
+           jupyter_client jupyter_core jupyter_server jupyter_server_terminals \
+           jupyter_events jupyter_lsp jupyterlab_widgets \
+           ipykernel ipywidgets IPython babel statsmodels Bio sqlalchemy \
+           pytraj packmol_memgen debugpy jedi pip pygments widgetsnbextension; do
+    rm -rf "$SITE_PKGS/$pkg" 2>/dev/null || true
+    rm -rf "$SITE_PKGS/${pkg}-"*.dist-info 2>/dev/null || true
+done
+
+PRUNED_SIZE=$(du -sh "$EXTRA_DIR/python" | cut -f1)
+echo "  Python runtime after pruning: $PRUNED_SIZE"
+
 echo "  Validating bundled Python runtime..."
 KMP_DUPLICATE_LIB_OK=TRUE "$EXTRA_DIR/python/bin/python" - <<'PY'
 import importlib
@@ -227,7 +251,6 @@ if command -v create-dmg &>/dev/null && [ -f "$BG_FILE" ]; then
     --hide-extension "${PRODUCT}.app" \
     --app-drop-link 480 180 \
     --no-internet-enable \
-    --skip-jenkins \
     "$DMG_FILE" \
     "$PROJECT_DIR/dist/mac-arm64/${PRODUCT}.app" || {
       echo "  Styled DMG failed, falling back to plain DMG..."

@@ -287,10 +287,8 @@ export const detectInteractions = (
       if ((!type || isSaltBridge) && dist <= 3.5) {
         const isHBE = (el: string) => el === 'N' || el === 'O' || el === 'F';
         if (isHBE(pa.element) && isHBE(la.element)) {
-          const paHasH = pa.bonded.some(b => b.element === 'H');
-          const laHasH = la.bonded.some(b => b.element === 'H');
-          // Distance-only fallback only when neither atom has H; otherwise require angle check
-          if ((!paHasH && !laHasH) || hbondAngleOk(pa, la) || hbondAngleOk(la, pa)) {
+          // Require at least one side to have a hydrogen — no H means no H-bond
+          if (hbondAngleOk(pa, la) || hbondAngleOk(la, pa)) {
             const hbType = pa.isBackbone ? 'backboneHydrogenBond' : 'hydrogenBond';
             if (isSaltBridge) {
               // Emit H-bond as a separate interaction alongside the salt bridge

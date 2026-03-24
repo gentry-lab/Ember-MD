@@ -295,6 +295,11 @@ export interface ElectronAPI {
   runFepScoring: (options: FepScoringOptions) => Promise<Result<FepScoringResult, AppError>>;
   cancelFepScoring: () => Promise<void>;
 
+  // Molecule alignment
+  alignMoleculesMcs: (refSdf: string, mobileSdf: string, outPath: string) => Promise<Result<{ output: string }, AppError>>;
+  alignDetectScaffolds: (refSdf: string, mobileSdf: string) => Promise<Result<{ scaffolds: Array<{ label: string; refAtomIndices: number[]; mobileAtomIndices: number[] }> }, AppError>>;
+  alignByScaffold: (refSdf: string, mobileSdf: string, scaffoldIndex: number, outPath: string) => Promise<Result<{ output: string; scaffoldIndex: number }, AppError>>;
+
   // Image reading
   readImageAsDataUrl: (imagePath: string) => Promise<string | null>;
 

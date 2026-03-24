@@ -241,6 +241,11 @@ export const IpcChannels = {
   SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
   SELECT_EMBER_JOB_FOLDER: 'select-ember-job-folder',
 
+  // Molecule alignment
+  ALIGN_MOLECULES_MCS: 'align:mcs',
+  ALIGN_DETECT_SCAFFOLDS: 'align:detect-scaffolds',
+  ALIGN_BY_SCAFFOLD: 'align:by-scaffold',
+
   // Conformer generation (standalone)
   RUN_CONFORM_GENERATION: 'conform:generate',
 

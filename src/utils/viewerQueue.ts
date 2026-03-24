@@ -149,6 +149,7 @@ export function buildDockingProjectTable(options: {
     families,
     rows,
     activeRowId: poseRows[selectedQueueIndex]?.id ?? rows[0]?.id ?? null,
+    selectedRowIds: [poseRows[selectedQueueIndex]?.id ?? rows[0]?.id].filter(Boolean) as string[],
   };
 }
 
@@ -214,6 +215,7 @@ export function buildConformerProjectTable(options: {
     }],
     rows,
     activeRowId: conformerRows[0]?.id ?? rows[0]?.id ?? null,
+    selectedRowIds: [conformerRows[0]?.id ?? rows[0]?.id].filter(Boolean) as string[],
   };
 }
 
@@ -289,5 +291,44 @@ export function buildMdProjectTable(options: {
     }],
     rows,
     activeRowId: rows[0]?.id ?? null,
+    selectedRowIds: [rows[0]?.id].filter(Boolean) as string[],
   };
+}
+
+export function buildImportFamily(options: {
+  filePaths: string[];
+  fileTypes: Array<'protein' | 'ligand'>;
+}): { family: ViewerProjectFamily; rows: ViewerProjectRow[] } {
+  const { filePaths, fileTypes } = options;
+  const familyId = `import:${Date.now()}`;
+
+  const rows: ViewerProjectRow[] = filePaths.map((filePath, index) => {
+    const fileName = filePath.split('/').pop() ?? filePath;
+    const isLigand = fileTypes[index] === 'ligand';
+    return {
+      id: `${familyId}:${index}`,
+      familyId,
+      label: fileName,
+      rowKind: isLigand ? 'ligand' as const : 'apo' as const,
+      jobType: 'import' as const,
+      item: {
+        pdbPath: filePath,
+        label: fileName,
+        ...(isLigand ? { type: 'ligand' as const } : {}),
+      },
+      loadKind: isLigand ? 'standalone-ligand' as const : 'structure' as const,
+      metrics: {},
+    };
+  });
+
+  const family: ViewerProjectFamily = {
+    id: familyId,
+    title: rows.length === 1 ? rows[0].label : `Import (${rows.length} files)`,
+    jobType: 'import',
+    collapsed: false,
+    rowIds: rows.map((r) => r.id),
+    columns: [],
+  };
+
+  return { family, rows };
 }

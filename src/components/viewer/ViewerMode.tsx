@@ -22,6 +22,7 @@ import ProjectTable from './ProjectTable';
 import { projectPaths } from '../../utils/projectPaths';
 import { loadProjectJob } from '../../utils/projectJobLoader';
 import { getVisibleProjectRows } from '../../utils/projectTable';
+import { buildImportFamily } from '../../utils/viewerQueue';
 import { theme } from '../../utils/theme';
 import type { AtomProxy, ResidueProxy, SelectionSchemeEntry, NglLoadOptions, BindingSiteResultsJson, PreparedPath } from '../../types/ngl';
 import type { ProjectJob } from '../../../shared/types/ipc';
@@ -61,6 +62,9 @@ const ViewerMode: Component = () => {
     setViewerPdbQueue,
     setViewerPdbQueueIndex,
     setViewerProjectActiveRow,
+    addViewerProjectFamily,
+    removeViewerProjectFamily,
+    toggleViewerProjectRowSelection,
     toggleViewerProjectFamilyCollapsed,
     setViewerProjectFamilySort,
     setViewerBindingSiteMap,
@@ -2398,6 +2402,18 @@ const ViewerMode: Component = () => {
           label: l.label,
         })));
       }
+
+      // Build project table family for imported structures
+      const allImported = [...preparedProteins, ...ligandInputs];
+      if (allImported.length > 0) {
+        const fileTypes = [
+          ...preparedProteins.map(() => 'protein' as const),
+          ...ligandInputs.map(() => 'ligand' as const),
+        ];
+        const { family, rows } = buildImportFamily({ filePaths: allImported, fileTypes });
+        addViewerProjectFamily(family, rows);
+      }
+
       return {
         lastPreparedProtein: preparedProteins[preparedProteins.length - 1] || null,
       };
@@ -2998,6 +3014,195 @@ const ViewerMode: Component = () => {
     && hasAnyLigand();
   const canExportCurrentView = () => !!state().viewer.pdbPath || !!state().viewer.ligandPath;
 
+  // --- Multi-select alignment state ---
+  const [hasAlignment, setHasAlignment] = createSignal(false);
+  const [alignSubstructureLabel, setAlignSubstructureLabel] = createSignal<string | null>(null);
+
+  const PROTEIN_ROW_KINDS = new Set(['apo', 'holo', 'initial-complex', 'cluster']);
+  const LIGAND_ROW_KINDS = new Set(['ligand', 'prepared-ligand', 'pose', 'input', 'conformer']);
+
+  const selectedRows = () => {
+    const pt = state().viewer.projectTable;
+    if (!pt) return [];
+    const ids = new Set(pt.selectedRowIds || []);
+    return pt.rows.filter((r) => ids.has(r.id));
+  };
+
+  const selectedProteinRows = () => selectedRows().filter((r) => PROTEIN_ROW_KINDS.has(r.rowKind));
+  const selectedLigandRows = () => selectedRows().filter((r) => LIGAND_ROW_KINDS.has(r.rowKind));
+
+  const canAlignProtein = () => selectedProteinRows().length >= 2;
+  const canAlignLigand = () => selectedLigandRows().length >= 2;
+  const canAlignSubstructure = () => selectedLigandRows().length >= 2;
+
+  const handleToggleRowSelection = async (rowId: string) => {
+    const pt = state().viewer.projectTable;
+    const row = pt?.rows.find((r) => r.id === rowId);
+    // Trajectory rows cannot be multi-selected — fall back to normal click
+    if (row?.trajectoryPath) {
+      handleProjectTableRowSelect(rowId);
+      return;
+    }
+    const wasSelected = (pt?.selectedRowIds || []).includes(rowId);
+    toggleViewerProjectRowSelection(rowId);
+
+    if (!stage) return;
+    const row = pt?.rows.find((r) => r.id === rowId);
+    if (!row) return;
+
+    if (wasSelected) {
+      // Unload: remove NGL component
+      const comp = layerComponents.get(rowId);
+      if (comp) {
+        stage.removeComponent(comp);
+        layerComponents.delete(rowId);
+      }
+    } else {
+      // Load: add NGL component for this row
+      const filePath = row.item.ligandPath || row.item.pdbPath;
+      if (!filePath) return;
+      const isLigand = row.rowKind === 'ligand' || row.rowKind === 'prepared-ligand'
+        || row.rowKind === 'pose' || row.rowKind === 'input' || row.rowKind === 'conformer'
+        || row.item.type === 'ligand' || row.item.type === 'conformer';
+      try {
+        const comp = await stage.loadFile(filePath, { defaultRepresentation: false, firstModelOnly: true });
+        if (comp) {
+          layerComponents.set(rowId, comp);
+          if (isLigand) {
+            updateExternalLigandStyle(comp);
+          } else {
+            updateComponentStyle(comp);
+          }
+        }
+      } catch { /* ignore load errors for toggle */ }
+    }
+  };
+
+  const handleAlignProtein = () => {
+    if (!stage) return;
+    const proteins = selectedProteinRows();
+    if (proteins.length < 2) return;
+    const refRow = state().viewer.projectTable?.activeRowId
+      ? proteins.find((r) => r.id === state().viewer.projectTable?.activeRowId) ?? proteins[0]
+      : proteins[0];
+    const refComp = layerComponents.get(refRow.id) as NGL.StructureComponent | undefined;
+    if (!refComp) return;
+
+    for (const row of proteins) {
+      if (row.id === refRow.id) continue;
+      const mobileComp = layerComponents.get(row.id) as NGL.StructureComponent | undefined;
+      if (!mobileComp) continue;
+      try {
+        NGL.superpose(mobileComp.structure, refComp.structure, false, '.CA', '.CA');
+        mobileComp.updateRepresentations({ position: true });
+      } catch { /* skip if superpose fails */ }
+    }
+    stage.autoView();
+    setHasAlignment(true);
+  };
+
+  const handleAlignLigand = async () => {
+    const ligands = selectedLigandRows();
+    if (ligands.length < 2) return;
+    const pt = state().viewer.projectTable;
+    const refRow = pt?.activeRowId
+      ? ligands.find((r) => r.id === pt.activeRowId) ?? ligands[0]
+      : ligands[0];
+    const refPath = refRow.item.ligandPath || refRow.item.pdbPath;
+    if (!refPath) return;
+
+    for (const row of ligands) {
+      if (row.id === refRow.id) continue;
+      const mobilePath = row.item.ligandPath || row.item.pdbPath;
+      if (!mobilePath) continue;
+      const outPath = mobilePath.replace(/\.sdf(\.gz)?$/i, '_aligned.sdf');
+      const result = await api.alignMoleculesMcs(refPath, mobilePath, outPath);
+      if (result.ok) {
+        // Reload the aligned SDF into the existing NGL component
+        const comp = layerComponents.get(row.id);
+        if (comp && stage) {
+          stage.removeComponent(comp);
+          const newComp = await stage.loadFile(outPath, { defaultRepresentation: false, firstModelOnly: true });
+          if (newComp) {
+            layerComponents.set(row.id, newComp);
+            updateExternalLigandStyle(newComp);
+          }
+        }
+      }
+    }
+    stage?.autoView();
+    setHasAlignment(true);
+  };
+
+  // Scaffold cycle state
+  const [detectedScaffolds, setDetectedScaffolds] = createSignal<Array<{ label: string }>>([]);
+  const [scaffoldCycleIndex, setScaffoldCycleIndex] = createSignal(0);
+
+  const handleAlignSubstructure = async () => {
+    const ligands = selectedLigandRows();
+    if (ligands.length < 2) return;
+    const pt = state().viewer.projectTable;
+    const refRow = pt?.activeRowId
+      ? ligands.find((r) => r.id === pt.activeRowId) ?? ligands[0]
+      : ligands[0];
+    const refPath = refRow.item.ligandPath || refRow.item.pdbPath;
+    if (!refPath) return;
+
+    const mobileRow = ligands.find((r) => r.id !== refRow.id);
+    if (!mobileRow) return;
+    const mobilePath = mobileRow.item.ligandPath || mobileRow.item.pdbPath;
+    if (!mobilePath) return;
+
+    let scaffolds = detectedScaffolds();
+    let nextIndex = scaffoldCycleIndex();
+
+    // First call: detect scaffolds
+    if (scaffolds.length === 0) {
+      const result = await api.alignDetectScaffolds(refPath, mobilePath);
+      if (!result.ok || result.value.scaffolds.length === 0) {
+        console.log('[Viewer] No shared rigid substructures found');
+        return;
+      }
+      scaffolds = result.value.scaffolds;
+      setDetectedScaffolds(scaffolds);
+      nextIndex = 0;
+    } else {
+      nextIndex = (scaffoldCycleIndex() + 1) % scaffolds.length;
+    }
+
+    // Align all mobile ligands by this scaffold
+    for (const row of ligands) {
+      if (row.id === refRow.id) continue;
+      const mp = row.item.ligandPath || row.item.pdbPath;
+      if (!mp) continue;
+      const outPath = mp.replace(/\.sdf(\.gz)?$/i, `_ss${nextIndex}.sdf`);
+      const result = await api.alignByScaffold(refPath, mp, nextIndex, outPath);
+      if (result.ok) {
+        const comp = layerComponents.get(row.id);
+        if (comp && stage) {
+          stage.removeComponent(comp);
+          const newComp = await stage.loadFile(outPath, { defaultRepresentation: false, firstModelOnly: true });
+          if (newComp) {
+            layerComponents.set(row.id, newComp);
+            updateExternalLigandStyle(newComp);
+          }
+        }
+      }
+    }
+
+    setScaffoldCycleIndex(nextIndex);
+    setAlignSubstructureLabel(`${scaffolds[nextIndex].label} (${nextIndex + 1}/${scaffolds.length})`);
+    stage?.autoView();
+    setHasAlignment(true);
+  };
+
+  const handleResetAlignment = () => {
+    setHasAlignment(false);
+    setAlignSubstructureLabel(null);
+    setDetectedScaffolds([]);
+    setScaffoldCycleIndex(0);
+  };
+
   const handleSimulate = () => {
     const pdbPath = state().viewer.pdbPath;
     if (!pdbPath || !canSimulateCurrentView()) return;
@@ -3162,9 +3367,11 @@ const ViewerMode: Component = () => {
               projectTable={state().viewer.projectTable!}
               panelWidth={projectTableWidth()}
               onSelectRow={handleProjectTableRowSelect}
+              onToggleRowSelection={handleToggleRowSelection}
               onToggleFamilyCollapsed={toggleViewerProjectFamilyCollapsed}
               onSortFamily={handleProjectTableSort}
               onPlayTrajectory={handleProjectTablePlayTrajectory}
+              onRemoveFamily={removeViewerProjectFamily}
               canNavigatePrevious={activeProjectRowIndex() > 0}
               canNavigateNext={activeProjectRowIndex() >= 0 && activeProjectRowIndex() < visibleProjectRows().length - 1}
               onNavigatePrevious={() => void navigateProjectTable(-1)}
@@ -3173,6 +3380,15 @@ const ViewerMode: Component = () => {
               canExport={canExportCurrentView()}
               onSimulate={handleSimulate}
               onExport={() => void handleExportPdb()}
+              canAlignProtein={canAlignProtein()}
+              canAlignLigand={canAlignLigand()}
+              canAlignSubstructure={canAlignSubstructure()}
+              onAlignProtein={handleAlignProtein}
+              onAlignLigand={handleAlignLigand}
+              onAlignSubstructure={handleAlignSubstructure}
+              alignSubstructureLabel={alignSubstructureLabel()}
+              hasAlignment={hasAlignment()}
+              onResetAlignment={handleResetAlignment}
             />
           </div>
         </Show>

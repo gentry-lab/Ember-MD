@@ -8,6 +8,7 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
   const {
     clearViewerSession,
     openViewerSession,
+    addViewerProjectFamily,
     setMode,
     setDockOutputDir,
     setDockResults,
@@ -144,8 +145,9 @@ export async function loadProjectJob(job: ProjectJob, api: ElectronAPI): Promise
       ligandPath: selectedPose?.path || job.ligandPath || null,
       pdbQueue: queue,
       pdbQueueIndex: selectedPoseIndex,
-      projectTable,
     });
+    // Accumulate into existing project table (not replace)
+    addViewerProjectFamily(projectTable.families[0], projectTable.rows);
     return;
   }
 

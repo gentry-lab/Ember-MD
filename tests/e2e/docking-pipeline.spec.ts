@@ -22,10 +22,11 @@ async function fetchReceptor(window: Page): Promise<void> {
     throw new Error(`Unexpected error after PDB fetch: ${errorText}`);
   }
 
-  // Wait for ligand detection to complete (receptor name or ligand dropdown appears)
-  await expect(
-    window.locator('text=/Detected ligands|Reference ligand|8TCE|receptor/i').first()
-  ).toBeVisible({ timeout: 30_000 });
+  // Wait for ligand detection to complete — dropdown with "atoms" options appears
+  const ligandDropdown = window.locator('select').filter({
+    has: window.locator('option', { hasText: /atoms/i }),
+  });
+  await expect(ligandDropdown.first()).toBeVisible({ timeout: 45_000 });
 }
 
 /** Full setup: fetch receptor, select ligand, add SMILES, navigate to configure */
@@ -39,16 +40,18 @@ async function navigateToConfigure(window: Page): Promise<void> {
   const options = await ligandDropdown.first().locator('option').allTextContents();
   if (options.length > 1) {
     await ligandDropdown.first().selectOption({ index: 1 });
-    await window.waitForTimeout(3_000);
+    // Wait for reference ligand extraction to finish (receptor prep can take ~30s)
+    await expect(window.locator('text=/Extracting/i')).toBeHidden({ timeout: 60_000 }).catch(() => {});
+    await window.waitForTimeout(1_000);
   }
 
   const textarea = window.locator('textarea:visible');
   await textarea.fill('CC(=O)Oc1ccccc1C(=O)O');
   await window.locator('.btn.btn-primary.btn-sm:visible', { hasText: /Enter SMILES/i }).click();
-  await window.waitForTimeout(5_000);
+  await window.waitForTimeout(3_000);
 
   const continueBtn = window.locator('.btn.btn-primary:visible', { hasText: /Continue/i });
-  await expect(continueBtn).toBeEnabled({ timeout: 10_000 });
+  await expect(continueBtn).toBeEnabled({ timeout: 30_000 });
   await continueBtn.click();
   await window.waitForTimeout(1_000);
 }

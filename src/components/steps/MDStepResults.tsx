@@ -20,7 +20,7 @@ type DisplayCluster = {
 };
 
 const MDStepResults: Component = () => {
-  const { state, openViewerSession, resetMd } = workflowStore;
+  const { state, openViewerSession, addViewerProjectFamily, resetMd } = workflowStore;
   const api = window.electronAPI;
 
   const [sortField, setSortField] = createSignal<SortField>('population');
@@ -118,8 +118,8 @@ const MDStepResults: Component = () => {
     openViewerSession({
       pdbPath: result()!.systemPdbPath,
       trajectoryPath: result()!.trajectoryPath,
-      projectTable,
     });
+    addViewerProjectFamily(projectTable.families[0], projectTable.rows);
   };
 
   const openClusterInViewer = (cluster: DisplayCluster) => {
@@ -139,16 +139,15 @@ const MDStepResults: Component = () => {
       queueBackedClusters: true,
       clusters: sortedClusters(),
     });
+    const activeRowId = projectTable.rows.find((row) => row.queueIndex === (queueIndex >= 0 ? queueIndex : 0))?.id
+      ?? projectTable.activeRowId;
     openViewerSession({
       pdbPath: cluster.centroidPdbPath,
       pdbQueue: queue,
       pdbQueueIndex: queueIndex >= 0 ? queueIndex : 0,
-      projectTable: {
-        ...projectTable,
-        activeRowId: projectTable.rows.find((row) => row.queueIndex === (queueIndex >= 0 ? queueIndex : 0))?.id
-          ?? projectTable.activeRowId,
-      },
     });
+    addViewerProjectFamily(projectTable.families[0], projectTable.rows);
+    workflowStore.setViewerProjectActiveRow(activeRowId);
   };
 
   const openAllClustersInViewer = () => {
@@ -166,15 +165,14 @@ const MDStepResults: Component = () => {
       queueBackedClusters: true,
       clusters: sortedClusters(),
     });
+    const activeRowId = projectTable.rows.find((row) => row.queueIndex === 0)?.id ?? projectTable.activeRowId;
     openViewerSession({
       pdbPath: queue[0].pdbPath,
       pdbQueue: queue,
       pdbQueueIndex: 0,
-      projectTable: {
-        ...projectTable,
-        activeRowId: projectTable.rows.find((row) => row.queueIndex === 0)?.id ?? projectTable.activeRowId,
-      },
     });
+    addViewerProjectFamily(projectTable.families[0], projectTable.rows);
+    workflowStore.setViewerProjectActiveRow(activeRowId);
   };
 
   const handleOpenFolder = () => {

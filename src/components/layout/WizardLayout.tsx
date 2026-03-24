@@ -6,6 +6,7 @@ import AboutModal from '../AboutModal';
 import { formatJobCountLabel, generateJobName, sanitizeJobName } from '../../utils/jobName';
 import type { ProjectInfo } from '../../../shared/types/ipc';
 import { theme, toggleTheme } from '../../utils/theme';
+import { checkForUpdate, UpdateInfo } from '../../utils/updateCheck';
 
 interface StepInfo {
   id: string;
@@ -63,6 +64,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
   } = workflowStore;
   const [showHelp, setShowHelp] = createSignal(false);
   const [showAbout, setShowAbout] = createSignal(false);
+  const [updateInfo, setUpdateInfo] = createSignal<UpdateInfo | null>(null);
   const api = window.electronAPI;
 
   // Project picker state
@@ -90,7 +92,10 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
     setIsLoadingProjects(false);
   };
 
-  onMount(loadProjects);
+  onMount(() => {
+    loadProjects();
+    checkForUpdate().then(setUpdateInfo);
+  });
 
   const handleSelectProject = async (project: ProjectInfo) => {
     console.log(`[Nav] Select project: ${project.name} (${project.runs.length} runs)`);
@@ -296,13 +301,16 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
               </svg>
             </button>
             <button
-              class="btn btn-ghost btn-sm btn-square join-item"
+              class="btn btn-ghost btn-sm btn-square join-item relative"
               onClick={() => setShowAbout(true)}
-              title="About Ember"
+              title={updateInfo() ? `Update available: ${updateInfo()!.version}` : 'About Ember'}
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
+              <Show when={updateInfo()}>
+                <span class="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-amber-500" />
+              </Show>
             </button>
             <button
               class="btn btn-ghost btn-sm btn-square join-item"
@@ -686,6 +694,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
       <AboutModal
         isOpen={showAbout()}
         onClose={() => setShowAbout(false)}
+        updateInfo={updateInfo()}
       />
     </div>
   );

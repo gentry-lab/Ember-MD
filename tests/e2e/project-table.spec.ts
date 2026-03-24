@@ -312,7 +312,7 @@ test.describe('Project table', () => {
       return s.viewer.projectTable?.activeRowId === 'dock:layout:prepared-ligand';
     }, null, { timeout: 10_000 });
 
-    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeDisabled();
+    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeEnabled();
     await expect(window.locator('[data-testid="project-table-export"]')).toBeEnabled();
   });
 
@@ -461,5 +461,186 @@ test.describe('Project table', () => {
     await expect(window.locator('th', { hasText: 'Pop%' })).toBeVisible({ timeout: 10_000 });
     await expect(window.locator('th', { hasText: 'Vina' })).not.toBeVisible();
     await expect(window.locator('th', { hasText: 'P(<1uM)' })).not.toBeVisible();
+  });
+
+  test('cmd+click multi-selects rows and updates selectedRowIds', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    const poses = [
+      { ligandName: 'Pose A', vinaAffinity: -7.5, outputSdf: BENZENE_SDF },
+      { ligandName: 'Pose B', vinaAffinity: -6.8, outputSdf: BENZENE_SDF },
+      { ligandName: 'Pose C', vinaAffinity: -5.2, outputSdf: BENZENE_SDF },
+    ] as any[];
+
+    const queue = buildDockingViewerQueue(ALANINE_PDB, poses.map((p) => ({
+      name: p.ligandName, path: p.outputSdf, affinity: p.vinaAffinity,
+    })));
+
+    const projectTable = buildDockingProjectTable({
+      familyId: 'dock:multi',
+      title: 'Multi-select test',
+      receptorPdb: ALANINE_PDB,
+      poses: poses as any,
+      poseQueue: queue,
+      selectedQueueIndex: 0,
+    });
+
+    await window.evaluate((args: any) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        ligandPath: args.ligandPath,
+        pdbQueue: args.queue,
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, { pdbPath: ALANINE_PDB, ligandPath: BENZENE_SDF, queue, projectTable });
+
+    await expect(window.locator('[data-testid="project-table"]')).toBeVisible({ timeout: 10_000 });
+
+    // Initially, one row should be selected
+    const initialState = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.selectedRowIds ?? [];
+    });
+    expect(initialState.length).toBe(1);
+
+    // Cmd+click on Pose B row
+    const poseBRow = window.locator('[data-testid="project-row-dock:multi:pose:1"]');
+    await poseBRow.click({ modifiers: ['Meta'] });
+    await window.waitForTimeout(300);
+
+    const afterCmdClick = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        selectedRowIds: s.viewer.projectTable?.selectedRowIds ?? [],
+        activeRowId: s.viewer.projectTable?.activeRowId,
+      };
+    });
+    expect(afterCmdClick.selectedRowIds.length).toBe(2);
+    expect(afterCmdClick.selectedRowIds).toContain('dock:multi:pose:1');
+
+    // Cmd+click on Pose C to add a third
+    const poseCRow = window.locator('[data-testid="project-row-dock:multi:pose:2"]');
+    await poseCRow.click({ modifiers: ['Meta'] });
+    await window.waitForTimeout(300);
+
+    const afterSecondCmd = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable?.selectedRowIds ?? [];
+    });
+    expect(afterSecondCmd.length).toBe(3);
+
+    // Regular click resets to single selection
+    await poseBRow.click();
+    await window.waitForTimeout(300);
+
+    const afterRegularClick = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return {
+        selectedRowIds: s.viewer.projectTable?.selectedRowIds ?? [],
+        activeRowId: s.viewer.projectTable?.activeRowId,
+      };
+    });
+    expect(afterRegularClick.selectedRowIds.length).toBe(1);
+    expect(afterRegularClick.activeRowId).toBe('dock:multi:pose:1');
+  });
+
+  test('alignment toolbar appears when multiple rows selected and P button aligns proteins', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    const projectTable = buildMdProjectTable({
+      familyId: 'md:align',
+      title: 'Align test',
+      systemPdb: ALANINE_PDB,
+      clusters: [
+        { clusterId: 0, population: 60, centroidPdbPath: ALANINE_PDB },
+        { clusterId: 1, population: 40, centroidPdbPath: ALANINE_PDB },
+      ],
+    });
+
+    const queue = [
+      { pdbPath: ALANINE_PDB, label: 'Cluster 1 (60%)' },
+      { pdbPath: ALANINE_PDB, label: 'Cluster 2 (40%)' },
+    ];
+
+    await window.evaluate((args: any) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        pdbQueue: args.queue,
+        pdbQueueIndex: 0,
+        projectTable: args.projectTable,
+      });
+    }, { pdbPath: ALANINE_PDB, queue, projectTable });
+
+    await expect(window.locator('[data-testid="project-table"]')).toBeVisible({ timeout: 10_000 });
+
+    // Initially P button should not be visible (only 1 row selected)
+    const alignPBtn = window.locator('[data-testid="project-table-align-protein"]');
+
+    // Cmd+click second protein row to multi-select
+    const initialRow = window.locator('[data-testid="project-row-md:align:initial-complex"]');
+    await initialRow.click();
+    await window.waitForTimeout(300);
+
+    const clusterRow = window.locator('[data-testid="project-row-md:align:cluster:0"]');
+    await clusterRow.click({ modifiers: ['Meta'] });
+    await window.waitForTimeout(300);
+
+    // Both rows selected → alignment toolbar should appear, P button enabled
+    await expect(alignPBtn).toBeVisible({ timeout: 5_000 });
+    await expect(alignPBtn).toBeEnabled();
+
+    // L and SS should be disabled (these are proteins, not ligands)
+    const alignLBtn = window.locator('[data-testid="project-table-align-ligand"]');
+    await expect(alignLBtn).toBeDisabled();
+  });
+
+  test('cumulative project table: import creates a family, remove button deletes it', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    // Open a viewer session first, then add an import family
+    await window.evaluate((args: any) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({ pdbPath: args.pdbPath });
+      store.addViewerProjectFamily(
+        {
+          id: 'import:test',
+          title: 'test_structure.pdb',
+          jobType: 'import',
+          collapsed: false,
+          rowIds: ['import:test:0'],
+          columns: [],
+        },
+        [{
+          id: 'import:test:0',
+          familyId: 'import:test',
+          label: 'test_structure.pdb',
+          rowKind: 'apo',
+          jobType: 'import',
+          item: { pdbPath: args.pdbPath, label: 'test_structure.pdb' },
+          loadKind: 'structure',
+          metrics: {},
+        }],
+      );
+    }, { pdbPath: ALANINE_PDB });
+
+    // Project table should show the import family
+    await expect(window.locator('[data-testid="project-family-import:test"]')).toBeVisible({ timeout: 5_000 });
+    await expect(window.locator('[data-testid="project-row-import:test:0"]')).toBeVisible();
+
+    // Click the remove button
+    const removeBtn = window.locator('[data-testid="project-family-remove-import:test"]');
+    await expect(removeBtn).toBeVisible();
+    await removeBtn.click();
+    await window.waitForTimeout(300);
+
+    // Family should be gone
+    const tableState = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return s.viewer.projectTable;
+    });
+    expect(tableState).toBeNull();
   });
 });

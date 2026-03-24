@@ -7,12 +7,12 @@ test.describe('App boot', () => {
     expect(title).toBeTruthy();
   });
 
-  test('header shows all four mode tabs', async ({ window }) => {
+  test('header shows all five mode tabs', async ({ window }) => {
     const tabs = window.locator('.tabs-boxed .tab.tab-sm');
-    await expect(tabs).toHaveCount(4);
+    await expect(tabs).toHaveCount(5);
 
     const labels = await tabs.allTextContents();
-    expect(labels).toEqual(['View', 'MCMM', 'Dock', 'Simulate']);
+    expect(labels).toEqual(['View', 'Analyze X-ray', 'MCMM', 'Dock', 'Simulate']);
   });
 
   test('View tab is active by default', async ({ window }) => {

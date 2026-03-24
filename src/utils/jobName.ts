@@ -16,6 +16,9 @@ const ADJECTIVES = [
   'ruby', 'rustic', 'serene', 'sharp', 'silent', 'silver', 'sleek', 'smooth',
   'solar', 'solid', 'sonic', 'stellar', 'swift', 'tidal', 'ultra', 'vivid',
   'warm', 'wild', 'wise', 'zesty', 'zinc', 'atomic', 'quantum', 'orbital',
+  'cobalt', 'coral', 'crimson', 'frosty', 'glacial', 'molten', 'nimble',
+  'primal', 'rugged', 'subtle', 'tawny', 'topaz', 'verdant', 'dusky',
+  'hazy', 'woven',
 ];
 
 const NOUNS = [
@@ -30,6 +33,9 @@ const NOUNS = [
   'reef', 'ridge', 'river', 'sage', 'sigma', 'spark', 'sphere', 'spiral',
   'spring', 'storm', 'stream', 'summit', 'terra', 'theta', 'tide', 'tower',
   'trail', 'valley', 'vector', 'vertex', 'vortex', 'wave', 'willow', 'zenith',
+  'alkali', 'anode', 'basalt', 'caldera', 'corona', 'dendrite', 'eclipse',
+  'filament', 'isotope', 'mantle', 'nebula', 'pendulum', 'plume', 'prism',
+  'shard', 'tundra',
 ];
 
 const ANIMALS = [
@@ -41,6 +47,9 @@ const ANIMALS = [
   'salmon', 'seal', 'shark', 'shrew', 'sloth', 'snake', 'spider', 'squid',
   'swan', 'tapir', 'tern', 'tiger', 'toucan', 'turtle', 'viper', 'wallaby',
   'walrus', 'weasel', 'whale', 'wolf', 'wombat', 'zebra', 'dragon', 'phoenix',
+  'alpaca', 'caracal', 'cicada', 'egret', 'ferret', 'flamingo', 'gibbon',
+  'ibis', 'kestrel', 'mantis', 'narwhal', 'osprey', 'peacock', 'scorpion',
+  'sparrow', 'starling',
 ];
 
 function randomFrom<T>(arr: T[]): T {

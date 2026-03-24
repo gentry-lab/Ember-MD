@@ -7,9 +7,11 @@ interface ProjectTableProps {
   projectTable: ViewerProjectTableState;
   panelWidth: number;
   onSelectRow: (rowId: string) => void;
+  onToggleRowSelection: (rowId: string) => void;
   onToggleFamilyCollapsed: (familyId: string) => void;
   onSortFamily: (familyId: string, columnKey: string) => void;
   onPlayTrajectory: (familyId: string) => void;
+  onRemoveFamily: (familyId: string) => void;
   canNavigatePrevious: boolean;
   canNavigateNext: boolean;
   onNavigatePrevious: () => void;
@@ -18,6 +20,15 @@ interface ProjectTableProps {
   canExport: boolean;
   onSimulate: () => void;
   onExport: () => void;
+  canAlignProtein: boolean;
+  canAlignLigand: boolean;
+  canAlignSubstructure: boolean;
+  onAlignProtein: () => void;
+  onAlignLigand: () => void;
+  onAlignSubstructure: () => void;
+  alignSubstructureLabel: string | null;
+  hasAlignment: boolean;
+  onResetAlignment: () => void;
 }
 
 const ChevronRight: Component = () => (
@@ -50,6 +61,23 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
     if (family.sortKey !== columnKey) return '';
     return family.sortDirection === 'asc' ? ' ▲' : ' ▼';
   };
+
+  const isSelected = (rowId: string) =>
+    (props.projectTable.selectedRowIds || []).includes(rowId);
+
+  const isActive = (rowId: string) =>
+    props.projectTable.activeRowId === rowId;
+
+  const handleRowClick = (rowId: string, event: MouseEvent) => {
+    if (event.metaKey || event.ctrlKey) {
+      props.onToggleRowSelection(rowId);
+    } else {
+      props.onSelectRow(rowId);
+    }
+  };
+
+  const anyAlignAvailable = () =>
+    props.canAlignProtein || props.canAlignLigand || props.canAlignSubstructure;
 
   return (
     <div class="card bg-base-200 h-full overflow-hidden" data-testid="project-table">
@@ -105,6 +133,16 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
                     Play
                   </button>
                 </Show>
+                <button
+                  class="btn btn-ghost btn-xs btn-square opacity-40 hover:opacity-100"
+                  onClick={(e) => { e.stopPropagation(); props.onRemoveFamily(family.id); }}
+                  title="Remove from table"
+                  data-testid={`project-family-remove-${family.id}`}
+                >
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
 
               <Show when={!family.collapsed}>
@@ -135,15 +173,23 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
                         {(row) => (
                           <tr
                             class={`cursor-pointer hover:bg-base-200 ${
-                              props.projectTable.activeRowId === row.id ? 'bg-primary/10' : ''
+                              isActive(row.id)
+                                ? 'bg-primary/10'
+                                : isSelected(row.id)
+                                  ? 'bg-primary/5'
+                                  : ''
                             }`}
-                            onClick={() => props.onSelectRow(row.id)}
+                            onClick={(e) => handleRowClick(row.id, e)}
                             data-testid={`project-row-${row.id}`}
                           >
                             <td>
                               <div
                                 class={`w-2 h-2 rounded-full mx-auto ${
-                                  props.projectTable.activeRowId === row.id ? 'bg-primary' : 'bg-base-300'
+                                  isActive(row.id)
+                                    ? 'bg-primary'
+                                    : isSelected(row.id)
+                                      ? 'bg-primary/40'
+                                      : 'bg-base-300'
                                 }`}
                               />
                             </td>
@@ -166,6 +212,61 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
           )}
         </For>
       </div>
+
+      {/* Alignment toolbar */}
+      <Show when={anyAlignAvailable() || props.hasAlignment}>
+        <div class="px-3 py-1.5 border-t border-base-300">
+          <div class="flex items-center gap-1">
+            <span class="text-[10px] text-base-content/55 mr-1">Align</span>
+            <div class="btn-group">
+              <button
+                class={`btn btn-xs ${props.canAlignProtein ? 'btn-outline' : 'btn-disabled'}`}
+                disabled={!props.canAlignProtein}
+                onClick={props.onAlignProtein}
+                title="Align proteins by backbone (C-alpha)"
+                data-testid="project-table-align-protein"
+              >
+                P
+              </button>
+              <button
+                class={`btn btn-xs ${props.canAlignLigand ? 'btn-outline' : 'btn-disabled'}`}
+                disabled={!props.canAlignLigand}
+                onClick={props.onAlignLigand}
+                title="Align ligands by maximum common substructure"
+                data-testid="project-table-align-ligand"
+              >
+                L
+              </button>
+              <button
+                class={`btn btn-xs ${props.canAlignSubstructure ? 'btn-outline' : 'btn-disabled'}`}
+                disabled={!props.canAlignSubstructure}
+                onClick={props.onAlignSubstructure}
+                title={props.alignSubstructureLabel
+                  ? `Align by ${props.alignSubstructureLabel}`
+                  : 'Align by shared rigid substructure'}
+                data-testid="project-table-align-substructure"
+              >
+                SS
+              </button>
+            </div>
+            <Show when={props.hasAlignment}>
+              <button
+                class="btn btn-ghost btn-xs btn-square"
+                onClick={props.onResetAlignment}
+                title="Reset alignment"
+                data-testid="project-table-align-reset"
+              >
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </Show>
+            <Show when={props.alignSubstructureLabel}>
+              <span class="text-[10px] text-base-content/55 ml-1">{props.alignSubstructureLabel}</span>
+            </Show>
+          </div>
+        </div>
+      </Show>
 
       <div class="px-3 py-2 border-t border-base-300 flex items-center gap-2">
         <button

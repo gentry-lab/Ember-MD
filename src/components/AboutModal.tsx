@@ -1,9 +1,11 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show } from 'solid-js';
+import type { UpdateInfo } from '../utils/updateCheck';
 
 interface AboutModalProps {
   isOpen: boolean;
   onClose: () => void;
+  updateInfo?: UpdateInfo | null;
 }
 
 const AboutModal: Component<AboutModalProps> = (props) => {
@@ -28,8 +30,29 @@ const AboutModal: Component<AboutModalProps> = (props) => {
             <div class="text-center mb-4">
               <h2 class="text-2xl font-bold">Ember</h2>
               <p class="text-sm text-base-content/70">Molecular Dynamics on Apple Silicon</p>
-              <p class="text-xs text-base-content/50 mt-1">Version 0.3.0</p>
+              <p class="text-xs text-base-content/50 mt-1">Version 0.3.1</p>
             </div>
+
+            <Show when={props.updateInfo}>
+              <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-amber-400">Update available: {props.updateInfo!.version}</p>
+                  <p class="text-xs text-base-content/60">Download from GitHub Releases</p>
+                </div>
+                <a
+                  href={props.updateInfo!.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-sm btn-outline border-amber-500/50 text-amber-400 hover:bg-amber-500/20"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.open(props.updateInfo!.url, '_blank');
+                  }}
+                >
+                  Download
+                </a>
+              </div>
+            </Show>
 
             <p class="text-sm text-base-content/80">
               GPU-accelerated molecular dynamics simulations using AMBER force fields,

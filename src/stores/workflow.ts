@@ -183,6 +183,7 @@ export interface ViewerProjectTableState {
   families: ViewerProjectFamily[];
   rows: ViewerProjectRow[];
   activeRowId: string | null;
+  selectedRowIds: string[];
 }
 
 export interface BindingSiteMapChannel {
@@ -960,14 +961,92 @@ function createWorkflowStore() {
   const setViewerProjectTable = (projectTable: ViewerProjectTableState | null) =>
     setState((s) => ({ ...s, viewer: { ...s.viewer, projectTable } }));
 
+  const addViewerProjectFamily = (family: ViewerProjectFamily, rows: ViewerProjectRow[]) =>
+    setState((s) => {
+      const existing = s.viewer.projectTable;
+      if (!existing) {
+        return {
+          ...s,
+          viewer: {
+            ...s.viewer,
+            projectTable: { families: [family], rows, activeRowId: rows[0]?.id ?? null, selectedRowIds: rows[0]?.id ? [rows[0].id] : [] },
+          },
+        };
+      }
+      // Deduplicate: replace family if same id already exists
+      const filteredFamilies = existing.families.filter((f) => f.id !== family.id);
+      const filteredRows = existing.rows.filter((r) => r.familyId !== family.id);
+      return {
+        ...s,
+        viewer: {
+          ...s.viewer,
+          projectTable: {
+            families: [...filteredFamilies, family],
+            rows: [...filteredRows, ...rows],
+            activeRowId: existing.activeRowId,
+            selectedRowIds: existing.selectedRowIds || [],
+          },
+        },
+      };
+    });
+
+  const removeViewerProjectFamily = (familyId: string) =>
+    setState((s) => {
+      const existing = s.viewer.projectTable;
+      if (!existing) return s;
+      const families = existing.families.filter((f) => f.id !== familyId);
+      const rows = existing.rows.filter((r) => r.familyId !== familyId);
+      if (families.length === 0) {
+        return { ...s, viewer: { ...s.viewer, projectTable: null } };
+      }
+      const activeRowId = rows.some((r) => r.id === existing.activeRowId)
+        ? existing.activeRowId
+        : rows[0]?.id ?? null;
+      return {
+        ...s,
+        viewer: {
+          ...s.viewer,
+          projectTable: {
+            families,
+            rows,
+            activeRowId,
+            selectedRowIds: (existing.selectedRowIds || []).filter((id) => rows.some((r) => r.id === id)),
+          },
+        },
+      };
+    });
+
   const setViewerProjectActiveRow = (id: string | null) =>
     setState((s) => ({
       ...s,
       viewer: {
         ...s.viewer,
-        projectTable: s.viewer.projectTable ? { ...s.viewer.projectTable, activeRowId: id } : null,
+        projectTable: s.viewer.projectTable
+          ? { ...s.viewer.projectTable, activeRowId: id, selectedRowIds: id ? [id] : [] }
+          : null,
       },
     }));
+
+  const toggleViewerProjectRowSelection = (rowId: string) =>
+    setState((s) => {
+      const pt = s.viewer.projectTable;
+      if (!pt) return s;
+      const selected = pt.selectedRowIds || [];
+      const isSelected = selected.includes(rowId);
+      const nextSelected = isSelected
+        ? selected.filter((id) => id !== rowId)
+        : [...selected, rowId];
+      const nextActive = nextSelected.length > 0
+        ? (nextSelected.includes(pt.activeRowId ?? '') ? pt.activeRowId : nextSelected[0])
+        : null;
+      return {
+        ...s,
+        viewer: {
+          ...s.viewer,
+          projectTable: { ...pt, selectedRowIds: nextSelected, activeRowId: nextActive },
+        },
+      };
+    });
 
   const toggleViewerProjectFamilyCollapsed = (familyId: string) =>
     setState((s) => ({
@@ -1179,7 +1258,7 @@ function createWorkflowStore() {
           trajectoryPath: options.trajectoryPath ?? null,
           trajectoryInfo: options.trajectoryInfo ?? null,
           bindingSiteMap: options.bindingSiteMap ?? null,
-          projectTable: options.projectTable ?? null,
+          projectTable: options.projectTable ?? s.viewer.projectTable,
         },
       };
     });
@@ -1363,11 +1442,14 @@ function createWorkflowStore() {
     updateViewerLayer,
     setViewerLayerSelected,
     setViewerProjectTable,
+    addViewerProjectFamily,
+    removeViewerProjectFamily,
     setViewerProjectActiveRow,
     addViewerLayerGroup,
     removeViewerLayerGroup,
     toggleViewerLayerGroupExpanded,
     toggleViewerLayerGroupVisible,
+    toggleViewerProjectRowSelection,
     toggleViewerProjectFamilyCollapsed,
     setViewerProjectFamilySort,
     clearViewerLayers,

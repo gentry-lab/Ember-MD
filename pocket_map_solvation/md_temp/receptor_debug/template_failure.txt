@@ -1,1 +1,0 @@
-No template found for residue 93 (VU9).  This might mean your input topology is missing some atoms or bonds, or possibly that you are using the wrong force field.  For more information, see https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#template

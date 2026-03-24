@@ -634,6 +634,14 @@ const electronAPI = {
 
   cancelFepScoring: () => ipcRenderer.invoke(IpcChannels.CANCEL_FEP_SCORING),
 
+  // Molecule alignment
+  alignMoleculesMcs: (refSdf: string, mobileSdf: string, outPath: string) =>
+    ipcRenderer.invoke('align:mcs', refSdf, mobileSdf, outPath),
+  alignDetectScaffolds: (refSdf: string, mobileSdf: string) =>
+    ipcRenderer.invoke('align:detect-scaffolds', refSdf, mobileSdf),
+  alignByScaffold: (refSdf: string, mobileSdf: string, scaffoldIndex: number, outPath: string) =>
+    ipcRenderer.invoke('align:by-scaffold', refSdf, mobileSdf, scaffoldIndex, outPath),
+
   // Fetch structure from RCSB PDB by ID
   fetchPdb: (pdbId: string, projectDir: string) =>
     ipcRenderer.invoke(IpcChannels.FETCH_PDB, pdbId, projectDir),
