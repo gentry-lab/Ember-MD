@@ -3046,9 +3046,7 @@ const ViewerMode: Component = () => {
     const wasSelected = (pt?.selectedRowIds || []).includes(rowId);
     toggleViewerProjectRowSelection(rowId);
 
-    if (!stage) return;
-    const row = pt?.rows.find((r) => r.id === rowId);
-    if (!row) return;
+    if (!stage || !row) return;
 
     if (wasSelected) {
       // Unload: remove NGL component
