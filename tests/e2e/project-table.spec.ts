@@ -298,12 +298,12 @@ test.describe('Project table', () => {
     });
 
     await expect(window.locator('[data-testid="viewer-close-button"]')).toBeVisible({ timeout: 10_000 });
-    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeVisible();
+    await expect(window.locator('[data-testid="project-table-transfer"]')).toBeVisible();
     await expect(window.locator('[data-testid="project-table-export"]')).toBeVisible();
     await expect(window.locator('[title=\"Simulate — run MD on this structure\"]')).toHaveCount(0);
     await expect(window.locator('[title=\"Export as PDB\"]')).toHaveCount(0);
 
-    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeEnabled();
+    await expect(window.locator('[data-testid="project-table-transfer"]')).toBeEnabled();
     await expect(window.locator('[data-testid="project-table-export"]')).toBeEnabled();
 
     await window.locator('[data-testid="project-row-dock:layout:prepared-ligand"]').click();
@@ -312,7 +312,7 @@ test.describe('Project table', () => {
       return s.viewer.projectTable?.activeRowId === 'dock:layout:prepared-ligand';
     }, null, { timeout: 10_000 });
 
-    await expect(window.locator('[data-testid="project-table-simulate"]')).toBeEnabled();
+    await expect(window.locator('[data-testid="project-table-transfer"]')).toBeEnabled();
     await expect(window.locator('[data-testid="project-table-export"]')).toBeEnabled();
   });
 

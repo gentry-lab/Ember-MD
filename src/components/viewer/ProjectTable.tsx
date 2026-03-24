@@ -16,10 +16,13 @@ interface ProjectTableProps {
   canNavigateNext: boolean;
   onNavigatePrevious: () => void;
   onNavigateNext: () => void;
-  canSimulate: boolean;
+  canTransfer: boolean;
   canExport: boolean;
-  onSimulate: () => void;
+  onTransferDock: () => void;
+  onTransferMcmm: () => void;
+  onTransferSimulate: () => void;
   onExport: () => void;
+  onImport: () => void;
   canAlignProtein: boolean;
   canAlignLigand: boolean;
   canAlignSubstructure: boolean;
@@ -268,14 +271,42 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
         </div>
       </Show>
 
-      <div class="px-3 py-2 border-t border-base-300 flex items-center gap-2">
+      <div class="px-3 py-2 border-t border-base-300 flex items-center gap-1.5">
+        <div class="dropdown dropdown-top flex-1">
+          <label
+            tabindex="0"
+            class={`btn btn-outline btn-sm w-full ${props.canTransfer ? '' : 'btn-disabled'}`}
+            data-testid="project-table-transfer"
+          >
+            Transfer
+            <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </label>
+          <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow-lg z-30 w-full mb-1">
+            <li>
+              <button onClick={props.onTransferDock} data-testid="project-table-transfer-dock">
+                Dock
+              </button>
+            </li>
+            <li>
+              <button onClick={props.onTransferMcmm} data-testid="project-table-transfer-mcmm">
+                MCMM
+              </button>
+            </li>
+            <li>
+              <button onClick={props.onTransferSimulate} data-testid="project-table-transfer-simulate">
+                Simulate
+              </button>
+            </li>
+          </ul>
+        </div>
         <button
           class="btn btn-outline btn-sm flex-1"
-          onClick={props.onSimulate}
-          disabled={!props.canSimulate}
-          data-testid="project-table-simulate"
+          onClick={props.onImport}
+          data-testid="project-table-import"
         >
-          Simulate
+          Import
         </button>
         <button
           class="btn btn-outline btn-sm flex-1"

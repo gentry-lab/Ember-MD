@@ -3218,6 +3218,53 @@ const ViewerMode: Component = () => {
     });
   };
 
+  // Transfer: single-select only, auto-detect what to pre-populate
+  const canTransferCurrentView = () => {
+    const pt = state().viewer.projectTable;
+    if (!pt) return false;
+    return (pt.selectedRowIds || []).length === 1;
+  };
+
+  const getActiveRow = () => {
+    const pt = state().viewer.projectTable;
+    if (!pt?.activeRowId) return null;
+    return pt.rows.find((r) => r.id === pt.activeRowId) ?? null;
+  };
+
+  const handleTransferDock = () => {
+    const row = getActiveRow();
+    if (!row) return;
+    const filePath = row.item.pdbPath;
+    // Protein → set as receptor; ligand → set as dock ligand
+    if (PROTEIN_ROW_KINDS.has(row.rowKind)) {
+      // TODO: set dock receptor path when DockStepLoad supports it
+      setMode('dock');
+    } else {
+      setMode('dock');
+    }
+  };
+
+  const handleTransferMcmm = () => {
+    const row = getActiveRow();
+    if (!row) return;
+    const filePath = row.item.ligandPath || row.item.pdbPath;
+    if (filePath) {
+      workflowStore.setConformLigandSdf(filePath);
+      const name = filePath.split('/').pop()?.replace(/\.(sdf|mol|pdb|cif)(\.gz)?$/i, '') || 'molecule';
+      workflowStore.setConformLigandName(name);
+    }
+    batch(() => {
+      setMode('conform');
+      workflowStore.setConformStep('conform-configure');
+    });
+  };
+
+  const handleTransferSimulate = () => handleSimulate();
+
+  const handleProjectTableImport = () => {
+    void handleImportFiles();
+  };
+
   const viewerLoadPanel = (fillHeight: boolean) => (
     <LayerPanel
       layers={state().viewer.layers}
@@ -3374,10 +3421,13 @@ const ViewerMode: Component = () => {
               canNavigateNext={activeProjectRowIndex() >= 0 && activeProjectRowIndex() < visibleProjectRows().length - 1}
               onNavigatePrevious={() => void navigateProjectTable(-1)}
               onNavigateNext={() => void navigateProjectTable(1)}
-              canSimulate={canSimulateCurrentView()}
+              canTransfer={canTransferCurrentView()}
               canExport={canExportCurrentView()}
-              onSimulate={handleSimulate}
+              onTransferDock={handleTransferDock}
+              onTransferMcmm={handleTransferMcmm}
+              onTransferSimulate={handleTransferSimulate}
               onExport={() => void handleExportPdb()}
+              onImport={handleProjectTableImport}
               canAlignProtein={canAlignProtein()}
               canAlignLigand={canAlignLigand()}
               canAlignSubstructure={canAlignSubstructure()}
