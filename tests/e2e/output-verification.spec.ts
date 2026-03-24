@@ -196,5 +196,63 @@ test.describe('Computational output verification', () => {
       // Output directory should match expected pattern (conformers/{run}/)
       expect(conformData.outputDir).toMatch(/conformers\//);
     });
+
+    test('CREST (methylcyclobutane): output SDF exists, conformers ranked, energies populated', async ({ window }) => {
+      test.setTimeout(600_000); // CREST takes ~6 min
+
+      // Enter methylcyclobutane SMILES
+      await window.locator('textarea:visible').fill('CC1CCC1');
+      await window.locator('.btn.btn-primary.btn-sm:visible', { hasText: /Enter SMILES/i }).click();
+      await expect(window.locator('.btn.btn-primary:visible', { hasText: /Continue/i })).toBeEnabled({ timeout: 15_000 });
+      await window.locator('.btn.btn-primary:visible', { hasText: /Continue/i }).click();
+      await window.waitForTimeout(500);
+
+      // Select CREST method
+      const methodSelect = window.locator('select').filter({
+        has: window.locator('option', { hasText: 'CREST' }),
+      });
+      await methodSelect.selectOption('crest');
+      await window.waitForTimeout(200);
+
+      // Start
+      await window.locator('.btn.btn-primary:visible', { hasText: /Start/i }).click();
+
+      // Wait for completion
+      const viewResults = window.locator('.btn.btn-primary:visible', { hasText: /View Results/i });
+      await expect(viewResults).toBeVisible({ timeout: 540_000 });
+      await viewResults.click();
+      await window.waitForTimeout(500);
+
+      // Get conformer data
+      const conformData = await window.evaluate(() => {
+        const s = (window as any).__emberStore.state();
+        return {
+          paths: s.conform.conformerPaths,
+          energies: s.conform.conformerEnergies,
+          outputDir: s.conform.outputDir,
+        };
+      });
+
+      // Should have multiple conformers (CREST finds diverse minima)
+      expect(conformData.paths.length).toBeGreaterThan(0);
+
+      // Energies should be numeric and ranked (min = 0.0)
+      const energyValues = Object.values(conformData.energies) as number[];
+      expect(energyValues.length).toBeGreaterThan(0);
+      for (const e of energyValues) {
+        expect(typeof e).toBe('number');
+        expect(Number.isFinite(e)).toBe(true);
+      }
+      const minEnergy = Math.min(...energyValues);
+      expect(minEnergy).toBeCloseTo(0.0, 1);
+
+      // All conformer files should exist
+      for (const p of conformData.paths) {
+        const exists = await window.evaluate(async (filePath: string) => {
+          return await (window as any).electronAPI.fileExists(filePath);
+        }, p);
+        expect(exists).toBe(true);
+      }
+    });
   });
 });
