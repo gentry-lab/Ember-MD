@@ -272,7 +272,22 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
       </Show>
 
       <div class="px-3 py-2 border-t border-base-300 flex items-center gap-1.5">
-        <div class="dropdown dropdown-top flex-1">
+        <button
+          class="btn btn-outline btn-sm flex-1"
+          onClick={props.onImport}
+          data-testid="project-table-import"
+        >
+          Import
+        </button>
+        <button
+          class="btn btn-outline btn-sm flex-1"
+          onClick={props.onExport}
+          disabled={!props.canExport}
+          data-testid="project-table-export"
+        >
+          Export
+        </button>
+        <div class="dropdown dropdown-top dropdown-end flex-1">
           <label
             tabindex="0"
             class={`btn btn-outline btn-sm w-full ${props.canTransfer ? '' : 'btn-disabled'}`}
@@ -301,21 +316,6 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
             </li>
           </ul>
         </div>
-        <button
-          class="btn btn-outline btn-sm flex-1"
-          onClick={props.onImport}
-          data-testid="project-table-import"
-        >
-          Import
-        </button>
-        <button
-          class="btn btn-outline btn-sm flex-1"
-          onClick={props.onExport}
-          disabled={!props.canExport}
-          data-testid="project-table-export"
-        >
-          Export
-        </button>
       </div>
     </div>
   );
