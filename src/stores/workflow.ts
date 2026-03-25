@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { createSignal, createRoot } from 'solid-js';
+import { createSignal, createRoot, createEffect, on } from 'solid-js';
+import { createProjectTableSaver } from '../utils/projectTablePersistence';
 import { generateJobName } from '../utils/jobName';
 import {
   MDConfig,
@@ -528,7 +529,7 @@ function createWorkflowStore() {
   const initialJobName = generateJobName();
 
   const [state, setState] = createSignal<WorkflowState>({
-    mode: 'viewer',
+    mode: 'md',
     projectReady: false,
     projectDir: null,
     dockStep: 'dock-load',
@@ -1007,27 +1008,67 @@ function createWorkflowStore() {
       };
     });
 
+  const buildTableAfterRemoval = (
+    s: WorkflowState,
+    families: ViewerProjectFamily[],
+    rows: ViewerProjectRow[],
+  ): WorkflowState => {
+    const existing = s.viewer.projectTable!;
+    if (families.length === 0) {
+      return { ...s, viewer: { ...s.viewer, projectTable: null } };
+    }
+    const activeRowId = rows.some((r) => r.id === existing.activeRowId)
+      ? existing.activeRowId
+      : rows[0]?.id ?? null;
+    return {
+      ...s,
+      viewer: {
+        ...s.viewer,
+        projectTable: {
+          families,
+          rows,
+          activeRowId,
+          selectedRowIds: (existing.selectedRowIds || []).filter((id) => rows.some((r) => r.id === id)),
+        },
+      },
+    };
+  };
+
   const removeViewerProjectFamily = (familyId: string) =>
+    setState((s) => {
+      if (!s.viewer.projectTable) return s;
+      return buildTableAfterRemoval(
+        s,
+        s.viewer.projectTable.families.filter((f) => f.id !== familyId),
+        s.viewer.projectTable.rows.filter((r) => r.familyId !== familyId),
+      );
+    });
+
+  const removeViewerProjectRow = (rowId: string) =>
+    setState((s) => {
+      if (!s.viewer.projectTable) return s;
+      return buildTableAfterRemoval(
+        s,
+        s.viewer.projectTable.families
+          .map((f) => ({ ...f, rowIds: f.rowIds.filter((id) => id !== rowId) }))
+          .filter((f) => f.rowIds.length > 0),
+        s.viewer.projectTable.rows.filter((r) => r.id !== rowId),
+      );
+    });
+
+  const renameViewerProjectRow = (rowId: string, newLabel: string) =>
     setState((s) => {
       const existing = s.viewer.projectTable;
       if (!existing) return s;
-      const families = existing.families.filter((f) => f.id !== familyId);
-      const rows = existing.rows.filter((r) => r.familyId !== familyId);
-      if (families.length === 0) {
-        return { ...s, viewer: { ...s.viewer, projectTable: null } };
-      }
-      const activeRowId = rows.some((r) => r.id === existing.activeRowId)
-        ? existing.activeRowId
-        : rows[0]?.id ?? null;
       return {
         ...s,
         viewer: {
           ...s.viewer,
           projectTable: {
-            families,
-            rows,
-            activeRowId,
-            selectedRowIds: (existing.selectedRowIds || []).filter((id) => rows.some((r) => r.id === id)),
+            ...existing,
+            rows: existing.rows.map((r) =>
+              r.id === rowId ? { ...r, label: newLabel } : r
+            ),
           },
         },
       };
@@ -1345,6 +1386,17 @@ function createWorkflowStore() {
       score: { ...defaultScoreState },
     }));
 
+  // Auto-save project table to disk when it changes
+  const tableSaver = createProjectTableSaver(
+    () => state().projectDir,
+    (path, content) => window.electronAPI.writeTextFile(path, content),
+  );
+  createEffect(on(
+    () => state().viewer.projectTable,
+    (table) => tableSaver(table),
+    { defer: true },
+  ));
+
   return {
     state,
     setMode,
@@ -1461,6 +1513,8 @@ function createWorkflowStore() {
     setViewerProjectTable,
     addViewerProjectFamily,
     removeViewerProjectFamily,
+    removeViewerProjectRow,
+    renameViewerProjectRow,
     setViewerProjectActiveRow,
     addViewerLayerGroup,
     removeViewerLayerGroup,

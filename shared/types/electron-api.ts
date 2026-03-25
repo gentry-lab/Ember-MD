@@ -324,6 +324,8 @@ export interface ElectronAPI {
   prepareForViewing: (rawPdbPath: string, preparedPath: string) => Promise<Result<string, AppError>>;
   scanProjectArtifacts: (projectName: string) => Promise<ProjectJob[]>;
   selectEmberJobFolder: () => Promise<ProjectJob | null>;
+  prepareLigandForViewing: (inputSdf: string, outputSdf: string) => Promise<Result<string, AppError>>;
+  getAppVersion: () => Promise<string>;
 }
 
 declare global {

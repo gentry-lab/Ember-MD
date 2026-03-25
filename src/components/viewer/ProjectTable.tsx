@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, For, Show } from 'solid-js';
+import { Component, For, Show, createSignal } from 'solid-js';
 import type { ViewerProjectColumn, ViewerProjectFamily, ViewerProjectTableState } from '../../stores/workflow';
 import { getSortedRowsForFamily, getVisibleColumnsForFamily } from '../../utils/projectTable';
 
@@ -12,6 +12,8 @@ interface ProjectTableProps {
   onSortFamily: (familyId: string, columnKey: string) => void;
   onPlayTrajectory: (familyId: string) => void;
   onRemoveFamily: (familyId: string) => void;
+  onRemoveRow: (rowId: string) => void;
+  onRenameRow: (rowId: string, newLabel: string) => void;
   canNavigatePrevious: boolean;
   canNavigateNext: boolean;
   onNavigatePrevious: () => void;
@@ -60,6 +62,30 @@ const formatMetric = (value: string | number | null | undefined, column: ViewerP
 };
 
 const ProjectTable: Component<ProjectTableProps> = (props) => {
+  const [editingRowId, setEditingRowId] = createSignal<string | null>(null);
+  const [editText, setEditText] = createSignal('');
+
+  const startRenameRow = (rowId: string, currentLabel: string) => {
+    setEditingRowId(rowId);
+    setEditText(currentLabel);
+  };
+
+  const commitRename = () => {
+    const rowId = editingRowId();
+    const text = editText().trim();
+    if (rowId && text) {
+      const current = props.projectTable.rows.find((r) => r.id === rowId);
+      if (current && current.label !== text) {
+        props.onRenameRow(rowId, text);
+      }
+    }
+    setEditingRowId(null);
+  };
+
+  const cancelRename = () => {
+    setEditingRowId(null);
+  };
+
   const sortIndicator = (family: ViewerProjectFamily, columnKey: string) => {
     if (family.sortKey !== columnKey) return '';
     return family.sortDirection === 'asc' ? ' ▲' : ' ▼';
@@ -162,6 +188,7 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
                             </th>
                           )}
                         </For>
+                        <th class="w-5" />
                       </tr>
                     </thead>
                     <tbody>
@@ -172,7 +199,7 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
                       )}>
                         {(row) => (
                           <tr
-                            class={`cursor-pointer hover:bg-base-200 ${
+                            class={`cursor-pointer hover:bg-base-200 group/row ${
                               isActive(row.id)
                                 ? 'bg-primary/10'
                                 : isSelected(row.id)
@@ -193,7 +220,30 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
                                 }`}
                               />
                             </td>
-                            <td class="font-medium truncate" title={row.label}>{row.label}</td>
+                            <td class="font-medium truncate">
+                              <Show when={editingRowId() === row.id} fallback={
+                                <span
+                                  title={row.label}
+                                  onDblClick={(e) => { e.stopPropagation(); startRenameRow(row.id, row.label); }}
+                                >
+                                  {row.label}
+                                </span>
+                              }>
+                                <input
+                                  type="text"
+                                  class="input input-xs input-bordered w-full font-medium"
+                                  value={editText()}
+                                  onInput={(e) => setEditText(e.currentTarget.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                                    else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+                                  }}
+                                  onBlur={commitRename}
+                                  onClick={(e) => e.stopPropagation()}
+                                  ref={(el) => requestAnimationFrame(() => { el.focus(); el.select(); })}
+                                />
+                              </Show>
+                            </td>
                             <For each={getVisibleColumnsForFamily(family, props.panelWidth)}>
                               {(column) => (
                                 <td class="text-right font-mono truncate">
@@ -201,6 +251,17 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
                                 </td>
                               )}
                             </For>
+                            <td class="w-5 p-0">
+                              <button
+                                class="btn btn-ghost btn-xs btn-square opacity-0 group-hover/row:opacity-40 hover:!opacity-100"
+                                onClick={(e) => { e.stopPropagation(); props.onRemoveRow(row.id); }}
+                                title="Remove row"
+                              >
+                                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </td>
                           </tr>
                         )}
                       </For>
@@ -267,29 +328,14 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
         </div>
 
       <div class="px-3 py-2 border-t border-base-300 flex items-center gap-1.5">
-        <button
-          class="btn btn-outline btn-sm flex-1"
-          onClick={props.onImport}
-          data-testid="project-table-import"
-        >
-          Import
-        </button>
-        <button
-          class="btn btn-outline btn-sm flex-1"
-          onClick={props.onExport}
-          disabled={!props.canExport}
-          data-testid="project-table-export"
-        >
-          Export
-        </button>
-        <div class="dropdown dropdown-top dropdown-end flex-1">
+        <div class="dropdown dropdown-top dropdown-start">
           <label
             tabindex="0"
-            class={`btn btn-outline btn-sm w-full ${props.canTransfer ? '' : 'btn-disabled'}`}
+            class={`btn btn-outline btn-sm whitespace-nowrap ${props.canTransfer ? '' : 'btn-disabled'}`}
             data-testid="project-table-transfer"
           >
-            Transfer
-            <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            Add to
+            <svg class="w-3 h-3 ml-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
           </label>
@@ -306,11 +352,26 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
             </li>
             <li>
               <button onClick={props.onTransferSimulate} data-testid="project-table-transfer-simulate">
-                Simulate
+                Dynamics
               </button>
             </li>
           </ul>
         </div>
+        <button
+          class="btn btn-outline btn-sm flex-1 min-w-0 px-2"
+          onClick={props.onImport}
+          data-testid="project-table-import"
+        >
+          Import
+        </button>
+        <button
+          class="btn btn-outline btn-sm flex-1 min-w-0 px-2"
+          onClick={props.onExport}
+          disabled={!props.canExport}
+          data-testid="project-table-export"
+        >
+          Export
+        </button>
       </div>
     </div>
   );

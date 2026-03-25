@@ -230,29 +230,60 @@ def _patch_forcefield_for_chain_breaks(ff: Any) -> None:
     Chain-break receptors have terminal residues with bond mismatches.
     This patches createSystem so that addSolvent, addExtraParticles fallbacks,
     and direct createSystem calls all tolerate these mismatches.
+
+    Also handles residue template mismatches (e.g. ALA atoms matching NOR template
+    but with different bonds) by iteratively parsing errors and mapping residues
+    to the closest matching template until all mismatches are resolved.
     """
+    import re
     original_createSystem = ff.createSystem
+    MAX_RETRIES = 50  # Safety cap — one retry per mismatched residue
 
     @functools.wraps(original_createSystem)
     def _patched_createSystem(topology, *create_args, **create_kwargs):
         kwargs = dict(create_kwargs)
+        # Build base residue template overrides
+        rt = dict(kwargs.pop('residueTemplates', {}))
+        # CYS/CYX resolution by atom content
+        for res in topology.residues():
+            if res.name in ('CYS', 'CYX', 'CYM'):
+                atom_names = {a.name for a in res.atoms()}
+                rt[res] = 'CYS' if 'HG' in atom_names else 'CYX'
+
+        # First attempt without ignoreExternalBonds
         try:
             return original_createSystem(topology, *create_args, **kwargs)
         except Exception:
-            if kwargs.get('ignoreExternalBonds'):
-                raise  # Already tried, don't loop
-            cys_templates = {}
-            for res in topology.residues():
-                if res.name in ('CYS', 'CYX', 'CYM'):
-                    atom_names = {a.name for a in res.atoms()}
-                    cys_templates[res] = 'CYS' if 'HG' in atom_names else 'CYX'
-            rt = dict(kwargs.pop('residueTemplates', {}))
-            rt.update(cys_templates)
-            kwargs['ignoreExternalBonds'] = True
-            kwargs['residueTemplates'] = rt
-            return original_createSystem(
-                topology, *create_args, **kwargs
-            )
+            pass
+
+        # Retry loop: each iteration fixes one mismatched residue
+        kwargs['ignoreExternalBonds'] = True
+        kwargs['residueTemplates'] = rt
+        for attempt in range(MAX_RETRIES):
+            try:
+                return original_createSystem(topology, *create_args, **kwargs)
+            except Exception as exc:
+                err_msg = str(exc)
+                match = re.search(
+                    r'residue (\d+) \((\w+)\).*atoms matches (\w+)',
+                    err_msg
+                )
+                if not match:
+                    raise  # Not a template mismatch — can't fix
+                res_index = int(match.group(1))
+                res_name = match.group(2)
+                matched_template = match.group(3)
+                # Find and remap the residue
+                remapped = False
+                for res in topology.residues():
+                    if res.index == res_index:
+                        rt[res] = matched_template
+                        print(f'  Remapping residue {res_index} ({res_name}) → {matched_template}', file=sys.stderr)
+                        remapped = True
+                        break
+                if not remapped:
+                    raise  # Couldn't find the residue
+        raise RuntimeError(f'Too many residue template mismatches (>{MAX_RETRIES})')
 
     ff.createSystem = _patched_createSystem
 

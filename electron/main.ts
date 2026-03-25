@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -91,6 +91,9 @@ function createWindow(): void {
 
 app.on('ready', () => {
   createWindow();
+
+  // App version (read from package.json by Electron)
+  ipcMain.handle('get-app-version', () => app.getVersion());
 
   // Register all IPC handler modules
   ipcDialogs.register();

@@ -127,7 +127,15 @@ const ScoreStepLoad: Component = () => {
         </Show>
       </div>
 
-      <div class="flex justify-end mt-3 flex-shrink-0">
+      <div class="mt-4 flex items-center gap-3 flex-shrink-0">
+        <div class="flex-1 flex items-center gap-2 text-xs text-base-content/85 bg-base-200 rounded-lg px-3 py-2">
+          <svg class="w-4 h-4 text-info flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>
+            Electron density maps (.mtz) and structure files (.pdb) are analyzed algorithmically for alignment.
+          </span>
+        </div>
         <button
           class="btn btn-primary"
           onClick={() => setScoreStep('score-progress')}

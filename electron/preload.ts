@@ -683,6 +683,13 @@ const electronAPI = {
     ipcRenderer.invoke(IpcChannels.SCAN_PROJECT_ARTIFACTS, projectName),
   selectEmberJobFolder: () =>
     ipcRenderer.invoke(IpcChannels.SELECT_EMBER_JOB_FOLDER),
+
+  // Ligand preparation for viewing (sanitize + add hydrogens + bond orders)
+  prepareLigandForViewing: (inputSdf: string, outputSdf: string) =>
+    ipcRenderer.invoke('prepare-ligand-for-viewing', inputSdf, outputSdf),
+
+  // App version from package.json (via Electron)
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

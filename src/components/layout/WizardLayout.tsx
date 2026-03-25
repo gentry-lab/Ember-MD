@@ -29,7 +29,7 @@ const dockSteps: StepInfo[] = [
 const mdSteps: StepInfo[] = [
   { id: 'md-load', label: 'Load', icon: '1' },
   { id: 'md-configure', label: 'Configure', icon: '2' },
-  { id: 'md-progress', label: 'Simulate', icon: '3' },
+  { id: 'md-progress', label: 'Run', icon: '3' },
   { id: 'md-results', label: 'Results', icon: '4' },
 ];
 
@@ -269,7 +269,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
     clearViewerSession();
     setProjectReady(false);
     setProjectDir(null);
-    setMode('viewer');
+    setMode('md');
   };
 
   const useFullWidthWorkspace = () => state().mode === 'viewer';
@@ -366,7 +366,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
               onClick={() => handleModeSwitch('md')}
               disabled={!canSwitchMode()}
             >
-              Simulate
+              Dynamics
             </button>
           </div>
         </div>

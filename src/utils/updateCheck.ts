@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
 
 const REPO = 'gentry-lab/Ember-MD';
-const APP_VERSION = '0.3.4'; // Kept in sync with package.json
 
 export interface UpdateInfo {
   version: string;
@@ -24,6 +23,7 @@ function isNewer(remote: number[], local: number[]): boolean {
 
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   try {
+    const appVersion = await window.electronAPI.getAppVersion();
     const resp = await fetch(
       `https://api.github.com/repos/${REPO}/releases/latest`,
       { headers: { 'Accept': 'application/vnd.github.v3+json' }, signal: AbortSignal.timeout(10000) }
@@ -31,7 +31,7 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
     if (!resp.ok) return null;
     const data = await resp.json();
     const remoteVersion = parseVersion(data.tag_name);
-    const localVersion = parseVersion(APP_VERSION);
+    const localVersion = parseVersion(appVersion);
     if (!isNewer(remoteVersion, localVersion)) return null;
     return { version: data.tag_name, url: data.html_url };
   } catch {

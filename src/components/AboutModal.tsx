@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, Show } from 'solid-js';
+import { Component, Show, createSignal, onMount } from 'solid-js';
 import type { UpdateInfo } from '../utils/updateCheck';
 
 interface AboutModalProps {
@@ -9,6 +9,25 @@ interface AboutModalProps {
 }
 
 const AboutModal: Component<AboutModalProps> = (props) => {
+  const [appVersion, setAppVersion] = createSignal('');
+  const [copied, setCopied] = createSignal(false);
+  const brewUpdateCommand = 'brew update && brew upgrade --cask ember-md';
+
+  onMount(async () => {
+    try { setAppVersion(await window.electronAPI.getAppVersion()); }
+    catch { setAppVersion('unknown'); }
+  });
+
+  const copyBrewUpdateCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(brewUpdateCommand);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy Homebrew update command:', err);
+    }
+  };
+
   return (
     <Show when={props.isOpen}>
       <div class="fixed inset-0 z-50 flex items-center justify-center">
@@ -30,27 +49,22 @@ const AboutModal: Component<AboutModalProps> = (props) => {
             <div class="text-center mb-4">
               <h2 class="text-2xl font-bold">Ember</h2>
               <p class="text-sm text-base-content/70">Molecular Dynamics on Apple Silicon</p>
-              <p class="text-xs text-base-content/50 mt-1">Version 0.3.4</p>
+              <p class="text-xs text-base-content/50 mt-1">Version {appVersion()}</p>
             </div>
 
             <Show when={props.updateInfo}>
-              <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex items-center justify-between">
-                <div>
-                  <p class="text-sm font-semibold text-amber-400">Update available: {props.updateInfo!.version}</p>
-                  <p class="text-xs text-base-content/60">Download from GitHub Releases</p>
-                </div>
-                <a
-                  href={props.updateInfo!.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="btn btn-sm btn-outline border-amber-500/50 text-amber-400 hover:bg-amber-500/20"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.open(props.updateInfo!.url, '_blank');
-                  }}
+              <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-3 space-y-2">
+                <p class="text-sm font-semibold text-amber-400">Update available: {props.updateInfo!.version}</p>
+                <div
+                  class="relative group cursor-pointer rounded-md bg-base-300/60 hover:bg-base-300/80 transition-colors"
+                  onClick={() => { void copyBrewUpdateCommand(); }}
                 >
-                  Download
-                </a>
+                  <pre class="px-3 py-2.5 pr-10 text-xs font-mono text-base-content/90 select-all overflow-x-auto">{brewUpdateCommand}</pre>
+                  <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-base-content/50 group-hover:text-base-content/80 transition-colors">
+                    {copied() ? 'Copied!' : 'Click to copy'}
+                  </span>
+                </div>
+                <p class="text-[11px] text-base-content/50">To update Ember, paste this command into Terminal on your Mac.</p>
               </div>
             </Show>
 

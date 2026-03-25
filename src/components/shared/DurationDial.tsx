@@ -13,10 +13,10 @@ interface DurationDialProps {
 // Arc spans 270° (from 135° to 405°, i.e. gap at bottom-left)
 const ARC_START = 135;
 const ARC_SWEEP = 270;
-const RADIUS = 56;
-const CX = 70;
-const CY = 70;
-const TRACK_WIDTH = 8;
+const RADIUS = 72;
+const CX = 90;
+const CY = 90;
+const TRACK_WIDTH = 10;
 
 // Build snap values from explicit step rules.
 // Keep fine control in the 1-10 us decade where users make longer-production adjustments.
@@ -32,7 +32,8 @@ const SNAP_VALUES: number[] = [];
     [125, 250, 25],     // 125, 150, ... 250
     [300, 500, 50],     // 300, 350, ... 500
     [600, 1000, 100],   // 600, 700, ... 1000
-    [1100, 10000, 100], // 1.1, 1.2, ... 10.0 us
+    [1100, 5000, 100], // 1.1, 1.2, ... 5.0 us
+    [5500, 10000, 500], // 5.5, 6.0, ... 10.0 us
   ];
   for (const [start, end, step] of ranges) {
     for (let v = start; v <= end + step * 0.01; v += step) {
@@ -76,27 +77,29 @@ const snapToNearest = (raw: number): number => {
 };
 
 const formatValue = (v: number): string => {
-  if (v >= 1000) {
-    const us = v / 1000;
-    return us === Math.round(us) ? us.toFixed(0) : us.toFixed(1);
-  }
+  // Always display in nanoseconds
   if (v >= 1) return v === Math.round(v) ? v.toFixed(0) : v.toFixed(1);
   return v.toFixed(1);
 };
 
-const formatUnit = (v: number): string => {
-  if (v >= 1000) return 'us';
-  return 'ns';
+const formatUnit = (): string => 'ns';
+
+/** Font size shrinks for longer numbers to fit inside the dial. */
+const valueFontSize = (v: number): number => {
+  const digits = formatValue(v).length;
+  if (digits >= 5) return 20;
+  if (digits >= 4) return 24;
+  return 28;
 };
 
 const formatTickLabel = (v: number): string => {
-  if (v >= 1000) return `${v / 1000}us`;
+  if (v >= 1000) return `${v / 1000}µs`;
   return `${v}`;
 };
 
 const DurationDial: Component<DurationDialProps> = (props) => {
   const min = () => props.min ?? 0.1;
-  const max = () => props.max ?? 10000;
+  const max = () => props.max ?? 5000;
 
   const [isDragging, setIsDragging] = createSignal(false);
   const [isEditing, setIsEditing] = createSignal(false);
@@ -111,22 +114,23 @@ const DurationDial: Component<DurationDialProps> = (props) => {
     return fromLog(t, min(), max());
   };
 
-  const getAngleFromEvent = (e: MouseEvent | TouchEvent): number => {
-    if (!svgRef) return ARC_START;
+  const getAngleFromEvent = (e: MouseEvent | TouchEvent): number | null => {
+    if (!svgRef) return null;
     const rect = svgRef.getBoundingClientRect();
-    const scaleX = 140 / rect.width;
-    const scaleY = 140 / rect.height;
+    const svgWidth = 220; // matches viewBox
+    const scaleX = svgWidth / rect.width;
+    const scaleY = svgWidth / rect.height;
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    const mx = (clientX - rect.left) * scaleX;
-    const my = (clientY - rect.top) * scaleY;
+    const mx = (clientX - rect.left) * scaleX - 20; // offset for viewBox origin
+    const my = (clientY - rect.top) * scaleY - 20;
     let angle = (Math.atan2(my - CY, mx - CX) * 180) / Math.PI;
     if (angle < 0) angle += 360;
-    // Handle the gap: if angle is in the dead zone, clamp to nearest end
-    if (angle < ARC_START && angle < (ARC_START + ARC_SWEEP) % 360) {
-      const distToStart = Math.abs(angle + 360 - ARC_START);
-      const distToEnd = Math.abs(angle - ((ARC_START + ARC_SWEEP) % 360));
-      angle = distToStart < distToEnd ? ARC_START : ARC_START + ARC_SWEEP;
+    // Dead zone: the gap between arc end (45°) and arc start (135°).
+    // Return null so the caller ignores this event instead of snapping.
+    const arcEnd = (ARC_START + ARC_SWEEP) % 360; // 45°
+    if (angle > arcEnd && angle < ARC_START) {
+      return null;
     }
     return angle;
   };
@@ -136,6 +140,7 @@ const DurationDial: Component<DurationDialProps> = (props) => {
     e.preventDefault();
     setIsDragging(true);
     const angle = getAngleFromEvent(e);
+    if (angle === null) return;
     const raw = angleToValue(angle);
     props.onChange(snapToNearest(raw));
   };
@@ -144,6 +149,7 @@ const DurationDial: Component<DurationDialProps> = (props) => {
     if (!isDragging()) return;
     e.preventDefault();
     const angle = getAngleFromEvent(e);
+    if (angle === null) return; // pointer in dead zone — ignore
     const raw = angleToValue(angle);
     props.onChange(snapToNearest(raw));
   };
@@ -214,9 +220,9 @@ const DurationDial: Component<DurationDialProps> = (props) => {
     <div class="flex flex-col items-center select-none relative">
       <svg
         ref={svgRef}
-        viewBox="-15 -15 170 170"
-        width="160"
-        height="160"
+        viewBox="-20 -20 220 220"
+        width="210"
+        height="210"
         overflow="visible"
         class={`${props.disabled ? 'opacity-50' : 'cursor-pointer'}`}
         onMouseDown={handlePointerDown}
@@ -259,7 +265,7 @@ const DurationDial: Component<DurationDialProps> = (props) => {
           const angle = valueToAngle(v);
           const inner = polarToXY(angle, RADIUS - TRACK_WIDTH / 2 - 2);
           const outer = polarToXY(angle, RADIUS + TRACK_WIDTH / 2 + 2);
-          const labelPos = polarToXY(angle, RADIUS + TRACK_WIDTH / 2 + 13);
+          const labelPos = polarToXY(angle, RADIUS + TRACK_WIDTH / 2 + 16);
           return (
             <>
               <line
@@ -273,8 +279,9 @@ const DurationDial: Component<DurationDialProps> = (props) => {
                 y={labelPos.y}
                 text-anchor="middle"
                 dominant-baseline="central"
-                fill="oklch(var(--bc) / 0.5)"
-                font-size="8"
+                fill="oklch(var(--bc) / 0.85)"
+                font-size="10"
+                font-weight="600"
                 font-family="monospace"
               >
                 {formatTickLabel(v)}
@@ -312,7 +319,7 @@ const DurationDial: Component<DurationDialProps> = (props) => {
               text-anchor="middle"
               dominant-baseline="central"
               fill="oklch(var(--bc))"
-              font-size="22"
+              font-size={String(valueFontSize(props.value))}
               font-weight="bold"
               font-family="monospace"
             >
@@ -327,7 +334,7 @@ const DurationDial: Component<DurationDialProps> = (props) => {
               font-size="12"
               font-family="monospace"
             >
-              {formatUnit(props.value)}
+              {formatUnit()}
             </text>
           </g>
         </Show>

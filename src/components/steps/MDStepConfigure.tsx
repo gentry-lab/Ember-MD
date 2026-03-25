@@ -234,23 +234,6 @@ const MDStepConfigure: Component = () => {
             </div>
           </div>
 
-          {/* Compound Identifier */}
-          <div class="card bg-base-200 shadow-lg">
-            <div class="card-body p-4">
-              <h3 class="text-sm font-semibold mb-2">Compound Identifier (optional)</h3>
-              <input
-                type="text"
-                class="input input-bordered input-sm w-full font-mono text-xs"
-                placeholder="e.g., imatinib, compound-7a"
-                value={state().md.config.compoundId}
-                onInput={(e) => setMdConfig({ compoundId: sanitizeCompoundId(e.currentTarget.value) })}
-              />
-              <p class="text-[10px] text-base-content/80 mt-1">
-                Added to the run folder name for identification
-              </p>
-            </div>
-          </div>
-
           {/* Production Duration Dial + Benchmark */}
           <div class="card bg-base-200 shadow-lg flex-1">
             <div class="card-body p-4 flex flex-col items-center">
@@ -331,6 +314,21 @@ const MDStepConfigure: Component = () => {
               </p>
             </div>
 
+            {/* Compound Identifier */}
+            <div class="mb-4">
+              <h3 class="text-sm font-semibold mb-2">Compound Identifier (optional)</h3>
+              <input
+                type="text"
+                class="input input-bordered input-sm w-full font-mono text-xs"
+                placeholder="e.g., imatinib, compound-7a"
+                value={state().md.config.compoundId}
+                onInput={(e) => setMdConfig({ compoundId: sanitizeCompoundId(e.currentTarget.value) })}
+              />
+              <p class="text-[10px] text-base-content/80 mt-1">
+                Added to the run folder name for identification
+              </p>
+            </div>
+
             <h3 class="text-sm font-semibold mb-3">Simulation Parameters</h3>
             <div class="space-y-2 text-xs">
               <div class="flex justify-between py-1.5 border-b border-base-300">
@@ -377,63 +375,75 @@ const MDStepConfigure: Component = () => {
                   <span class="font-mono">mM NaCl</span>
                 </div>
               </div>
-              <div class="flex justify-between py-1.5 border-b border-base-300">
-                <span class="text-base-content/90">Padding</span>
-                <span class="font-mono">1.2 nm</span>
-              </div>
-              <div class="flex justify-between py-1.5 border-b border-base-300">
-                <span class="text-base-content/90">Timestep</span>
-                <span class="font-mono">{MD_COMMON_PARAMS.timestepFs} fs (HMR)</span>
-              </div>
-              <div class="flex justify-between py-1.5 border-b border-base-300">
-                <span class="text-base-content/90">Box Shape</span>
-                <span class="font-mono">Rhombic dodecahedron</span>
-              </div>
-              <div class="flex justify-between py-1.5 border-b border-base-300">
-                <span class="text-base-content/90">Integrator</span>
-                <span class="font-mono">{MD_COMMON_PARAMS.integrator}</span>
-              </div>
-              <div class="flex justify-between py-1.5">
-                <span class="text-base-content/90">Equilibration</span>
-                <span class="font-mono">~{isLigandOnly() ? '170' : MD_COMMON_PARAMS.equilibrationPs} ps</span>
-              </div>
             </div>
 
-            {/* Equilibration protocol - collapsible */}
-            <button
-              class="mt-2 flex items-center gap-1 text-[10px] text-base-content/60 hover:text-base-content/80"
-              onClick={() => setShowProtocol(!showProtocol())}
-            >
-              <svg class={`w-3 h-3 transition-transform ${showProtocol() ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
-              Equilibration protocol (~{isLigandOnly() ? '170' : '270'} ps)
-            </button>
-            <Show when={showProtocol()}>
-              <div class="mt-1 p-2 bg-base-300 rounded text-[10px] text-base-content/85">
-                <Show
-                  when={!isLigandOnly()}
-                  fallback={
-                    <ol class="list-decimal list-inside space-y-0.5">
-                      <li>Restrained minimization (heavy atoms, 10 kcal/mol/A^2)</li>
-                      <li>Unrestrained minimization</li>
-                      <li>NVT→NPT heating: 10K→{state().md.config.temperatureK}K (70 ps)</li>
-                      <li>NPT equilibration (50 ps)</li>
-                      <li>Unrestrained NPT equilibration (50 ps)</li>
-                    </ol>
-                  }
+            {/* Advanced Settings Accordion */}
+            <div class="collapse collapse-arrow bg-base-300 rounded-lg mt-2">
+              <input type="checkbox" />
+              <div class="collapse-title text-xs font-semibold py-2 min-h-0">
+                Advanced Settings
+              </div>
+              <div class="collapse-content px-3 pb-3">
+                <div class="space-y-2 text-xs">
+                  <div class="flex justify-between py-1.5 border-b border-base-300">
+                    <span class="text-base-content/90">Padding</span>
+                    <span class="font-mono">1.2 nm</span>
+                  </div>
+                  <div class="flex justify-between py-1.5 border-b border-base-300">
+                    <span class="text-base-content/90">Timestep</span>
+                    <span class="font-mono">{MD_COMMON_PARAMS.timestepFs} fs (HMR)</span>
+                  </div>
+                  <div class="flex justify-between py-1.5 border-b border-base-300">
+                    <span class="text-base-content/90">Box Shape</span>
+                    <span class="font-mono">Rhombic dodecahedron</span>
+                  </div>
+                  <div class="flex justify-between py-1.5 border-b border-base-300">
+                    <span class="text-base-content/90">Integrator</span>
+                    <span class="font-mono">{MD_COMMON_PARAMS.integrator}</span>
+                  </div>
+                  <div class="flex justify-between py-1.5">
+                    <span class="text-base-content/90">Equilibration</span>
+                    <span class="font-mono">~{isLigandOnly() ? '170' : MD_COMMON_PARAMS.equilibrationPs} ps</span>
+                  </div>
+                </div>
+
+                {/* Equilibration protocol */}
+                <button
+                  class="mt-2 flex items-center gap-1 text-[10px] text-base-content/60 hover:text-base-content/80"
+                  onClick={() => setShowProtocol(!showProtocol())}
                 >
-                  <ol class="list-decimal list-inside space-y-0.5">
-                    <li>Restrained minimization (heavy atoms, 10 kcal/mol/A^2)</li>
-                    <li>Unrestrained minimization</li>
-                    <li>NVT→NPT heating: 10K→{state().md.config.temperatureK}K with backbone restraints (70 ps)</li>
-                    <li>NPT equilibration with backbone restraints (50 ps)</li>
-                    <li>Gradual restraint release (100 ps)</li>
-                    <li>Unrestrained NPT equilibration (50 ps)</li>
-                  </ol>
+                  <svg class={`w-3 h-3 transition-transform ${showProtocol() ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                  Equilibration protocol (~{isLigandOnly() ? '170' : '270'} ps)
+                </button>
+                <Show when={showProtocol()}>
+                  <div class="mt-1 p-2 bg-base-300 rounded text-[10px] text-base-content/85">
+                    <Show
+                      when={!isLigandOnly()}
+                      fallback={
+                        <ol class="list-decimal list-inside space-y-0.5">
+                          <li>Restrained minimization (heavy atoms, 10 kcal/mol/A^2)</li>
+                          <li>Unrestrained minimization</li>
+                          <li>NVT→NPT heating: 10K→{state().md.config.temperatureK}K (70 ps)</li>
+                          <li>NPT equilibration (50 ps)</li>
+                          <li>Unrestrained NPT equilibration (50 ps)</li>
+                        </ol>
+                      }
+                    >
+                      <ol class="list-decimal list-inside space-y-0.5">
+                        <li>Restrained minimization (heavy atoms, 10 kcal/mol/A^2)</li>
+                        <li>Unrestrained minimization</li>
+                        <li>NVT→NPT heating: 10K→{state().md.config.temperatureK}K with backbone restraints (70 ps)</li>
+                        <li>NPT equilibration with backbone restraints (50 ps)</li>
+                        <li>Gradual restraint release (100 ps)</li>
+                        <li>Unrestrained NPT equilibration (50 ps)</li>
+                      </ol>
+                    </Show>
+                  </div>
                 </Show>
               </div>
-            </Show>
+            </div>
           </div>
         </div>
       </div>

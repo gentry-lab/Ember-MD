@@ -396,7 +396,7 @@ const MDStepLoad: Component = () => {
           <svg class="w-4 h-4 text-info flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span>PDB/CIF: holo (protein + ligand) or apo (protein-only). SDF/MOL/SMILES: ligand-only in solvent.</span>
+          <span>AMBER force fields and solvent models. Mac GPUs supported via native Metal and OpenCL.</span>
         </div>
         <button class="btn btn-primary" disabled={!canContinue()} onClick={() => setMdStep('md-configure')}>
           Continue

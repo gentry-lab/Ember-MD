@@ -669,6 +669,49 @@ export function register(): void {
     }
   );
 
+  // Prepare a ligand SDF for viewing: sanitize, add hydrogens, fix bond orders
+  ipcMain.handle(
+    'prepare-ligand-for-viewing',
+    async (_event, inputSdf: string, outputSdf: string): Promise<Result<string, AppError>> => {
+      return new Promise((resolve) => {
+        if (!appState.condaPythonPath || !fs.existsSync(appState.condaPythonPath)) {
+          resolve(Ok(inputSdf));
+          return;
+        }
+
+        const scriptPath = path.join(appState.fraggenRoot, 'prepare_ligand_for_viewing.py');
+        if (!fs.existsSync(scriptPath)) {
+          resolve(Ok(inputSdf));
+          return;
+        }
+
+        fs.mkdirSync(path.dirname(outputSdf), { recursive: true });
+
+        const python = spawn(appState.condaPythonPath, [
+          scriptPath,
+          '--input', inputSdf,
+          '--output', outputSdf,
+        ]);
+
+        let stderr = '';
+        python.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+        python.on('close', (code: number | null) => {
+          if (code === 0 && fs.existsSync(outputSdf)) {
+            resolve(Ok(outputSdf));
+          } else {
+            console.error('[prepare-ligand-for-viewing] Failed:', stderr);
+            resolve(Ok(inputSdf));
+          }
+        });
+
+        python.on('error', () => {
+          resolve(Ok(inputSdf));
+        });
+      });
+    }
+  );
+
   // Select an Ember job folder via dialog, validate, and return as ProjectJob
   ipcMain.handle(
     IpcChannels.SELECT_EMBER_JOB_FOLDER,

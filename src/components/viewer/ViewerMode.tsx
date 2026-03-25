@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, onMount, onCleanup, createSignal, createEffect, Show, batch } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, createEffect, on, Show, batch } from 'solid-js';
 import * as NGL from 'ngl';
 import type { Vector3 } from 'ngl';
 import {
@@ -23,6 +23,7 @@ import { projectPaths } from '../../utils/projectPaths';
 import { loadProjectJob } from '../../utils/projectJobLoader';
 import { getVisibleProjectRows } from '../../utils/projectTable';
 import { buildImportFamily } from '../../utils/viewerQueue';
+import { deserializeAndValidateProjectTable } from '../../utils/projectTablePersistence';
 import { theme } from '../../utils/theme';
 import type { AtomProxy, ResidueProxy, SelectionSchemeEntry, NglLoadOptions, BindingSiteResultsJson, PreparedPath } from '../../types/ngl';
 import type { ProjectJob } from '../../../shared/types/ipc';
@@ -64,6 +65,9 @@ const ViewerMode: Component = () => {
     setViewerProjectActiveRow,
     addViewerProjectFamily,
     removeViewerProjectFamily,
+    removeViewerProjectRow,
+    renameViewerProjectRow,
+    setViewerProjectTable,
     toggleViewerProjectRowSelection,
     toggleViewerProjectFamilyCollapsed,
     setViewerProjectFamilySort,
@@ -85,6 +89,9 @@ const ViewerMode: Component = () => {
     setMdLigandName,
     setMdPdbPath,
     setMdConfig,
+    setDockReceptorPdbPath,
+    setDockLigandSdfPaths,
+    setDockStep,
   } = workflowStore;
 
   // eslint-disable-next-line no-unassigned-vars -- SolidJS ref pattern
@@ -114,6 +121,7 @@ const ViewerMode: Component = () => {
   const layerComponents: Map<string, NGL.Component> = new Map();   // Layer ID → NGL component
 
   const [isLoading, setIsLoading] = createSignal(false);
+  const [loadingStatus, setLoadingStatus] = createSignal('');
   const [error, setError] = createSignal<string | null>(null);
   const [surfacePropsLoadingCount, setSurfacePropsLoadingCount] = createSignal(0);
   const [recentJobs, setRecentJobs] = createSignal<ProjectJob[]>([]);
@@ -134,6 +142,21 @@ const ViewerMode: Component = () => {
 
   const api = window.electronAPI;
   const surfacePropsLoading = () => surfacePropsLoadingCount() > 0;
+
+  // Load persisted project table when entering viewer with a project
+  createEffect(on(
+    () => [state().projectDir, state().mode] as const,
+    async ([projectDir, mode]) => {
+      if (mode !== 'viewer' || !projectDir) return;
+      if (state().viewer.projectTable) return;
+      const raw = await api.readJsonFile(`${projectDir}/project-table.json`);
+      if (!raw) return;
+      const validated = await deserializeAndValidateProjectTable(raw, api.fileExists);
+      if (validated && validated.families.length > 0) {
+        setViewerProjectTable(validated);
+      }
+    },
+  ));
 
   const sortedRecentJobs = (jobs: ProjectJob[]) => {
     return [...jobs].sort((a, b) => {
@@ -620,6 +643,17 @@ const ViewerMode: Component = () => {
     if (containerRef) {
       stage = new NGL.Stage(containerRef, {
         backgroundColor: '#ffffff',
+      });
+
+      // Dampen shift+scroll clipping plane adjustment for smoother control
+      const CLIP_DAMPING = 0.3;
+      stage.mouseControls.remove('scroll-shift');
+      stage.mouseControls.add('scroll-shift', (stg: any, delta: number) => {
+        (NGL as any).MouseActions.focusScroll(stg, delta * CLIP_DAMPING);
+      });
+      stage.mouseControls.remove('scroll-shift-ctrl');
+      stage.mouseControls.add('scroll-shift-ctrl', (stg: any, delta: number) => {
+        (NGL as any).MouseActions.zoomFocusScroll(stg, delta * CLIP_DAMPING);
       });
 
       // Handle window resize
@@ -2237,6 +2271,24 @@ const ViewerMode: Component = () => {
     return (result.ok ? result.value : rawPath) as PreparedPath;
   };
 
+  /** Prepare a ligand SDF: sanitize, add hydrogens, fix bond orders via RDKit. */
+  const prepareLigand = async (rawPath: string): Promise<string> => {
+    const fileName = rawPath.split('/').pop() || '';
+    const baseName = fileName.replace(/\.(sdf|sdf\.gz|mol|mol2)$/i, '');
+    const dir = rawPath.substring(0, rawPath.lastIndexOf('/'));
+    const preparedPath = `${dir}/${baseName}_prepared.sdf`;
+
+    // Skip files that are already prepared or from docking/scoring output
+    if (fileName.includes('_prepared') || fileName.includes('_docked') ||
+        fileName === 'all_docked.sdf') return rawPath;
+    const exists = await api.fileExists(preparedPath);
+    if (exists) return preparedPath;
+
+    console.log(`[Viewer] Preparing ligand: ${fileName}`);
+    const result = await api.prepareLigandForViewing(rawPath, preparedPath);
+    return result.ok ? result.value : rawPath;
+  };
+
   /** Load a protein PDB into the NGL stage. Only accepts PreparedPath. */
   const stageLoadProtein = (
     path: PreparedPath,
@@ -2300,6 +2352,7 @@ const ViewerMode: Component = () => {
 
   const loadImportedStructures = async (selected: string[]) => {
     setIsLoading(true);
+    setLoadingStatus('Importing...');
     setError(null);
 
     try {
@@ -2307,7 +2360,14 @@ const ViewerMode: Component = () => {
 
       const proteinInputs = imported.filter((filePath) => /\.(pdb|cif)$/i.test(filePath));
       const ligandInputs = imported.filter((filePath) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(filePath));
+      if (proteinInputs.length > 0) {
+        setLoadingStatus('Preparing protein (adding hydrogens)...');
+      }
       const preparedProteins = await Promise.all(proteinInputs.map(prepareStructure));
+      if (ligandInputs.length > 0) {
+        setLoadingStatus('Preparing ligand (bond orders + hydrogens)...');
+      }
+      const preparedLigands = await Promise.all(ligandInputs.map(prepareLigand));
       const labelFor = (filePath: string) =>
         filePath.split('/').pop()?.replace('_prepared', '').replace(/(\.sdf\.gz|\.pdb|\.cif|\.sdf|\.mol2|\.mol)$/i, '') || filePath;
 
@@ -2364,7 +2424,7 @@ const ViewerMode: Component = () => {
       }
 
       const normalizedLigandPaths: string[] = [];
-      for (const filePath of ligandInputs) {
+      for (const filePath of preparedLigands) {
         const id = nextLayerId();
         const label = labelFor(filePath);
         const normalizedLigandPath = await normalizeLigandPathForViewer(filePath);
@@ -2426,6 +2486,7 @@ const ViewerMode: Component = () => {
       };
     } finally {
       setIsLoading(false);
+      setLoadingStatus('');
     }
   };
 
@@ -3256,14 +3317,17 @@ const ViewerMode: Component = () => {
   const handleTransferDock = () => {
     const row = getActiveRow();
     if (!row) return;
-    const filePath = row.item.pdbPath;
-    // Protein → set as receptor; ligand → set as dock ligand
     if (PROTEIN_ROW_KINDS.has(row.rowKind)) {
-      // TODO: set dock receptor path when DockStepLoad supports it
-      setMode('dock');
-    } else {
-      setMode('dock');
+      // Protein → set as dock receptor
+      setDockReceptorPdbPath(row.item.pdbPath);
+    } else if (row.item.ligandPath) {
+      // Ligand → set as dock ligand input
+      setDockLigandSdfPaths([row.item.ligandPath]);
     }
+    batch(() => {
+      setMode('dock');
+      setDockStep('dock-load');
+    });
   };
 
   const handleTransferMcmm = () => {
@@ -3281,7 +3345,23 @@ const ViewerMode: Component = () => {
     });
   };
 
-  const handleTransferSimulate = () => handleSimulate();
+  const handleTransferSimulate = () => {
+    const row = getActiveRow();
+    if (!row) return;
+    const pdbPath = row.item.pdbPath;
+    const ligandPath = row.item.ligandPath || null;
+    const ligandName = ligandPath
+      ? ligandPath.split('/').pop()?.replace(/\.sdf(\.gz)?$/, '') || 'ligand'
+      : 'ligand';
+    setMdReceptorPdb(pdbPath);
+    setMdLigandSdf(ligandPath);
+    setMdLigandName(ligandName);
+    setMdPdbPath(pdbPath);
+    batch(() => {
+      setMode('md');
+      setMdStep('md-configure');
+    });
+  };
 
   const [showImportOverlay, setShowImportOverlay] = createSignal(false);
 
@@ -3410,8 +3490,11 @@ const ViewerMode: Component = () => {
             style={{ width: '100%', height: '100%' }}
           />
           <Show when={isLoading()}>
-            <div class="absolute inset-0 bg-base-300/50 flex items-center justify-center">
+            <div class="absolute inset-0 bg-base-300/50 flex flex-col items-center justify-center gap-2">
               <span class="loading loading-spinner loading-lg text-primary" />
+              <Show when={loadingStatus()}>
+                <span class="text-sm text-base-content/70">{loadingStatus()}</span>
+              </Show>
             </div>
           </Show>
           <Show when={!hasViewerSession() && !isLoading()}>
@@ -3465,6 +3548,8 @@ const ViewerMode: Component = () => {
               onSortFamily={handleProjectTableSort}
               onPlayTrajectory={handleProjectTablePlayTrajectory}
               onRemoveFamily={removeViewerProjectFamily}
+              onRemoveRow={removeViewerProjectRow}
+              onRenameRow={renameViewerProjectRow}
               canNavigatePrevious={activeProjectRowIndex() > 0}
               canNavigateNext={activeProjectRowIndex() >= 0 && activeProjectRowIndex() < visibleProjectRows().length - 1}
               onNavigatePrevious={() => void navigateProjectTable(-1)}
