@@ -7,15 +7,13 @@ const ScoreStepResults: Component = () => {
   const api = window.electronAPI;
 
   const handleOpenOutput = () => {
-    if (state().score.outputDir) {
-      api.openFolder(state().score.outputDir);
-    }
+    const dir = state().score.outputDir;
+    if (dir) api.openFolder(dir);
   };
 
   const handleOpenInput = () => {
-    if (state().score.inputDir) {
-      api.openFolder(state().score.inputDir);
-    }
+    const dir = state().score.inputDir;
+    if (dir) api.openFolder(dir);
   };
 
   const handleOpenPdf = (pdfPath: string) => {

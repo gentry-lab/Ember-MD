@@ -373,6 +373,7 @@ export interface WorkflowState {
   customOutputDir: string | null;
   jobName: string;
   isRunning: boolean;
+  runningMode: WorkflowMode | null;
   isPaused: boolean;
   currentPhase: 'idle' | 'generation' | 'complete' | 'error';
   logs: string;
@@ -540,6 +541,7 @@ function createWorkflowStore() {
     customOutputDir: null,
     jobName: initialJobName,
     isRunning: false,
+    runningMode: null,
     isPaused: false,
     currentPhase: 'idle',
     logs: '',
@@ -591,7 +593,7 @@ function createWorkflowStore() {
     setState((s) => ({ ...s, jobName: generateJobName() }));
 
   const setIsRunning = (isRunning: boolean) =>
-    setState((s) => ({ ...s, isRunning }));
+    setState((s) => ({ ...s, isRunning, runningMode: isRunning ? s.mode : null }));
 
   const setIsPaused = (isPaused: boolean) =>
     setState((s) => ({ ...s, isPaused }));
@@ -691,6 +693,7 @@ function createWorkflowStore() {
       logs: '',
       errorMessage: null,
       isRunning: false,
+      runningMode: null,
       dock: { ...defaultDockState },
     }));
 
@@ -1339,6 +1342,7 @@ function createWorkflowStore() {
       logs: '',
       errorMessage: null,
       isRunning: false,
+      runningMode: null,
       score: { ...defaultScoreState },
     }));
 
@@ -1358,6 +1362,7 @@ function createWorkflowStore() {
       logs: '',
       errorMessage: null,
       isRunning: false,
+      runningMode: null,
       md: { ...defaultMDState },
     }));
 
@@ -1374,6 +1379,7 @@ function createWorkflowStore() {
       customOutputDir: null,
       jobName: '',
       isRunning: false,
+      runningMode: null,
       isPaused: false,
       currentPhase: 'idle' as const,
       logs: '',

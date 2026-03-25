@@ -5,6 +5,7 @@ import { DockMolecule, LigandSource } from '../../../shared/types/dock';
 import { projectPaths, DockingPaths } from '../../utils/projectPaths';
 import { buildDockFolderName } from '../../utils/jobName';
 import ImportInputPanel from '../shared/ImportInputPanel';
+import DropZone from '../shared/DropZone';
 import path from 'path';
 
 const DockStepLoad: Component = () => {
@@ -88,10 +89,7 @@ const DockStepLoad: Component = () => {
     }
   };
 
-  const handleLoadReceptor = async () => {
-    const filePath = await api.selectPdbFile();
-    if (!filePath) return;
-
+  const loadReceptorFromPath = async (filePath: string) => {
     setIsLoading(true);
     setDockReceptorPdbPath(filePath);
     setDockDetectedLigands([]);
@@ -118,6 +116,12 @@ const DockStepLoad: Component = () => {
       setError(result.error?.message || 'Failed to detect ligands');
       setStatusText(null);
     }
+  };
+
+  const handleLoadReceptor = async () => {
+    const filePath = await api.selectPdbFile();
+    if (!filePath) return;
+    loadReceptorFromPath(filePath);
   };
 
   const handleSelectReferenceLigand = async (ligandId: string, pdbPathOverride?: string) => {
@@ -215,10 +219,7 @@ const DockStepLoad: Component = () => {
     resetLigandInput();
   };
 
-  const handleSelectStructureFiles = async () => {
-    const filePaths = await api.selectMoleculeFilesMulti();
-    if (!filePaths || filePaths.length === 0) return;
-
+  const importLigandFiles = async (filePaths: string[]) => {
     setIsLoadingLigands(true);
     setError(null);
 
@@ -237,6 +238,12 @@ const DockStepLoad: Component = () => {
     } else {
       setError(result.error?.message || 'Failed to import molecule files');
     }
+  };
+
+  const handleSelectStructureFiles = async () => {
+    const filePaths = await api.selectMoleculeFilesMulti();
+    if (!filePaths || filePaths.length === 0) return;
+    importLigandFiles(filePaths);
   };
 
   const handleSelectCsvFile = async () => {
@@ -298,6 +305,12 @@ const DockStepLoad: Component = () => {
               <Show
                 when={receptorPrepared()}
                 fallback={
+                  <DropZone
+                    accept={['.pdb', '.cif']}
+                    onFiles={(paths) => loadReceptorFromPath(paths[0])}
+                    disabled={isLoading()}
+                    hoverLabel="Drop receptor (.pdb, .cif)"
+                  >
                   <div class="text-center">
                     <div class="w-full">
                       <ImportInputPanel
@@ -336,6 +349,7 @@ const DockStepLoad: Component = () => {
                       />
                     </div>
                   </div>
+                  </DropZone>
                 }
               >
                 <div class="flex-1 flex flex-col items-center">
@@ -385,6 +399,12 @@ const DockStepLoad: Component = () => {
               <Show
                 when={ligandMolecules().length > 0}
                 fallback={
+                  <DropZone
+                    accept={['.sdf', '.mol', '.mol2', '.csv']}
+                    onFiles={(paths) => importLigandFiles(paths)}
+                    disabled={isLoadingLigands()}
+                    hoverLabel="Drop ligands (.sdf, .mol, .csv)"
+                  >
                   <div class="flex-1 flex flex-col w-full gap-3">
                     <button
                       class="btn btn-outline btn-sm w-full"
@@ -420,6 +440,7 @@ const DockStepLoad: Component = () => {
                       {isLoadingLigands() ? <span class="loading loading-spinner loading-xs" /> : 'Enter SMILES'}
                     </button>
                   </div>
+                  </DropZone>
                 }
               >
                 <div class="w-full space-y-2">

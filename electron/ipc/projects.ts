@@ -4,7 +4,7 @@
  * Covers project creation, scanning, renaming, deletion, structure import,
  * and artifact discovery (docking poses, simulation runs, conformers, maps).
  */
-import { app, ipcMain } from 'electron';
+import { app, dialog, ipcMain, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as zlib from 'zlib';
@@ -668,6 +668,35 @@ export function register(): void {
         });
       }
 
+      // Scan external projects from manifest
+      const knownPaths = new Set(projects.map((p: any) => p.path));
+      try {
+        const manifestPath = path.join(emberDir, '.external-projects.json');
+        if (fs.existsSync(manifestPath)) {
+          const externalPaths: string[] = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+          const stillValid: string[] = [];
+          for (const extPath of externalPaths) {
+            if (!fs.existsSync(extPath) || !fs.existsSync(path.join(extPath, '.ember-project'))) continue;
+            stillValid.push(extPath);
+            if (knownPaths.has(extPath)) continue;
+            const runs = scanProjectRuns(extPath);
+            runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
+            const stat = fs.statSync(extPath);
+            projects.push({
+              name: path.basename(extPath),
+              path: extPath,
+              runs,
+              lastModified: runs.length > 0 ? runs[0].lastModified : stat.mtimeMs,
+              external: true,
+            });
+          }
+          // Clean stale entries from manifest
+          if (stillValid.length < externalPaths.length) {
+            fs.writeFileSync(manifestPath, JSON.stringify(stillValid, null, 2));
+          }
+        }
+      } catch { /* manifest read failure is non-fatal */ }
+
       projects.sort((a, b) => b.lastModified - a.lastModified);
     } catch (err) {
       console.error('Error scanning projects:', err);
@@ -896,6 +925,134 @@ export function register(): void {
         return `data:${mimeType};base64,${data.toString('base64')}`;
       } catch {
         return null;
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Project portability: Open Folder, Move Project, Import External Project
+  // ---------------------------------------------------------------------------
+
+  const externalProjectsPath = () =>
+    path.join(app.getPath('home'), 'Ember', '.external-projects.json');
+
+  const readExternalProjects = (): string[] => {
+    try {
+      const data = fs.readFileSync(externalProjectsPath(), 'utf-8');
+      return JSON.parse(data);
+    } catch {
+      return [];
+    }
+  };
+
+  const writeExternalProjects = (paths: string[]) => {
+    const emberDir = path.join(app.getPath('home'), 'Ember');
+    fs.mkdirSync(emberDir, { recursive: true });
+    fs.writeFileSync(externalProjectsPath(), JSON.stringify(paths, null, 2));
+  };
+
+  // Open project folder in Finder
+  ipcMain.handle(
+    IpcChannels.OPEN_PROJECT_FOLDER,
+    async (_event, projectDir: string) => {
+      shell.openPath(projectDir);
+    }
+  );
+
+  // Move project to a new location
+  ipcMain.handle(
+    IpcChannels.MOVE_PROJECT,
+    async (_event, projectName: string, currentDir: string): Promise<Result<string, AppError>> => {
+      try {
+        const result = await dialog.showOpenDialog({
+          title: 'Move Project To...',
+          properties: ['openDirectory', 'createDirectory'],
+          buttonLabel: 'Move Here',
+        });
+        if (result.canceled || !result.filePaths.length) {
+          return Err({ type: 'USER_CANCELLED', message: 'Move cancelled' });
+        }
+
+        const destParent = result.filePaths[0];
+        const destDir = path.join(destParent, projectName);
+
+        if (fs.existsSync(destDir)) {
+          return Err({
+            type: 'MOVE_FAILED',
+            message: `A folder named "${projectName}" already exists at ${destParent}`,
+          });
+        }
+
+        // Try atomic rename (same volume), fall back to copy for cross-volume
+        try {
+          await fs.promises.rename(currentDir, destDir);
+        } catch {
+          await fs.promises.cp(currentDir, destDir, { recursive: true });
+          const idFile = path.join(destDir, '.ember-project');
+          try {
+            await fs.promises.access(idFile);
+          } catch {
+            return Err({ type: 'MOVE_FAILED', message: 'Copy verification failed' });
+          }
+          await fs.promises.rm(currentDir, { recursive: true });
+        }
+
+        // Register in external projects manifest
+        const external = readExternalProjects();
+        if (!external.includes(destDir)) {
+          external.push(destDir);
+          writeExternalProjects(external);
+        }
+
+        console.log(`[Project] Moved ${projectName}: ${currentDir} → ${destDir}`);
+        return Ok(destDir);
+      } catch (err: any) {
+        return Err({ type: 'MOVE_FAILED', message: `Move failed: ${err.message}` });
+      }
+    }
+  );
+
+  // Import an existing Ember project from an external location
+  ipcMain.handle(
+    IpcChannels.IMPORT_EXTERNAL_PROJECT,
+    async (): Promise<Result<{ name: string; path: string }, AppError>> => {
+      try {
+        const result = await dialog.showOpenDialog({
+          title: 'Import Ember Project',
+          properties: ['openDirectory'],
+          buttonLabel: 'Import',
+        });
+        if (result.canceled || !result.filePaths.length) {
+          return Err({ type: 'USER_CANCELLED', message: 'Import cancelled' });
+        }
+
+        const dirPath = result.filePaths[0];
+        const idFile = path.join(dirPath, '.ember-project');
+        if (!fs.existsSync(idFile)) {
+          return Err({
+            type: 'VALIDATION_FAILED',
+            message: 'Selected folder is not an Ember project (no .ember-project file found)',
+          });
+        }
+
+        // Read project name from metadata
+        let projectName = path.basename(dirPath);
+        try {
+          const meta = JSON.parse(fs.readFileSync(idFile, 'utf-8'));
+          if (meta.name) projectName = meta.name;
+        } catch { /* use folder name */ }
+
+        // Register in external projects manifest
+        const external = readExternalProjects();
+        if (!external.includes(dirPath)) {
+          external.push(dirPath);
+          writeExternalProjects(external);
+        }
+
+        console.log(`[Project] Imported external project: ${projectName} at ${dirPath}`);
+        return Ok({ name: projectName, path: dirPath });
+      } catch (err: any) {
+        return Err({ type: 'IMPORT_FAILED', message: `Import failed: ${err.message}` });
       }
     }
   );

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createEffect, createSignal } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
+import DropZone from '../shared/DropZone';
 
 const ScoreStepLoad: Component = () => {
   const {
@@ -35,9 +36,7 @@ const ScoreStepLoad: Component = () => {
     }
   });
 
-  const handleSelectFolder = async () => {
-    const dirPath = await api.selectFolder();
-    if (!dirPath) return;
+  const loadFolderFromPath = async (dirPath: string) => {
     setIsScanning(true);
     setScanSummary(null);
     setScoreInputDir(dirPath);
@@ -55,6 +54,12 @@ const ScoreStepLoad: Component = () => {
     } finally {
       setIsScanning(false);
     }
+  };
+
+  const handleSelectFolder = async () => {
+    const dirPath = await api.selectFolder();
+    if (!dirPath) return;
+    loadFolderFromPath(dirPath);
   };
 
   const handleClear = () => {
@@ -76,6 +81,17 @@ const ScoreStepLoad: Component = () => {
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto flex flex-col items-center gap-4">
+        <DropZone
+          accept={['.pdb', '.cif', '.mtz']}
+          acceptFolders
+          onFiles={(paths) => {
+            const first = paths[0];
+            const basename = first.substring(first.lastIndexOf('/') + 1);
+            const hasExtension = /\.\w+$/.test(basename);
+            loadFolderFromPath(hasExtension ? first.substring(0, first.lastIndexOf('/')) : first);
+          }}
+          hoverLabel="Drop folder with PDB + MTZ files"
+        >
         <div class="card bg-base-200 shadow-lg w-full max-w-md">
           <div class="card-body p-4">
             <Show
@@ -119,6 +135,7 @@ const ScoreStepLoad: Component = () => {
             </Show>
           </div>
         </div>
+        </DropZone>
 
         <Show when={state().errorMessage}>
           <div class="alert alert-error py-2 w-full max-w-md">

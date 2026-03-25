@@ -2,6 +2,7 @@
 import { Component, Show, createMemo, createSignal, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { projectPaths } from '../../utils/projectPaths';
+import DropZone from '../shared/DropZone';
 import path from 'path';
 
 const MDStepLoad: Component = () => {
@@ -64,16 +65,19 @@ const MDStepLoad: Component = () => {
   };
 
   // Unified import: auto-detect PDB/CIF (complex) vs SDF/MOL (ligand-only)
-  const handleImport = async () => {
-    const filePath = await api.selectPdbFile(); // accepts PDB, CIF, SDF, MOL
-    if (!filePath) return;
-
+  const handleImportPath = async (filePath: string) => {
     const ext = filePath.toLowerCase().split('.').pop() || '';
     if (ext === 'pdb' || ext === 'cif') {
       await handleLoadComplex(filePath);
     } else {
       await handleLoadLigandFile(filePath);
     }
+  };
+
+  const handleImport = async () => {
+    const filePath = await api.selectPdbFile(); // accepts PDB, CIF, SDF, MOL
+    if (!filePath) return;
+    handleImportPath(filePath);
   };
 
   const handleLoadComplex = async (filePath: string) => {
@@ -139,7 +143,9 @@ const MDStepLoad: Component = () => {
       }
 
       setStatusText('Preparing receptor (adding hydrogens)...');
-      const receptorPath = path.join(paths.prepared, `${state().jobName}_receptor_${ligandId}.pdb`);
+      // Use PDB basename for collision-free naming (ties output to source structure)
+      const pdbBasename = path.basename(currentPdb, path.extname(currentPdb));
+      const receptorPath = path.join(paths.prepared, `${pdbBasename}_receptor_${ligandId}.pdb`);
       const receptorResult = await api.prepareReceptor(currentPdb, ligandId, receptorPath);
 
       setIsLoading(false);
@@ -246,6 +252,12 @@ const MDStepLoad: Component = () => {
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto flex flex-col items-center gap-4">
+        <DropZone
+          accept={['.pdb', '.cif', '.sdf', '.mol', '.mol2']}
+          onFiles={(paths) => handleImportPath(paths[0])}
+          disabled={isLoading()}
+          hoverLabel="Drop structure (.pdb, .cif, .sdf, .mol)"
+        >
         <div class="card bg-base-200 shadow-lg w-full max-w-md">
           <div class="card-body p-4">
             <Show
@@ -383,6 +395,7 @@ const MDStepLoad: Component = () => {
             </Show>
           </div>
         </div>
+        </DropZone>
 
         <Show when={state().errorMessage}>
           <div class="alert alert-error py-2 w-full max-w-md">

@@ -178,29 +178,52 @@ class ReceptorPreparationError(RuntimeError):
 def _prepare_receptor_topology(receptor_pdb: str) -> Tuple[Any, Any, Dict[str, Any]]:
     """Prepare a receptor topology for MD and return a structured report.
 
-    Checks for an existing receptor_prepared.pdb alongside the input.
-    If not found, runs the unified prepare_receptor pipeline.
+    Checks for an existing prepared receptor using input-specific naming:
+      1. If the input path itself has a matching .prep.json, use it directly.
+      2. Otherwise look for {basename}_prepared.pdb alongside the input.
+      3. If nothing found, run prepare_receptor with input-derived output name.
+
+    Never falls back to a generic 'receptor_prepared.pdb' — that caused
+    cross-contamination when multiple structures share a directory.
     """
     output_dir = os.path.dirname(receptor_pdb) or '.'
-    prepared_pdb_path = os.path.join(output_dir, 'receptor_prepared.pdb')
-    prepared_json_path = os.path.join(output_dir, 'receptor_prepared.prep.json')
+    base, ext = os.path.splitext(receptor_pdb)
 
     report: Dict[str, Any] = {
         'input_receptor_pdb': receptor_pdb,
         'preflight_passed': False,
     }
 
-    try:
-        if os.path.exists(prepared_pdb_path) and os.path.exists(prepared_json_path):
-            print('  Using existing prepared receptor', file=sys.stderr)
-            pdb = PDBFile(prepared_pdb_path)
-            with open(prepared_json_path) as f:
-                report.update(json.load(f))
-            return pdb.topology, pdb.positions, report
+    # Build candidate list: input file itself, then basename-derived
+    candidates: list = []
 
-        _, prep_report = prepare_receptor(receptor_pdb, output_dir=output_dir)
+    # 1. Input path itself (app passes the prepared file directly)
+    input_json = base + '.prep.json'
+    candidates.append((receptor_pdb, input_json))
+
+    # 2. {basename}_prepared.pdb derived from input filename
+    if not base.endswith('_prepared'):
+        derived_pdb = base + '_prepared.pdb'
+        derived_json = base + '_prepared.prep.json'
+        candidates.append((derived_pdb, derived_json))
+
+    try:
+        for pdb_path, json_path in candidates:
+            if os.path.exists(pdb_path) and os.path.exists(json_path):
+                print(f'  Using existing prepared receptor: {os.path.basename(pdb_path)}', file=sys.stderr)
+                pdb = PDBFile(pdb_path)
+                with open(json_path) as f:
+                    report.update(json.load(f))
+                return pdb.topology, pdb.positions, report
+
+        # No prepared receptor found — run preparation with input-derived name
+        prep_basename = os.path.basename(base)
+        output_pdb = os.path.join(output_dir, f'{prep_basename}_prepared.pdb')
+        _, prep_report = prepare_receptor(
+            receptor_pdb, output_dir=output_dir, output_path=output_pdb,
+        )
         report.update(prep_report)
-        pdb = PDBFile(prepared_pdb_path)
+        pdb = PDBFile(output_pdb)
         return pdb.topology, pdb.positions, report
     except Exception as exc:
         raise ReceptorPreparationError(

@@ -32,7 +32,13 @@ os.environ.setdefault('NUMEXPR_NUM_THREADS', '1')
 os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '1')
 
 def setup_cordial_path(cordial_root):
-    """Add CORDIAL to Python path."""
+    """Add CORDIAL to Python path.
+
+    Also remove the script's own directory so that scripts/utils.py
+    (a plain module) does not shadow CORDIAL's utils/ package.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path[:] = [p for p in sys.path if os.path.abspath(p) != script_dir]
     if cordial_root not in sys.path:
         sys.path.insert(0, cordial_root)
 

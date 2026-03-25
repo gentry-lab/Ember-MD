@@ -209,6 +209,7 @@ export function register(): void {
         }
 
         // Look for receptor: inputs/receptor.pdb (new), *_receptor_prepared.pdb (legacy)
+        // Only search within the docking job directory — never parent dirs (stale file risk)
         const files0 = fs.readdirSync(dirPath);
         const prefixedReceptor = files0.find((f) => f.endsWith('_receptor_prepared.pdb'));
 
@@ -217,10 +218,8 @@ export function register(): void {
           path.join(dirPath, 'inputs', 'receptor.pdb'),
           // Legacy: {projectName}_receptor_prepared.pdb in docking dir
           ...(prefixedReceptor ? [path.join(dirPath, prefixedReceptor)] : []),
-          // Very old legacy: receptor_prepared.pdb in docking dir or parent dirs
+          // Legacy: receptor_prepared.pdb in docking dir only
           path.join(dirPath, 'receptor_prepared.pdb'),
-          path.join(path.dirname(dirPath), 'receptor_prepared.pdb'),
-          path.join(path.dirname(path.dirname(dirPath)), 'receptor_prepared.pdb'),
         ];
 
         let receptorPdb = '';
