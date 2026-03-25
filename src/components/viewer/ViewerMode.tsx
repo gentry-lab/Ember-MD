@@ -18,6 +18,7 @@ import TrajectoryControls from './TrajectoryControls';
 import ClusteringModal from './ClusteringModal';
 import AnalysisPanel from './AnalysisPanel';
 import LayerPanel from './LayerPanel';
+import DropZone from '../shared/DropZone';
 import ProjectTable from './ProjectTable';
 import { projectPaths } from '../../utils/projectPaths';
 import { loadProjectJob } from '../../utils/projectJobLoader';
@@ -2490,12 +2491,9 @@ const ViewerMode: Component = () => {
     }
   };
 
-  const handleImportFiles = async () => {
-    const selected = await api.selectStructureFilesMulti();
-    if (!selected || selected.length === 0) return;
-
-    const trajectoryFiles = selected.filter((filePath) => /\.dcd$/i.test(filePath));
-    const structureFiles = selected.filter((filePath) => !/\.dcd$/i.test(filePath));
+  const processImportedFiles = async (files: string[]) => {
+    const trajectoryFiles = files.filter((p) => /\.dcd$/i.test(p));
+    const structureFiles = files.filter((p) => !/\.dcd$/i.test(p));
 
     if (trajectoryFiles.length > 1) {
       setError('Select one DCD trajectory at a time.');
@@ -2523,6 +2521,17 @@ const ViewerMode: Component = () => {
       await handleLoadPdb(topologyPath, false);
     }
     await handleLoadTrajectory(dcdPath);
+  };
+
+  const handleImportFiles = async () => {
+    const selected = await api.selectStructureFilesMulti();
+    if (!selected || selected.length === 0) return;
+    await processImportedFiles(selected);
+  };
+
+  const handleDroppedFiles = async (paths: string[]) => {
+    if (paths.length === 0) return;
+    await processImportedFiles(paths);
   };
 
   const handleFetchViewerPdb = async () => {
@@ -3498,13 +3507,24 @@ const ViewerMode: Component = () => {
             </div>
           </Show>
           <Show when={!hasViewerSession() && !isLoading()}>
+            <DropZone
+              accept={['.pdb', '.cif', '.sdf', '.mol', '.mol2', '.dcd', '.sdf.gz']}
+              onFiles={handleDroppedFiles}
+              hoverLabel="Drop structures (.pdb, .cif, .sdf, .dcd)"
+            >
             <div class="absolute inset-0 flex items-center justify-center overflow-auto">
               <div class="w-full max-w-md">
                 {viewerLoadPanel(false)}
               </div>
             </div>
+            </DropZone>
           </Show>
           <Show when={showImportOverlay() && hasViewerSession()}>
+            <DropZone
+              accept={['.pdb', '.cif', '.sdf', '.mol', '.mol2', '.dcd', '.sdf.gz']}
+              onFiles={handleDroppedFiles}
+              hoverLabel="Drop structures (.pdb, .cif, .sdf, .dcd)"
+            >
             <div class="absolute inset-0 z-10 bg-base-100/95 flex flex-col overflow-auto">
               <div class="px-3 py-2">
                 <button
@@ -3523,6 +3543,7 @@ const ViewerMode: Component = () => {
                 </div>
               </div>
             </div>
+            </DropZone>
           </Show>
         </div>
 

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, JSX, Show, For, createSignal, onMount } from 'solid-js';
+import { Component, JSX, Show, For, createSignal, onMount, onCleanup } from 'solid-js';
 import { workflowStore, WorkflowMode } from '../../stores/workflow';
 import HelpModal from '../HelpModal';
 import AboutModal from '../AboutModal';
@@ -65,6 +65,8 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
   const [showHelp, setShowHelp] = createSignal(false);
   const [showAbout, setShowAbout] = createSignal(false);
   const [updateInfo, setUpdateInfo] = createSignal<UpdateInfo | null>(null);
+  const [showUpdateTooltip, setShowUpdateTooltip] = createSignal(false);
+  const [copiedBrew, setCopiedBrew] = createSignal(false);
   const api = window.electronAPI;
 
   // Project picker state
@@ -80,6 +82,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
   const [deleteConfirmText, setDeleteConfirmText] = createSignal('');
   const [deleteFileCount, setDeleteFileCount] = createSignal<{ fileCount: number; totalSizeMb: number } | null>(null);
   const [isProcessing, setIsProcessing] = createSignal(false);
+  const [showProjectPopover, setShowProjectPopover] = createSignal(false);
 
   const loadProjects = async () => {
     setIsLoadingProjects(true);
@@ -95,14 +98,27 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
   onMount(() => {
     loadProjects();
     checkForUpdate().then(setUpdateInfo);
+    // Close popover on outside click
+    const handleClickAway = (e: MouseEvent) => {
+      if (showProjectPopover() && !(e.target as HTMLElement).closest('[data-project-popover]')) {
+        setShowProjectPopover(false);
+      }
+    };
+    document.addEventListener('click', handleClickAway);
+    onCleanup(() => document.removeEventListener('click', handleClickAway));
   });
 
   const handleSelectProject = async (project: ProjectInfo) => {
     console.log(`[Nav] Select project: ${project.name} (${project.runs.length} runs)`);
     clearViewerSession();
     setJobName(project.name);
-    const result = await api.ensureProject(project.name);
-    if (result.ok) setProjectDir(result.value);
+    // External projects already have a full path; local projects use ensureProject
+    if (project.external && project.path) {
+      setProjectDir(project.path);
+    } else {
+      const result = await api.ensureProject(project.name);
+      if (result.ok) setProjectDir(result.value);
+    }
     setProjectReady(true);
   };
 
@@ -121,13 +137,45 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
     setNewProjectName(generateJobName());
   };
 
-  // Click project name in header → go back to picker
+  // Click project name in header → toggle popover
   const handleProjectNameClick = () => {
+    setShowProjectPopover(!showProjectPopover());
+  };
+
+  const handleSwitchProject = () => {
+    setShowProjectPopover(false);
     if (state().isRunning) return;
     resetPickerView();
     clearViewerSession();
     setProjectReady(false);
     loadProjects();
+  };
+
+  const handleOpenProjectFolder = () => {
+    setShowProjectPopover(false);
+    const dir = state().projectDir;
+    if (dir) api.openProjectFolder(dir);
+  };
+
+  const handleMoveProject = async () => {
+    setShowProjectPopover(false);
+    const dir = state().projectDir;
+    const name = state().jobName;
+    if (!dir || !name) return;
+    const result = await api.moveProject(name, dir);
+    if (result.ok) {
+      setProjectDir(result.value);
+    }
+  };
+
+  const handleImportExternalProject = async () => {
+    const result = await api.importExternalProject();
+    if (result.ok) {
+      const { name, path } = result.value;
+      setJobName(name);
+      setProjectDir(path);
+      setProjectReady(true);
+    }
   };
 
   const resetPickerView = () => {
@@ -254,7 +302,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
   };
 
   const canSwitchMode = () => {
-    return !state().isRunning && state().projectReady;
+    return state().projectReady;
   };
 
   const handleModeSwitch = (newMode: WorkflowMode) => {
@@ -302,18 +350,55 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </button>
-            <button
-              class="btn btn-ghost btn-sm btn-square join-item relative"
-              onClick={() => setShowAbout(true)}
-              title={updateInfo() ? `Update available: ${updateInfo()!.version}` : 'About Ember'}
-            >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <Show when={updateInfo()}>
-                <span class="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-amber-500" />
+            <div class="relative">
+              <button
+                class="btn btn-ghost btn-sm btn-square join-item relative"
+                onClick={() => {
+                  if (updateInfo()) {
+                    setShowUpdateTooltip(v => !v);
+                  } else {
+                    setShowAbout(true);
+                  }
+                }}
+                title={updateInfo() ? `Update available: ${updateInfo()!.version}` : 'About Ember'}
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <Show when={updateInfo()}>
+                  <span class="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-amber-500" />
+                </Show>
+              </button>
+              <Show when={showUpdateTooltip() && updateInfo()}>
+                <div class="absolute top-full right-0 mt-2 z-50 w-72 bg-base-200 border border-base-300 rounded-lg shadow-lg p-3">
+                  <div class="text-xs font-semibold mb-1.5">
+                    Update available ({updateInfo()!.version})
+                  </div>
+                  <div class="text-[10px] text-base-content/70 mb-2">
+                    Paste this into your terminal to update:
+                  </div>
+                  <button
+                    class="w-full text-left font-mono text-[11px] bg-base-300 rounded px-2.5 py-1.5 hover:bg-base-content/10 transition-colors cursor-pointer select-all"
+                    onClick={() => {
+                      navigator.clipboard.writeText('brew update && brew upgrade --cask ember-md');
+                      setCopiedBrew(true);
+                      setTimeout(() => setCopiedBrew(false), 2000);
+                    }}
+                  >
+                    brew update && brew upgrade --cask ember-md
+                  </button>
+                  <div class="text-[10px] text-base-content/50 mt-1.5 flex items-center justify-between">
+                    <span>{copiedBrew() ? 'Copied!' : 'Click to copy'}</span>
+                    <button
+                      class="hover:text-base-content/80 underline"
+                      onClick={() => setShowUpdateTooltip(false)}
+                    >
+                      dismiss
+                    </button>
+                  </div>
+                </div>
               </Show>
-            </button>
+            </div>
             <button
               class="btn btn-ghost btn-sm btn-square join-item"
               onClick={toggleTheme}
@@ -333,59 +418,78 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
             </button>
           </div>
           <div class="tabs tabs-boxed bg-base-300 p-0.5">
-            <button
-              class={`tab tab-sm ${state().mode === 'viewer' ? 'tab-active' : ''}`}
-              onClick={() => handleModeSwitch('viewer')}
-              disabled={!canSwitchMode()}
-            >
-              View
-            </button>
-            <button
-              class={`tab tab-sm ${state().mode === 'score' ? 'tab-active' : ''}`}
-              onClick={() => handleModeSwitch('score')}
-              disabled={!canSwitchMode()}
-            >
-              Analyze X-ray
-            </button>
-            <button
-              class={`tab tab-sm ${state().mode === 'conform' ? 'tab-active' : ''}`}
-              onClick={() => handleModeSwitch('conform')}
-              disabled={!canSwitchMode()}
-            >
-              MCMM
-            </button>
-            <button
-              class={`tab tab-sm ${state().mode === 'dock' ? 'tab-active' : ''}`}
-              onClick={() => handleModeSwitch('dock')}
-              disabled={!canSwitchMode()}
-            >
-              Dock
-            </button>
-            <button
-              class={`tab tab-sm ${state().mode === 'md' ? 'tab-active' : ''}`}
-              onClick={() => handleModeSwitch('md')}
-              disabled={!canSwitchMode()}
-            >
-              Dynamics
-            </button>
+            {([
+              ['viewer', 'View'],
+              ['score', 'Analyze X-ray'],
+              ['conform', 'MCMM'],
+              ['dock', 'Dock'],
+              ['md', 'Dynamics'],
+            ] as [WorkflowMode, string][]).map(([mode, label]) => (
+              <button
+                class={`tab tab-sm ${state().mode === mode ? 'tab-active' : ''}`}
+                onClick={() => handleModeSwitch(mode)}
+                disabled={!canSwitchMode()}
+              >
+                {label}
+                <Show when={state().isRunning && state().runningMode === mode && state().mode !== mode}>
+                  <span class="ml-1 inline-block w-2 h-2 rounded-full bg-success animate-pulse" />
+                </Show>
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Center: Project name + Job selector — stacked vertically */}
+        {/* Center: Project name + popover menu */}
         <Show when={state().projectReady}>
           <div class="flex-1 flex justify-center">
-            <div class="flex flex-col items-center gap-0.5">
+            <div class="relative flex flex-col items-center gap-0.5" data-project-popover>
               <button
                 class="btn btn-ghost btn-xs h-auto py-0.5 font-mono text-sm gap-1"
                 onClick={handleProjectNameClick}
-                disabled={state().isRunning}
-                title="Switch project"
+                title="Project options"
               >
                 <svg class="w-3.5 h-3.5 text-base-content/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
                 {state().jobName}
+                <svg class={`w-3 h-3 text-base-content/40 transition-transform ${showProjectPopover() ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
+              <Show when={showProjectPopover()}>
+                <div class="absolute top-full mt-1 z-50 bg-base-200 rounded-lg shadow-xl border border-base-300 p-1 min-w-[160px]">
+                  <button
+                    class="btn btn-ghost btn-xs w-full justify-start gap-2 font-normal"
+                    onClick={handleOpenProjectFolder}
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    Open Folder
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-xs w-full justify-start gap-2 font-normal"
+                    onClick={handleMoveProject}
+                    disabled={state().isRunning}
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    Move Project...
+                  </button>
+                  <div class="divider my-0.5 h-0" />
+                  <button
+                    class="btn btn-ghost btn-xs w-full justify-start gap-2 font-normal"
+                    onClick={handleSwitchProject}
+                    disabled={state().isRunning}
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+                    </svg>
+                    Switch Project
+                  </button>
+                </div>
+              </Show>
             </div>
           </div>
         </Show>
@@ -602,6 +706,19 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
                           Create
                         </button>
                       </div>
+                    </div>
+
+                    {/* Import existing project from external location */}
+                    <div class="border-t border-base-300 pt-2 mt-2">
+                      <button
+                        class="btn btn-ghost btn-xs w-full justify-start gap-2 text-base-content/60 hover:text-base-content"
+                        onClick={handleImportExternalProject}
+                      >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                        </svg>
+                        Import Existing Project...
+                      </button>
                     </div>
                   </Show>
 

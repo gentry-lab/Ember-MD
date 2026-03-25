@@ -240,6 +240,9 @@ export const IpcChannels = {
   GET_PROJECT_FILE_COUNT: 'get-project-file-count',
   SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
   SELECT_EMBER_JOB_FOLDER: 'select-ember-job-folder',
+  OPEN_PROJECT_FOLDER: 'open-project-folder',
+  MOVE_PROJECT: 'move-project',
+  IMPORT_EXTERNAL_PROJECT: 'import-external-project',
 
   // Molecule alignment
   ALIGN_MOLECULES_MCS: 'align:mcs',
@@ -535,6 +538,7 @@ export interface ProjectInfo {
   path: string;
   runs: ProjectRunInfo[];
   lastModified: number;
+  external?: boolean;
 }
 
 export interface RunFilesResult {

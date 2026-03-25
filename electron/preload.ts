@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
 import { contextBridge, ipcRenderer } from 'electron';
 
+// webUtils.getPathForFile available in Electron 22.3+ but types not exported until Electron 28
+const webUtils = (require('electron') as any).webUtils;
+
 // Inline IPC channel names (can't require external modules in preload sandbox)
 const IpcChannels = {
   SELECT_PDB_FILE: 'select-pdb-file',
@@ -104,6 +107,9 @@ const IpcChannels = {
   GET_PROJECT_FILE_COUNT: 'get-project-file-count',
   SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
   SELECT_EMBER_JOB_FOLDER: 'select-ember-job-folder',
+  OPEN_PROJECT_FOLDER: 'open-project-folder',
+  MOVE_PROJECT: 'move-project',
+  IMPORT_EXTERNAL_PROJECT: 'import-external-project',
   // PDB ID fetch
   FETCH_PDB: 'fetch-pdb',
   // Image reading channel
@@ -687,6 +693,14 @@ const electronAPI = {
   // Ligand preparation for viewing (sanitize + add hydrogens + bond orders)
   prepareLigandForViewing: (inputSdf: string, outputSdf: string) =>
     ipcRenderer.invoke('prepare-ligand-for-viewing', inputSdf, outputSdf),
+
+  // Drag-and-drop file path resolution
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+
+  // Project portability
+  openProjectFolder: (projectDir: string) => ipcRenderer.invoke(IpcChannels.OPEN_PROJECT_FOLDER, projectDir),
+  moveProject: (projectName: string, projectDir: string) => ipcRenderer.invoke(IpcChannels.MOVE_PROJECT, projectName, projectDir),
+  importExternalProject: () => ipcRenderer.invoke(IpcChannels.IMPORT_EXTERNAL_PROJECT),
 
   // App version from package.json (via Electron)
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

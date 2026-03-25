@@ -2,6 +2,7 @@
 import { Component, Show, createSignal, createMemo } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { sanitizeConformOutputName } from '../../utils/jobName';
+import DropZone from '../shared/DropZone';
 
 const ConformStepLoad: Component = () => {
   const {
@@ -21,13 +22,17 @@ const ConformStepLoad: Component = () => {
     smilesText().split('\n').map(l => l.trim()).filter(l => l.length > 0)
   );
 
-  const handleSelectFile = async () => {
-    const sdfPath = await api.selectSdfFile();
-    if (!sdfPath) return;
+  const loadLigandFromPath = (sdfPath: string) => {
     const name = sdfPath.split('/').pop()?.replace(/(\.sdf(\.gz)?|\.mol2?|\.mol)$/i, '') || 'ligand';
     setConformLigandSdf(sdfPath);
     setConformLigandName(name);
     setConformOutputName(sanitizeConformOutputName(name));
+  };
+
+  const handleSelectFile = async () => {
+    const sdfPath = await api.selectSdfFile();
+    if (!sdfPath) return;
+    loadLigandFromPath(sdfPath);
   };
 
   const handleConvertSmiles = async () => {
@@ -73,6 +78,12 @@ const ConformStepLoad: Component = () => {
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto flex flex-col items-center gap-4">
+        <DropZone
+          accept={['.sdf', '.mol', '.mol2']}
+          onFiles={(paths) => loadLigandFromPath(paths[0])}
+          disabled={isLoading()}
+          hoverLabel="Drop ligand (.sdf, .mol, .mol2)"
+        >
         <div class="card bg-base-200 shadow-lg w-full max-w-md">
           <div class="card-body p-4">
             <Show
@@ -121,6 +132,7 @@ const ConformStepLoad: Component = () => {
             </Show>
           </div>
         </div>
+        </DropZone>
 
         <Show when={state().errorMessage}>
           <div class="alert alert-error py-2 w-full max-w-md">

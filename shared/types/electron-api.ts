@@ -325,6 +325,10 @@ export interface ElectronAPI {
   scanProjectArtifacts: (projectName: string) => Promise<ProjectJob[]>;
   selectEmberJobFolder: () => Promise<ProjectJob | null>;
   prepareLigandForViewing: (inputSdf: string, outputSdf: string) => Promise<Result<string, AppError>>;
+  getPathForFile: (file: File) => string;
+  openProjectFolder: (projectDir: string) => Promise<void>;
+  moveProject: (projectName: string, projectDir: string) => Promise<Result<string, AppError>>;
+  importExternalProject: () => Promise<Result<{ name: string; path: string }, AppError>>;
   getAppVersion: () => Promise<string>;
 }
 

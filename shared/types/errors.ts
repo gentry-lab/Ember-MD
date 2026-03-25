@@ -38,6 +38,8 @@ export type AppError =
   | { type: 'FEP_SCORING_CANCELLED'; message: string }
   | { type: 'REFINEMENT_FAILED'; message: string }
   | { type: 'CLUSTER_SCORING_FAILED'; message: string }
+  | { type: 'USER_CANCELLED'; message: string }
+  | { type: 'MOVE_FAILED'; message: string }
   | { type: 'UNKNOWN'; message: string };
 
 export function createError(

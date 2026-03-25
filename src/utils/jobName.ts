@@ -105,16 +105,17 @@ export function buildDockFolderName(params: {
 }
 
 /**
- * Sanitize a string for filesystem use (lowercase, alphanumeric + hyphens only)
+ * Sanitize a string for filesystem use (lowercase, alphanumeric + hyphens/underscores/dots)
  */
 function sanitizeForFilesystem(name: string, maxLength: number): string {
   return name
     .toLowerCase()
     .trim()
     .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
+    .replace(/[^a-z0-9._-]/g, '')
     .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
+    .replace(/\.+/g, '.')
+    .replace(/^[._-]+|[._-]+$/g, '')
     .slice(0, maxLength);
 }
 
