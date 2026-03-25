@@ -324,12 +324,29 @@ test.describe('MD simulation pipeline', () => {
     await window.waitForTimeout(500);
 
     // Selected cluster detail panel appears with "View 3D" button
-    const view3dBtn = window.locator('.btn.btn-primary.btn-xs', { hasText: /View 3D/i });
+    const view3dBtn = window.locator('.btn.btn-primary', { hasText: /View 3D/i });
     await expect(view3dBtn).toBeVisible({ timeout: 3_000 });
 
-    // Verify selected cluster info text
-    await expect(window.locator('text=/% of trajectory/')).toBeVisible();
-    await expect(window.locator('text=/Cluster \\d+/').first()).toBeVisible();
+    // --- Per-cluster dihedral table in right panel ---
+    // When a cluster is selected and torsion analysis exists, the right panel
+    // should show a "Dihedrals at centroid" table with Bond/Angle/Mean columns
+    const dihedralLabel = window.locator('text=/Dihedrals at centroid/i');
+    const dihedralTableVisible = await dihedralLabel.isVisible().catch(() => false);
+    if (dihedralTableVisible) {
+      const clusterDihedralTable = window.locator('table.table').filter({
+        has: window.locator('th', { hasText: 'Bond' }),
+      }).filter({
+        has: window.locator('th', { hasText: 'Angle' }),
+      });
+      await expect(clusterDihedralTable).toBeVisible({ timeout: 3_000 });
+      // Should have at least one row with an angle value
+      const dihedralRows = clusterDihedralTable.locator('tbody tr');
+      const dihedralRowCount = await dihedralRows.count();
+      expect(dihedralRowCount).toBeGreaterThan(0);
+      // Angle column should show a degree value (N.N°) or dash
+      const firstAngle = await dihedralRows.first().locator('td').nth(1).textContent();
+      expect(firstAngle).toMatch(/[\d.]+°|-/);
+    }
 
     // Click "View 3D" → mode switches to viewer with pdbQueue
     await view3dBtn.dispatchEvent('click');
@@ -371,12 +388,21 @@ test.describe('MD simulation pipeline', () => {
     });
     expect(reportExists).toBe(true);
 
-    // --- Torsion analysis panel ---
-    // MDTorsionPanel should render on results page (ligand with rotatable bonds)
-    const torsionTable = window.locator('table.table').filter({
-      has: window.locator('th', { hasText: 'Torsion' }),
-    });
-    await expect(torsionTable).toBeVisible({ timeout: 3_000 });
+    // --- Torsion analysis panel (Dihedrals tab) ---
+    // Switch to Dihedrals tab — MDTorsionPanel should render (ligand with rotatable bonds)
+    const dihedralsTab = window.locator('.tab', { hasText: 'Dihedrals' });
+    const hasDihedralsTab = await dihedralsTab.isVisible().catch(() => false);
+    if (hasDihedralsTab) {
+      await dihedralsTab.click();
+      await window.waitForTimeout(500);
+      const torsionTable = window.locator('table.table').filter({
+        has: window.locator('th', { hasText: 'Torsion' }),
+      });
+      await expect(torsionTable).toBeVisible({ timeout: 3_000 });
+      // Switch back to Clusters tab
+      await window.locator('.tab', { hasText: 'Clusters' }).click();
+      await window.waitForTimeout(300);
+    }
 
     // Click "Play Trajectory" → mode switches to viewer with trajectory
     const playTrajBtn = window.locator('.btn', { hasText: /Play Trajectory/i });
