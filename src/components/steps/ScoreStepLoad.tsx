@@ -92,7 +92,7 @@ const ScoreStepLoad: Component = () => {
           }}
           hoverLabel="Drop folder with PDB + MTZ files"
         >
-        <div class="card bg-base-200 shadow-lg w-full max-w-md">
+        <div class="card bg-base-200 shadow-lg w-full max-w-lg">
           <div class="card-body p-4">
             <Show
               when={!state().score.inputDir}
@@ -138,7 +138,7 @@ const ScoreStepLoad: Component = () => {
         </DropZone>
 
         <Show when={state().errorMessage}>
-          <div class="alert alert-error py-2 w-full max-w-md">
+          <div class="alert alert-error py-2 w-full max-w-lg">
             <span class="text-sm">{state().errorMessage}</span>
           </div>
         </Show>

@@ -195,8 +195,8 @@ const ConformStepConfigure: Component = () => {
           </svg>
           Back
         </button>
-        <button class="btn btn-primary" onClick={() => setConformStep('conform-progress')}>
-          Start Search
+        <button class="btn btn-primary" onClick={() => setConformStep('conform-progress')} disabled={state().isRunning}>
+          {state().isRunning ? 'Job Running...' : 'Start Search'}
           <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>

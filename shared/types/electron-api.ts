@@ -329,6 +329,8 @@ export interface ElectronAPI {
   openProjectFolder: (projectDir: string) => Promise<void>;
   moveProject: (projectName: string, projectDir: string) => Promise<Result<string, AppError>>;
   importExternalProject: () => Promise<Result<{ name: string; path: string }, AppError>>;
+  getHomeDir: () => Promise<string>;
+  setHomeDir: () => Promise<Result<string, AppError>>;
   getAppVersion: () => Promise<string>;
 }
 

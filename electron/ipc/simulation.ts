@@ -715,7 +715,7 @@ export function register(): void {
   ipcMain.handle(
     IpcChannels.SELECT_EMBER_JOB_FOLDER,
     async (): Promise<any | null> => {
-      const emberDir = path.join(app.getPath('home'), 'Ember');
+      const emberDir = appState.getEmberBaseDir();
       const result = await dialog.showOpenDialog({
         title: 'Select Ember Job Folder',
         defaultPath: emberDir,

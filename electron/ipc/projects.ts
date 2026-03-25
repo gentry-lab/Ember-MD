@@ -11,6 +11,8 @@ import * as zlib from 'zlib';
 import { Ok, Err, Result } from '../../shared/types/result';
 import { AppError } from '../../shared/types/errors';
 import { IpcChannels } from '../../shared/types/ipc';
+import { getEmberBaseDir, setEmberBaseDir } from '../app-state';
+import { childProcesses } from '../spawn';
 import type {
   ClusteringResult,
   ProjectJob,
@@ -410,17 +412,44 @@ const findMapJob = (projectDir: string, runPath: string, runName: string): Proje
 // ---------------------------------------------------------------------------
 
 export function register(): void {
-  // Return the default output directory (~/Ember)
+  // Return the default output directory
   ipcMain.handle('get-default-output-dir', async () => {
-    return path.join(app.getPath('home'), 'Ember');
+    return getEmberBaseDir();
   });
+
+  // Get/set the home directory for all projects
+  ipcMain.handle(IpcChannels.GET_HOME_DIR, async () => {
+    return getEmberBaseDir();
+  });
+
+  ipcMain.handle(
+    IpcChannels.SET_HOME_DIR,
+    async (): Promise<Result<string, AppError>> => {
+      try {
+        const result = await dialog.showOpenDialog({
+          title: 'Set Ember Home Directory',
+          properties: ['openDirectory', 'createDirectory'],
+          buttonLabel: 'Use This Folder',
+        });
+        if (result.canceled || !result.filePaths.length) {
+          return Err({ type: 'USER_CANCELLED', message: 'Cancelled' });
+        }
+        const newDir = result.filePaths[0];
+        setEmberBaseDir(newDir);
+        console.log(`[Project] Home directory set to: ${newDir}`);
+        return Ok(newDir);
+      } catch (err: any) {
+        return Err({ type: 'UNKNOWN', message: `Failed to set home directory: ${err.message}` });
+      }
+    }
+  );
 
   // Ensure a project directory exists with a .ember-project ID file
   ipcMain.handle(
     IpcChannels.ENSURE_PROJECT,
     async (_event: any, projectName: string): Promise<Result<string, AppError>> => {
       try {
-        const emberDir = path.join(app.getPath('home'), 'Ember');
+        const emberDir = getEmberBaseDir();
         const projectDir = path.join(emberDir, projectName);
         const idFile = path.join(projectDir, '.ember-project');
 
@@ -437,7 +466,7 @@ export function register(): void {
       } catch (err: any) {
         return Err({
           type: 'DIRECTORY_ERROR',
-          path: path.join(app.getPath('home'), 'Ember', projectName),
+          path: path.join(getEmberBaseDir(), projectName),
           message: `Failed to create project: ${err.message}`,
         });
       }
@@ -506,7 +535,7 @@ export function register(): void {
   // Secondary: scan simulations/ + docking/ for runs
   // Tertiary: legacy fallback for old directories without .ember-project
   ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
-    const emberDir = path.join(app.getPath('home'), 'Ember');
+    const emberDir = getEmberBaseDir();
     if (!fs.existsSync(emberDir)) return [];
 
     const projects: any[] = [];
@@ -746,7 +775,7 @@ export function register(): void {
 
   // Get file count and total size for a project (for delete confirmation)
   ipcMain.handle(IpcChannels.GET_PROJECT_FILE_COUNT, async (_event: any, projectName: string): Promise<{ fileCount: number; totalSizeMb: number }> => {
-    const emberDir = path.join(app.getPath('home'), 'Ember');
+    const emberDir = getEmberBaseDir();
     const projectDir = path.join(emberDir, projectName);
     if (!fs.existsSync(projectDir)) return { fileCount: 0, totalSizeMb: 0 };
 
@@ -772,7 +801,7 @@ export function register(): void {
 
   // Rename a project directory
   ipcMain.handle(IpcChannels.RENAME_PROJECT, async (_event: any, oldName: string, newName: string): Promise<any> => {
-    const emberDir = path.join(app.getPath('home'), 'Ember');
+    const emberDir = getEmberBaseDir();
     const oldDir = path.join(emberDir, oldName);
     const newDir = path.join(emberDir, newName);
 
@@ -822,7 +851,10 @@ export function register(): void {
 
   // Delete a project directory entirely
   ipcMain.handle(IpcChannels.DELETE_PROJECT, async (_event: any, projectName: string): Promise<any> => {
-    const emberDir = path.join(app.getPath('home'), 'Ember');
+    if (childProcesses.size > 0) {
+      return { ok: false, error: { type: 'DELETE_BLOCKED', message: 'Cannot delete project while a job is running' } };
+    }
+    const emberDir = getEmberBaseDir();
     const projectDir = path.join(emberDir, projectName);
 
     if (!fs.existsSync(projectDir)) {
@@ -841,7 +873,7 @@ export function register(): void {
   ipcMain.handle(
     IpcChannels.SCAN_PROJECT_ARTIFACTS,
     async (_event: any, projectName: string): Promise<ProjectJob[]> => {
-      const emberDir = path.join(app.getPath('home'), 'Ember');
+      const emberDir = getEmberBaseDir();
       const projectDir = path.join(emberDir, projectName);
       if (!fs.existsSync(projectDir)) return [];
 
@@ -934,7 +966,7 @@ export function register(): void {
   // ---------------------------------------------------------------------------
 
   const externalProjectsPath = () =>
-    path.join(app.getPath('home'), 'Ember', '.external-projects.json');
+    path.join(getEmberBaseDir(), '.external-projects.json');
 
   const readExternalProjects = (): string[] => {
     try {
@@ -946,7 +978,7 @@ export function register(): void {
   };
 
   const writeExternalProjects = (paths: string[]) => {
-    const emberDir = path.join(app.getPath('home'), 'Ember');
+    const emberDir = getEmberBaseDir();
     fs.mkdirSync(emberDir, { recursive: true });
     fs.writeFileSync(externalProjectsPath(), JSON.stringify(paths, null, 2));
   };
@@ -963,6 +995,9 @@ export function register(): void {
   ipcMain.handle(
     IpcChannels.MOVE_PROJECT,
     async (_event, projectName: string, currentDir: string): Promise<Result<string, AppError>> => {
+      if (childProcesses.size > 0) {
+        return Err({ type: 'MOVE_FAILED', message: 'Cannot move project while a job is running' });
+      }
       try {
         const result = await dialog.showOpenDialog({
           title: 'Move Project To...',

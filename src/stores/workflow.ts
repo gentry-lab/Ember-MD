@@ -593,7 +593,7 @@ function createWorkflowStore() {
     setState((s) => ({ ...s, jobName: generateJobName() }));
 
   const setIsRunning = (isRunning: boolean) =>
-    setState((s) => ({ ...s, isRunning, runningMode: isRunning ? s.mode : null }));
+    setState((s) => ({ ...s, isRunning, runningMode: isRunning ? s.mode : s.runningMode }));
 
   const setIsPaused = (isPaused: boolean) =>
     setState((s) => ({ ...s, isPaused }));

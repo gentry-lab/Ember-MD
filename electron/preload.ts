@@ -110,6 +110,8 @@ const IpcChannels = {
   OPEN_PROJECT_FOLDER: 'open-project-folder',
   MOVE_PROJECT: 'move-project',
   IMPORT_EXTERNAL_PROJECT: 'import-external-project',
+  GET_HOME_DIR: 'get-home-dir',
+  SET_HOME_DIR: 'set-home-dir',
   // PDB ID fetch
   FETCH_PDB: 'fetch-pdb',
   // Image reading channel
@@ -701,6 +703,8 @@ const electronAPI = {
   openProjectFolder: (projectDir: string) => ipcRenderer.invoke(IpcChannels.OPEN_PROJECT_FOLDER, projectDir),
   moveProject: (projectName: string, projectDir: string) => ipcRenderer.invoke(IpcChannels.MOVE_PROJECT, projectName, projectDir),
   importExternalProject: () => ipcRenderer.invoke(IpcChannels.IMPORT_EXTERNAL_PROJECT),
+  getHomeDir: () => ipcRenderer.invoke(IpcChannels.GET_HOME_DIR),
+  setHomeDir: () => ipcRenderer.invoke(IpcChannels.SET_HOME_DIR),
 
   // App version from package.json (via Electron)
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

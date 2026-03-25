@@ -459,9 +459,9 @@ const MDStepConfigure: Component = () => {
         <button
           class="btn btn-primary"
           onClick={handleContinue}
-          disabled={state().md.isBenchmarking}
+          disabled={state().md.isBenchmarking || state().isRunning}
         >
-          {state().md.isBenchmarking ? 'Benchmarking...' : 'Start Simulation'}
+          {state().md.isBenchmarking ? 'Benchmarking...' : state().isRunning ? 'Job Running...' : 'Start Simulation'}
           <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>

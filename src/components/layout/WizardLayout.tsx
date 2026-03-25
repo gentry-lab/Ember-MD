@@ -67,6 +67,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
   const [updateInfo, setUpdateInfo] = createSignal<UpdateInfo | null>(null);
   const [showUpdateTooltip, setShowUpdateTooltip] = createSignal(false);
   const [copiedBrew, setCopiedBrew] = createSignal(false);
+  const [homeDir, setHomeDir] = createSignal('');
   const api = window.electronAPI;
 
   // Project picker state
@@ -97,6 +98,7 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
 
   onMount(() => {
     loadProjects();
+    api.getHomeDir().then(setHomeDir);
     checkForUpdate().then(setUpdateInfo);
     // Close popover on outside click
     const handleClickAway = (e: MouseEvent) => {
@@ -175,6 +177,14 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
       setJobName(name);
       setProjectDir(path);
       setProjectReady(true);
+    }
+  };
+
+  const handleSetHomeDir = async () => {
+    const result = await api.setHomeDir();
+    if (result.ok) {
+      setHomeDir(result.value);
+      loadProjects();
     }
   };
 
@@ -431,8 +441,15 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
                 disabled={!canSwitchMode()}
               >
                 {label}
-                <Show when={state().isRunning && state().runningMode === mode && state().mode !== mode}>
-                  <span class="ml-1 inline-block w-2 h-2 rounded-full bg-success animate-pulse" />
+                <Show when={state().runningMode === mode && state().mode !== mode}>
+                  {(() => {
+                    const phase = state().currentPhase;
+                    const running = state().isRunning;
+                    if (running) return <span class="ml-1 inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />;
+                    if (phase === 'complete') return <span class="ml-1 inline-block w-2 h-2 rounded-full bg-success" />;
+                    if (phase === 'error') return <span class="ml-1 inline-block w-2 h-2 rounded-full bg-error" />;
+                    return null;
+                  })()}
                 </Show>
               </button>
             ))}
@@ -708,8 +725,8 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
                       </div>
                     </div>
 
-                    {/* Import existing project from external location */}
-                    <div class="border-t border-base-300 pt-2 mt-2">
+                    {/* Import + Home Directory */}
+                    <div class="border-t border-base-300 pt-2 mt-2 space-y-1">
                       <button
                         class="btn btn-ghost btn-xs w-full justify-start gap-2 text-base-content/60 hover:text-base-content"
                         onClick={handleImportExternalProject}
@@ -719,6 +736,16 @@ const WizardLayout: Component<WizardLayoutProps> = (props) => {
                         </svg>
                         Import Existing Project...
                       </button>
+                      <button
+                        class="btn btn-ghost btn-xs w-full justify-start gap-2 text-base-content/60 hover:text-base-content"
+                        onClick={handleSetHomeDir}
+                      >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4" />
+                        </svg>
+                        Set Home Directory...
+                      </button>
+                      <p class="text-[9px] text-base-content/40 font-mono truncate px-1">{homeDir()}</p>
                     </div>
                   </Show>
 

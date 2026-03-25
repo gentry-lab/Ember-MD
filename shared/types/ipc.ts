@@ -243,6 +243,8 @@ export const IpcChannels = {
   OPEN_PROJECT_FOLDER: 'open-project-folder',
   MOVE_PROJECT: 'move-project',
   IMPORT_EXTERNAL_PROJECT: 'import-external-project',
+  GET_HOME_DIR: 'get-home-dir',
+  SET_HOME_DIR: 'set-home-dir',
 
   // Molecule alignment
   ALIGN_MOLECULES_MCS: 'align:mcs',

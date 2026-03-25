@@ -30,7 +30,7 @@ console.error = (...args: any[]) => { origError(...args); logStream.write(format
 // --- Extracted modules ---
 import * as paths from './paths';
 import * as appState from './app-state';
-import { killAllChildProcesses } from './spawn';
+import { childProcesses, killAllChildProcesses } from './spawn';
 
 // --- IPC handler modules ---
 import * as ipcDialogs from './ipc/dialogs';
@@ -115,8 +115,24 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
-  killAllChildProcesses();
+app.on('before-quit', async (event) => {
+  if (childProcesses.size > 0) {
+    event.preventDefault();
+    const { dialog } = require('electron');
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['Cancel', 'Quit Anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Job Running',
+      message: 'A simulation or docking job is still running.',
+      detail: 'Quitting now will terminate the running job. Any unsaved progress will be lost.',
+    });
+    if (response === 1) {
+      killAllChildProcesses();
+      app.quit();
+    }
+  }
 });
 
 app.on('activate', () => {
