@@ -254,6 +254,9 @@ export const IpcChannels = {
   // Conformer generation (standalone)
   RUN_CONFORM_GENERATION: 'conform:generate',
 
+  // Receptor preparation cancellation
+  CANCEL_PREP: 'cancel-prep',
+
   // Send channels (main -> renderer)
   PREP_OUTPUT: 'prep-output',
   SURFACE_OUTPUT: 'surface-output',
@@ -262,6 +265,7 @@ export const IpcChannels = {
   MD_OUTPUT: 'md:output',
   CONFORM_OUTPUT: 'conform:output',
   XRAY_OUTPUT: 'xray:output',
+  PREP_PROGRESS: 'prep:progress',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

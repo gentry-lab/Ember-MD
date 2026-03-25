@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, Show, createMemo, createSignal, For } from 'solid-js';
+import { Component, Show, createMemo, createSignal, onCleanup, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { projectPaths } from '../../utils/projectPaths';
 import DropZone from '../shared/DropZone';
@@ -22,6 +22,7 @@ const MDStepLoad: Component = () => {
   const api = window.electronAPI;
 
   const [isLoading, setIsLoading] = createSignal(false);
+  const [isPreparing, setIsPreparing] = createSignal(false);
   const [smilesText, setSmilesText] = createSignal('');
   const [pdbIdText, setPdbIdText] = createSignal('');
   const [statusText, setStatusText] = createSignal<string | null>(null);
@@ -29,6 +30,15 @@ const MDStepLoad: Component = () => {
   const [selectedLigand, setSelectedLigand] = createSignal<string | null>(null);
   const [needsSmiles, setNeedsSmiles] = createSignal(false);
   const [smilesCorrection, setSmilesCorrection] = createSignal('');
+  const [showCancelConfirm, setShowCancelConfirm] = createSignal(false);
+
+  // Subscribe to live prep progress from main process
+  const cleanupPrepProgress = api.onPrepProgress((message: string) => {
+    if (isPreparing()) {
+      setStatusText(`Preparing receptor: ${message}`);
+    }
+  });
+  onCleanup(cleanupPrepProgress);
 
   const detectedSmiles = createMemo(() =>
     smilesText().split('\n').map(l => l.trim()).filter(l => l.length > 0)
@@ -142,21 +152,24 @@ const MDStepLoad: Component = () => {
         return;
       }
 
-      setStatusText('Preparing receptor (adding hydrogens)...');
+      setStatusText('Preparing receptor...');
+      setIsPreparing(true);
       // Use PDB basename for collision-free naming (ties output to source structure)
       const pdbBasename = path.basename(currentPdb, path.extname(currentPdb));
       const receptorPath = path.join(paths.prepared, `${pdbBasename}_receptor_${ligandId}.pdb`);
       const receptorResult = await api.prepareReceptor(currentPdb, ligandId, receptorPath);
 
+      setIsPreparing(false);
       setIsLoading(false);
       setStatusText(null);
+      setShowCancelConfirm(false);
 
       if (receptorResult.ok) {
         setMdReceptorPdb(receptorResult.value);
         setMdLigandSdf(data.sdfPath);
         setMdLigandName(data.name);
         setThumbnailDataUrl(`data:image/png;base64,${data.thumbnail}`);
-      } else {
+      } else if (receptorResult.error?.type !== 'USER_CANCELLED') {
         setError(`Receptor preparation failed: ${receptorResult.error?.message || 'Unknown error'}`);
       }
     } else {
@@ -170,6 +183,11 @@ const MDStepLoad: Component = () => {
     const ligandId = selectedLigand();
     if (!ligandId || !smilesCorrection().trim()) return;
     handleSelectLigand(ligandId);
+  };
+
+  const handleCancelPrep = () => {
+    api.cancelPrep();
+    setShowCancelConfirm(false);
   };
 
   const handleLoadLigandFile = async (filePath: string) => {
@@ -339,7 +357,31 @@ const MDStepLoad: Component = () => {
                 </Show>
 
                 <Show when={statusText()}>
-                  <p class="text-[10px] text-base-content/60 text-center">{statusText()}</p>
+                  <div class="flex items-center gap-2 justify-center">
+                    <Show when={isLoading()}>
+                      <span class="loading loading-spinner loading-xs" />
+                    </Show>
+                    <p class="text-[10px] text-base-content/60">{statusText()}</p>
+                  </div>
+                  <Show when={isPreparing()}>
+                    <Show
+                      when={!showCancelConfirm()}
+                      fallback={
+                        <div class="flex items-center justify-center gap-2 mt-1">
+                          <span class="text-[10px] text-warning">Stop preparation?</span>
+                          <button class="btn btn-error btn-xs" onClick={handleCancelPrep}>Stop</button>
+                          <button class="btn btn-ghost btn-xs" onClick={() => setShowCancelConfirm(false)}>Continue</button>
+                        </div>
+                      }
+                    >
+                      <button
+                        class="btn btn-ghost btn-xs w-full mt-1 text-base-content/50"
+                        onClick={() => setShowCancelConfirm(true)}
+                      >
+                        Cancel
+                      </button>
+                    </Show>
+                  </Show>
                 </Show>
 
                 <Show when={!detectedLigands().length || statusText()}>

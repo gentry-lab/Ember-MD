@@ -113,6 +113,7 @@ const ViewerMode: Component = () => {
   let lastQueueLength = 0;
   let isFirstFrameLoad = true;
   let cachedProteinTopology: { atomCount: number; sessionKey: number } | null = null;
+  let cachedLigandTopology: { atomCount: number; sessionKey: number } | null = null;
   let viewerCanvasShellRef: HTMLDivElement | undefined;
   let projectTablePanelRef: HTMLDivElement | undefined;
   let resizeObserver: ResizeObserver | null = null;
@@ -222,6 +223,7 @@ const ViewerMode: Component = () => {
     pocketReferenceLigandComponent = null;
     interactionShapeComponent = null;
     cachedProteinTopology = null;
+    cachedLigandTopology = null;
     alignedComponents.clear();
     layerComponents.clear();
     setStructureLoadTick((tick) => tick + 1);
@@ -1460,6 +1462,15 @@ const ViewerMode: Component = () => {
       focus: true,
     });
 
+    // Cache ligand topology for fast coordinate updates (conformer queue nav)
+    const loadedLigandStructure = ligandComponent ? (ligandComponent as unknown as NGL.StructureComponent).structure : null;
+    if (loadedLigandStructure) {
+      cachedLigandTopology = {
+        atomCount: loadedLigandStructure.atomCount,
+        sessionKey: state().viewer.sessionKey,
+      };
+    }
+
     if (state().viewer.pdbPath !== state().viewer.ligandPath) {
       setViewerPdbPath(state().viewer.ligandPath);
     }
@@ -1528,8 +1539,84 @@ const ViewerMode: Component = () => {
     }
   };
 
+  /**
+   * Fast path: update ligand coordinates in-place without destroying/recreating
+   * the NGL component or its representations. Used for conformer queue navigation
+   * where all entries share the same molecular topology (same atom count).
+   *
+   * Returns true if update succeeded, false if caller should fall back to full reload.
+   */
+  const updateLigandCoordinatesInPlace = async (filePath: string): Promise<boolean> => {
+    if (!stage || !ligandComponent || !cachedLigandTopology) return false;
+    if (cachedLigandTopology.sessionKey !== state().viewer.sessionKey) return false;
+
+    const existingStructure = (ligandComponent as NGL.StructureComponent)?.structure;
+    if (!existingStructure) return false;
+
+    try {
+      const normalizedPath = await normalizeLigandPathForViewer(filePath);
+
+      // Load new SDF structure-only (no representations — cheap parse)
+      const tempComp = await stage.loadFile(normalizedPath, {
+        defaultRepresentation: false,
+        firstModelOnly: true,
+      }) as NGL.Component | null;
+      if (!tempComp) return false;
+
+      const newStructure = (tempComp as NGL.StructureComponent)?.structure;
+      const atomMatch = newStructure && newStructure.atomCount === existingStructure.atomCount;
+
+      if (atomMatch) {
+        // Extract xyz coordinates from the new structure's atom store
+        const n = newStructure.atomCount;
+        const coords = new Float32Array(n * 3);
+        const store = newStructure.atomStore as { x: Float32Array; y: Float32Array; z: Float32Array };
+        for (let i = 0; i < n; i++) {
+          coords[i * 3]     = store.x[i];
+          coords[i * 3 + 1] = store.y[i];
+          coords[i * 3 + 2] = store.z[i];
+        }
+
+        // Apply to existing component — NGL refreshes representations automatically
+        existingStructure.updatePosition(coords);
+
+        // Update store paths
+        const viewerPath = normalizedPath;
+        setViewerLigandPath(viewerPath);
+        if (state().viewer.pdbPath !== viewerPath) {
+          setViewerPdbPath(viewerPath);
+        }
+        surfacePropsCache.delete(viewerPath);
+        setStructureLoadTick((tick) => tick + 1);
+
+        ligandComponent!.autoView();
+      }
+
+      // Always clean up the temp component
+      stage.removeComponent(tempComp);
+      return !!atomMatch;
+    } catch (err) {
+      console.warn('[Viewer] Ligand coordinate update failed, falling back to full reload:', err);
+      return false;
+    }
+  };
+
   const loadViewerQueueItem = async (item: ViewerQueueItem) => {
     if (item.type === 'conformer' || item.type === 'ligand') {
+      // Fast path: update ligand coordinates in-place when topology matches
+      if (cachedLigandTopology && ligandComponent) {
+        setIsLoading(true);
+        try {
+          const updated = await updateLigandCoordinatesInPlace(item.pdbPath);
+          if (updated) {
+            console.log('[Viewer] Fast ligand coordinate update:', item.label);
+            return;
+          }
+        } finally {
+          setIsLoading(false);
+        }
+        console.log('[Viewer] Ligand atom count mismatch, full reload:', item.label);
+      }
       console.log(`[Viewer] Queue nav (conformer): ${item.label} — ${item.pdbPath}`);
       await handleLoadStandaloneLigand(item.pdbPath);
       return;
@@ -3372,6 +3459,39 @@ const ViewerMode: Component = () => {
     });
   };
 
+  /* ── View Results: navigate back to dock/md results from viewer ── */
+  const viewResultsTarget = () => {
+    const table = state().viewer.projectTable;
+    if (!table?.activeRowId) return null;
+    const activeRow = table.rows.find((r) => r.id === table.activeRowId);
+    if (!activeRow) return null;
+    const family = table.families.find((f) => f.id === activeRow.familyId);
+    if (!family) return null;
+    if (family.jobType === 'docking' && state().dock.results.length > 0) return 'dock' as const;
+    if (family.jobType === 'simulation' && state().md.result !== null) return 'md' as const;
+    return null;
+  };
+
+  const viewResultsDisabled = () => {
+    const target = viewResultsTarget();
+    if (!target) return false;
+    return state().isRunning && state().runningMode === target;
+  };
+
+  const handleViewResults = () => {
+    const target = viewResultsTarget();
+    if (!target || viewResultsDisabled()) return;
+    batch(() => {
+      if (target === 'dock') {
+        setMode('dock');
+        setDockStep('dock-results');
+      } else {
+        setMode('md');
+        setMdStep('md-results');
+      }
+    });
+  };
+
   const [showImportOverlay, setShowImportOverlay] = createSignal(false);
 
   const handleProjectTableImport = () => {
@@ -3591,6 +3711,9 @@ const ViewerMode: Component = () => {
               alignSubstructureLabel={alignSubstructureLabel()}
               hasAlignment={hasAlignment()}
               onResetAlignment={handleResetAlignment}
+              onViewResults={viewResultsTarget() ? handleViewResults : undefined}
+              viewResultsDisabled={viewResultsDisabled()}
+              viewResultsTooltip={viewResultsDisabled() ? 'Results view unavailable while running jobs' : undefined}
             />
           </div>
         </Show>

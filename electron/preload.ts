@@ -116,6 +116,8 @@ const IpcChannels = {
   FETCH_PDB: 'fetch-pdb',
   // Image reading channel
   READ_IMAGE_AS_DATA_URL: 'read-image-as-data-url',
+  // Receptor prep cancellation
+  CANCEL_PREP: 'cancel-prep',
   // Send channels
   PREP_OUTPUT: 'prep-output',
   SURFACE_OUTPUT: 'surface-output',
@@ -123,6 +125,7 @@ const IpcChannels = {
   DOCK_OUTPUT: 'dock:output',
   MD_OUTPUT: 'md:output',
   XRAY_OUTPUT: 'xray:output',
+  PREP_PROGRESS: 'prep:progress',
 } as const;
 
 interface OutputData {
@@ -355,6 +358,14 @@ const electronAPI = {
     waterDistance,
     protonationPh
   ),
+
+  cancelPrep: () => ipcRenderer.invoke(IpcChannels.CANCEL_PREP),
+
+  onPrepProgress: (callback: (message: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, message: string) => callback(message);
+    ipcRenderer.on(IpcChannels.PREP_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IpcChannels.PREP_PROGRESS, listener);
+  },
 
   prepareDockingComplex: (
     receptorPdb: string,

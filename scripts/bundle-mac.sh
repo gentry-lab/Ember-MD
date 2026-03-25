@@ -104,6 +104,7 @@ required = [
     'MDAnalysis',
     'propka',
     'torch',
+    'pypdf',
 ]
 missing = []
 for name in required:

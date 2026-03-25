@@ -10,8 +10,10 @@ Pipeline: contacts → rmsd → rmsf → sse → hbonds → ligand_props → tor
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -47,21 +49,17 @@ def run_analysis(python_exe: str, script_dir: str, script_name: str, args_list: 
         return False
 
 
-def compile_pdf(output_dir: str, section_pdfs: List[str], sim_info: Optional[Dict[str, str]] = None) -> str:
-    """Compile individual section PDFs into a single full_report.pdf."""
+def _write_title_page(title_pdf_path: str, section_pdfs: List[str], sim_info: Optional[Dict[str, str]] = None) -> None:
+    """Write the report title page to a standalone PDF."""
     try:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_pdf import PdfPages
     except ImportError:
-        print("Warning: matplotlib not available, cannot compile PDF", file=sys.stderr)
-        return None
+        raise RuntimeError('matplotlib not available, cannot build title page')
 
-    report_path = os.path.join(output_dir, 'full_report.pdf')
-
-    with PdfPages(report_path) as pdf:
-        # Title page
+    with PdfPages(title_pdf_path) as pdf:
         fig = plt.figure(figsize=(8.5, 11))
         fig.patch.set_facecolor('white')
 
@@ -113,170 +111,151 @@ def compile_pdf(output_dir: str, section_pdfs: List[str], sim_info: Optional[Dic
         pdf.savefig(fig)
         plt.close(fig)
 
-        # Append each section PDF's pages
-        for section_pdf in section_pdfs:
-            if not os.path.exists(section_pdf):
-                continue
-            try:
-                from PyPDF2 import PdfReader
-                reader = PdfReader(section_pdf)
-                for page in reader.pages:
-                    # PyPDF2 doesn't directly integrate with matplotlib PdfPages
-                    # Use a different approach: read PDF as image
-                    pass
-            except ImportError:
-                pass
-
-            # matplotlib can read PDFs as images via pdf backend
-            # Instead, embed each section's plot directly
-            try:
-                import matplotlib.image as mpimg
-                # For PDF section files, we'll re-render them as figure pages
-                # Read the PDF and convert pages to images
-                _embed_pdf_pages(pdf, section_pdf)
-            except Exception as e:
-                print(f"  Warning: Could not embed {os.path.basename(section_pdf)}: {e}", file=sys.stderr)
-
-    return report_path
-
-
-def _embed_pdf_pages(pdf_pages: Any, source_pdf: str) -> None:
-    """Embed pages from a source PDF into the PdfPages output."""
-    import matplotlib.pyplot as plt
+def _load_python_pdf_backend() -> Optional[Any]:
+    """Return a PDF reader/writer backend when one is available."""
+    try:
+        from pypdf import PdfReader, PdfWriter  # type: ignore
+        return PdfReader, PdfWriter, 'pypdf'
+    except ImportError:
+        pass
 
     try:
-        # Try using PyPDF2 + pdf2image if available
-        from PyPDF2 import PdfReader, PdfWriter
-        import tempfile
-
-        reader = PdfReader(source_pdf)
-        for i, page in enumerate(reader.pages):
-            # Write single page to temp file
-            writer = PdfWriter()
-            writer.add_page(page)
-            tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
-            writer.write(tmp)
-            tmp.close()
-
-            try:
-                # Try pdf2image
-                from pdf2image import convert_from_path
-                images = convert_from_path(tmp.name, dpi=150)
-                for img in images:
-                    fig = plt.figure(figsize=(8.5, 11))
-                    ax = fig.add_axes([0, 0, 1, 1])
-                    ax.imshow(img)
-                    ax.axis('off')
-                    pdf_pages.savefig(fig)
-                    plt.close(fig)
-            except ImportError:
-                # Fall back: just note it couldn't be embedded
-                fig = plt.figure(figsize=(8.5, 11))
-                fig.text(0.5, 0.5, f'See: {os.path.basename(source_pdf)} (page {i+1})',
-                         ha='center', va='center', fontsize=14, color='#6b7280')
-                pdf_pages.savefig(fig)
-                plt.close(fig)
-            finally:
-                os.unlink(tmp.name)
+        from PyPDF2 import PdfReader, PdfWriter  # type: ignore
+        return PdfReader, PdfWriter, 'PyPDF2'
     except ImportError:
-        # No PyPDF2 — embed source path reference
-        fig = plt.figure(figsize=(8.5, 11))
-        fig.text(0.5, 0.5, f'See: {os.path.basename(source_pdf)}',
-                 ha='center', va='center', fontsize=14, color='#6b7280')
-        pdf_pages.savefig(fig)
-        plt.close(fig)
+        return None
 
 
-def compile_pdf_simple(output_dir: str, section_pdfs: List[str], sim_info: Optional[Dict[str, str]] = None) -> str:
-    """Compile report using PyPDF2 directly (preferred -- preserves vector quality)."""
-    try:
-        from PyPDF2 import PdfReader, PdfWriter
-    except ImportError:
-        # Fall back to matplotlib-based compilation
-        return compile_pdf(output_dir, section_pdfs, sim_info)
+def _find_executable(command_name: str, env_var: Optional[str] = None) -> Optional[str]:
+    """Resolve an executable even when the app is launched from Finder with a minimal PATH."""
+    candidates: List[str] = []
 
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    from matplotlib.backends.backend_pdf import PdfPages
-    import tempfile
+    if env_var:
+        configured = os.environ.get(env_var)
+        if configured:
+            candidates.append(configured)
 
-    report_path = os.path.join(output_dir, 'full_report.pdf')
+    resolved = shutil.which(command_name)
+    if resolved:
+        return resolved
+
+    candidates.extend([
+        os.path.join('/opt/homebrew/bin', command_name),
+        os.path.join('/usr/local/bin', command_name),
+        os.path.join('/usr/bin', command_name),
+    ])
+
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _merge_pdfs_with_python(report_path: str, input_pdfs: List[str]) -> bool:
+    backend = _load_python_pdf_backend()
+    if backend is None:
+        return False
+
+    PdfReader, PdfWriter, backend_name = backend
     writer = PdfWriter()
 
-    # Create title page with matplotlib
-    title_pdf = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
-    title_pdf.close()
-
-    with PdfPages(title_pdf.name) as pdf:
-        fig = plt.figure(figsize=(8.5, 11))
-        fig.patch.set_facecolor('white')
-
-        fig.text(0.5, 0.85, 'MD Analysis Report', fontsize=28, fontweight='bold',
-                 ha='center', va='top', color='#1f2937')
-        fig.text(0.5, 0.80, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
-                 fontsize=11, ha='center', va='top', color='#6b7280')
-
-        if sim_info:
-            table_data = []
-            labels = {
-                'jobName': 'Job Name',
-                'atoms': 'Total Atoms',
-                'waters': 'Water Molecules',
-                'temperature': 'Temperature',
-                'duration': 'Duration',
-                'forceField': 'Force Field',
-                'platform': 'GPU Platform',
-                'performance': 'Performance',
-            }
-            for key, label in labels.items():
-                if key in sim_info and sim_info[key]:
-                    table_data.append([label, str(sim_info[key])])
-
-            if table_data:
-                ax = fig.add_axes([0.2, 0.35, 0.6, 0.35])
-                ax.axis('off')
-                table = ax.table(cellText=table_data, colLabels=['Parameter', 'Value'],
-                                 cellLoc='left', loc='center', colWidths=[0.4, 0.6])
-                table.auto_set_font_size(False)
-                table.set_fontsize(11)
-                table.scale(1, 1.5)
-                for (row, col), cell in table.get_celld().items():
-                    if row == 0:
-                        cell.set_facecolor('#f3f4f6')
-                        cell.set_text_props(fontweight='bold')
-                    cell.set_edgecolor('#e5e7eb')
-
-        section_count = len([p for p in section_pdfs if os.path.exists(p)])
-        fig.text(0.5, 0.28, f'{section_count} analysis sections included',
-                 fontsize=11, ha='center', va='top', color='#6b7280')
-        fig.text(0.5, 0.08, 'Ember MD — Molecular Dynamics on Apple Silicon',
-                 fontsize=10, ha='center', va='bottom', color='#9ca3af')
-
-        pdf.savefig(fig)
-        plt.close(fig)
-
-    # Add title page
-    title_reader = PdfReader(title_pdf.name)
-    for page in title_reader.pages:
-        writer.add_page(page)
-    os.unlink(title_pdf.name)
-
-    # Add section PDFs
-    for section_pdf in section_pdfs:
-        if not os.path.exists(section_pdf):
-            continue
-        try:
-            reader = PdfReader(section_pdf)
+    try:
+        for input_pdf in input_pdfs:
+            reader = PdfReader(input_pdf)
             for page in reader.pages:
                 writer.add_page(page)
-        except Exception as e:
-            print(f"  Warning: Could not include {os.path.basename(section_pdf)}: {e}", file=sys.stderr)
+        with open(report_path, 'wb') as handle:
+            writer.write(handle)
+        print(f"Merged report with {backend_name}")
+        return True
+    except Exception as e:
+        print(f"Warning: Python PDF merge failed: {e}", file=sys.stderr)
+        return False
 
-    with open(report_path, 'wb') as f:
-        writer.write(f)
 
-    return report_path
+def _merge_pdfs_with_pdfunite(report_path: str, input_pdfs: List[str]) -> bool:
+    pdfunite = _find_executable('pdfunite', env_var='EMBER_PDFUNITE')
+    if pdfunite is None:
+        return False
+
+    try:
+        subprocess.run(
+            [pdfunite, *input_pdfs, report_path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Merged report with {pdfunite}")
+        return True
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or '').strip()
+        print(f"Warning: pdfunite merge failed: {stderr or e}", file=sys.stderr)
+        return False
+
+
+def _merge_pdfs_with_ghostscript(report_path: str, input_pdfs: List[str]) -> bool:
+    ghostscript = _find_executable('gs', env_var='EMBER_GS')
+    if ghostscript is None:
+        return False
+
+    try:
+        subprocess.run(
+            [
+                ghostscript,
+                '-q',
+                '-dBATCH',
+                '-dNOPAUSE',
+                '-sDEVICE=pdfwrite',
+                '-dAutoRotatePages=/None',
+                f'-sOutputFile={report_path}',
+                *input_pdfs,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"Merged report with {ghostscript}")
+        return True
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or '').strip()
+        print(f"Warning: Ghostscript merge failed: {stderr or e}", file=sys.stderr)
+        return False
+
+
+def compile_pdf_simple(output_dir: str, section_pdfs: List[str], sim_info: Optional[Dict[str, str]] = None) -> Optional[str]:
+    """Compile report by prepending a title page and merging all section PDFs."""
+
+    report_path = os.path.join(output_dir, 'full_report.pdf')
+    existing_sections = [pdf for pdf in section_pdfs if os.path.exists(pdf)]
+
+    title_pdf = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+    title_pdf.close()
+    try:
+        _write_title_page(title_pdf.name, existing_sections, sim_info)
+        input_pdfs = [title_pdf.name, *existing_sections]
+
+        if len(input_pdfs) == 1:
+            shutil.copyfile(title_pdf.name, report_path)
+            return report_path
+
+        if os.path.exists(report_path):
+            os.unlink(report_path)
+
+        if _merge_pdfs_with_python(report_path, input_pdfs):
+            return report_path
+        if _merge_pdfs_with_pdfunite(report_path, input_pdfs):
+            return report_path
+        if _merge_pdfs_with_ghostscript(report_path, input_pdfs):
+            return report_path
+
+        print(
+            'Warning: No PDF merge backend available. Install pypdf/PyPDF2, or make pdfunite/gs available.',
+            file=sys.stderr,
+        )
+        return None
+    finally:
+        if os.path.exists(title_pdf.name):
+            os.unlink(title_pdf.name)
 
 
 def main() -> None:
@@ -469,6 +448,7 @@ def main() -> None:
             print(f"  {os.path.relpath(sp, args.output_dir)}")
     else:
         print("Warning: Could not compile full report PDF", file=sys.stderr)
+        raise SystemExit(1)
 
     print("PROGRESS:done:100")
     print("\nDone!")

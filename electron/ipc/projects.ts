@@ -55,6 +55,64 @@ export const getCanonicalClusteringDir = (runPath: string) =>
 export const getCanonicalScoredClustersDir = (runPath: string) =>
   path.join(getCanonicalAnalysisRoot(runPath), 'scored_clusters');
 
+// ---------------------------------------------------------------------------
+// MD run path resolver — single source of truth for legacy + canonical layouts
+// ---------------------------------------------------------------------------
+
+export interface MdRunPaths {
+  runDir: string;
+  resultsDir: string;
+  analysisDir: string;
+  systemPdb: string | null;
+  trajectory: string | null;
+  finalPdb: string | null;
+  equilibratedPdb: string | null;
+  energyCsv: string | null;
+  seed: string | null;
+  log: string | null;
+  checkpoint: string | null;
+}
+
+/** Resolve an MD file through: results/{name} → root/{name} → root/*_{name} */
+function resolveFile(runDir: string, resultsDir: string | null, name: string,
+  runFiles: string[], resultsFiles: string[]): string | null {
+  if (resultsFiles.includes(name)) return path.join(resultsDir!, name);
+  if (runFiles.includes(name)) return path.join(runDir, name);
+  const legacy = runFiles.find((f) => f.endsWith(`_${name}`));
+  return legacy ? path.join(runDir, legacy) : null;
+}
+
+/** Resolve all MD run paths. Returns null if no trajectory or usable structure. */
+export function resolveMdRun(runDir: string): MdRunPaths | null {
+  let runFiles: string[];
+  try { runFiles = fs.readdirSync(runDir); } catch { return null; }
+
+  const resultsDir = path.join(runDir, 'results');
+  const resultsFiles = fs.existsSync(resultsDir) ? fs.readdirSync(resultsDir) : [];
+  const rDir = resultsFiles.length > 0 ? resultsDir : null;
+
+  const systemPdb = resolveFile(runDir, rDir, 'system.pdb', runFiles, resultsFiles);
+  const trajectory = resolveFile(runDir, rDir, 'trajectory.dcd', runFiles, resultsFiles);
+  const finalPdb = resolveFile(runDir, rDir, 'final.pdb', runFiles, resultsFiles);
+
+  // Must have at least one structure file and ideally a trajectory
+  if (!systemPdb && !finalPdb) return null;
+
+  return {
+    runDir,
+    resultsDir,
+    analysisDir: path.join(runDir, 'analysis'),
+    systemPdb,
+    trajectory,
+    finalPdb,
+    equilibratedPdb: resolveFile(runDir, rDir, 'equilibrated.pdb', runFiles, resultsFiles),
+    energyCsv: resolveFile(runDir, rDir, 'energy.csv', runFiles, resultsFiles),
+    seed: resolveFile(runDir, rDir, 'seed.txt', runFiles, resultsFiles),
+    log: runFiles.includes('simulation.log') ? path.join(runDir, 'simulation.log') : null,
+    checkpoint: resolveFile(runDir, rDir, 'checkpoint.chk', runFiles, resultsFiles),
+  };
+}
+
 export const getSimulationClusterArtifacts = (runPath: string): {
   clusterDirPath?: string;
   clusteringResultsPath?: string;
@@ -218,54 +276,14 @@ export const findDockingRunJobs = (
 };
 
 export const findSimulationJob = (runPath: string, runName: string): ProjectJob | null => {
+  const md = resolveMdRun(runPath);
+  if (!md) return null;
+
   const stat = fs.statSync(runPath);
-  const runFiles = fs.readdirSync(runPath);
-  const resultsDir = path.join(runPath, 'results');
-  const resultsFiles = fs.existsSync(resultsDir) ? fs.readdirSync(resultsDir) : [];
-
-  let finalPdbPath: string | undefined;
-  if (resultsFiles.includes('final.pdb')) {
-    finalPdbPath = path.join(resultsDir, 'final.pdb');
-  } else if (runFiles.includes('final.pdb')) {
-    finalPdbPath = path.join(runPath, 'final.pdb');
-  } else {
-    const legacyFinal = runFiles.find((f) => f.endsWith('_final.pdb'));
-    if (legacyFinal) finalPdbPath = path.join(runPath, legacyFinal);
-  }
-
-  let systemPdbPath: string | undefined;
-  let trajectoryDcdPath: string | undefined;
-
-  if (resultsFiles.includes('system.pdb')) systemPdbPath = path.join(resultsDir, 'system.pdb');
-  if (resultsFiles.includes('trajectory.dcd')) trajectoryDcdPath = path.join(resultsDir, 'trajectory.dcd');
-
-  // Top-level unprefixed files (current MD runner writes directly to run root)
-  if (!systemPdbPath && runFiles.includes('system.pdb')) {
-    systemPdbPath = path.join(runPath, 'system.pdb');
-  }
-  if (!trajectoryDcdPath && runFiles.includes('trajectory.dcd')) {
-    trajectoryDcdPath = path.join(runPath, 'trajectory.dcd');
-  }
-
-  if (!systemPdbPath) {
-    const legacySys = runFiles.find((f) => f.endsWith('_system.pdb'));
-    if (legacySys) systemPdbPath = path.join(runPath, legacySys);
-  }
-  if (!trajectoryDcdPath) {
-    const legacyTraj = runFiles.find((f) => f.endsWith('_trajectory.dcd'));
-    if (legacyTraj) trajectoryDcdPath = path.join(runPath, legacyTraj);
-  }
-
-  if (!finalPdbPath && !(systemPdbPath && trajectoryDcdPath)) return null;
-
-  const {
-    clusterCount,
-    clusterDirPath,
-    clusteringResultsPath,
-  } = getSimulationClusterArtifacts(runPath);
+  const { clusterCount, clusterDirPath, clusteringResultsPath } = getSimulationClusterArtifacts(runPath);
 
   const parts = [];
-  if (trajectoryDcdPath) parts.push('trajectory');
+  if (md.trajectory) parts.push('trajectory');
   if (clusterCount > 0) parts.push(`${clusterCount} clusters`);
   const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
 
@@ -276,10 +294,10 @@ export const findSimulationJob = (runPath: string, runName: string): ProjectJob 
     label: `${runName}${suffix}`,
     path: runPath,
     lastModified: stat.mtimeMs,
-    systemPdb: systemPdbPath,
-    trajectoryDcd: trajectoryDcdPath,
-    finalPdb: finalPdbPath,
-    hasTrajectory: !!trajectoryDcdPath,
+    systemPdb: md.systemPdb ?? undefined,
+    trajectoryDcd: md.trajectory ?? undefined,
+    finalPdb: md.finalPdb ?? undefined,
+    hasTrajectory: !!md.trajectory,
     clusterCount,
     clusterDir: clusterDirPath,
     clusteringResultsPath,
@@ -549,19 +567,17 @@ export function register(): void {
       const scanRunDir = (runPath: string, folderName: string): any | null => {
         try {
           const runFiles = fs.readdirSync(runPath);
-          // Check results/ subdir for new layout
-          const resultsPath = path.join(runPath, 'results');
-          const resultsFiles = fs.existsSync(resultsPath) ? fs.readdirSync(resultsPath) : [];
-          // New layout: unprefixed files in results/ or top-level; Legacy: prefixed files
-          const hasSimOutput = runFiles.some((f: string) => f.endsWith('_system.pdb') || f.endsWith('_trajectory.dcd') || f === 'simulation.log' || f === 'system.pdb' || f === 'trajectory.dcd')
-            || resultsFiles.some((f: string) => f === 'system.pdb' || f === 'trajectory.dcd');
-          // New layout: docked files in results/poses/; Legacy: in poses/ or top-level
+
+          // MD detection via shared resolver
+          const md = resolveMdRun(runPath);
+          const hasSimOutput = md !== null;
+
+          // Docking detection
           const newPosesPath = path.join(runPath, 'results', 'poses');
           const legacyPosesPath = path.join(runPath, 'poses');
           const hasDockOutput = runFiles.some((f: string) => f.endsWith('_docked.sdf.gz') || f.endsWith('_docked.sdf'))
             || (fs.existsSync(newPosesPath) && fs.readdirSync(newPosesPath).some((f: string) => f.endsWith('_docked.sdf.gz')))
             || (fs.existsSync(legacyPosesPath) && fs.readdirSync(legacyPosesPath).some((f: string) => f.endsWith('_docked.sdf.gz')));
-          // New layout: inputs/ dir with receptor.pdb indicates a docking run even without results yet
           const hasInputs = fs.existsSync(path.join(runPath, 'inputs', 'receptor.pdb'));
           const hasConformerOutput = runFiles.some((f: string) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f));
           const hasMapOutput = runFiles.some((f: string) => f === 'binding_site_results.json' || f.endsWith('_binding_site_results.json'));
@@ -579,10 +595,8 @@ export function register(): void {
             path: runPath,
             lastModified: stat.mtimeMs,
             type,
-            hasTrajectory: runFiles.some((f: string) => f.endsWith('_trajectory.dcd') || f === 'trajectory.dcd')
-              || resultsFiles.some((f: string) => f === 'trajectory.dcd'),
-            hasFinalPdb: runFiles.some((f: string) => f.endsWith('_final.pdb') || f === 'final.pdb')
-              || resultsFiles.some((f: string) => f === 'final.pdb'),
+            hasTrajectory: md ? !!md.trajectory : false,
+            hasFinalPdb: md ? !!md.finalPdb : false,
           };
         } catch { return null; }
       };

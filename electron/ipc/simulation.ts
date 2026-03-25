@@ -18,6 +18,7 @@ import {
   extractVinaAffinity,
   getSimulationClusterArtifacts,
   getBindingSiteResultFile,
+  resolveMdRun,
 } from './projects';
 
 // ---------------------------------------------------------------------------
@@ -761,46 +762,25 @@ export function register(): void {
         };
       }
 
-      // Check for simulation job: system.pdb + trajectory.dcd (or results/ subdir)
-      const resultsDir = path.join(folderPath, 'results');
-      const resultsFiles = fs.existsSync(resultsDir) ? fs.readdirSync(resultsDir) : [];
-      const runFiles = folderFiles;
-
-      let systemPdb: string | undefined;
-      let trajectoryDcd: string | undefined;
-
-      if (resultsFiles.includes('system.pdb')) systemPdb = path.join(resultsDir, 'system.pdb');
-      if (resultsFiles.includes('trajectory.dcd')) trajectoryDcd = path.join(resultsDir, 'trajectory.dcd');
-      if (!systemPdb) {
-        const legacy = runFiles.find((f) => f.endsWith('_system.pdb') || f === 'system.pdb');
-        if (legacy) systemPdb = path.join(folderPath, legacy);
+      // Check for simulation job via shared resolver
+      const md = resolveMdRun(folderPath);
+      if (md && (md.systemPdb || md.finalPdb)) {
+        const { clusterCount, clusterDirPath, clusteringResultsPath } = getSimulationClusterArtifacts(folderPath);
+        return {
+          id: `sim:${folderName}`,
+          type: 'simulation',
+          folder: folderName,
+          label: folderName,
+          path: folderPath,
+          lastModified: folderStat.mtimeMs,
+          systemPdb: md.systemPdb ?? undefined,
+          trajectoryDcd: md.trajectory ?? undefined,
+          hasTrajectory: !!md.trajectory,
+          clusterCount,
+          clusterDir: clusterDirPath,
+          clusteringResultsPath,
+        };
       }
-      if (!trajectoryDcd) {
-        const legacy = runFiles.find((f) => f.endsWith('_trajectory.dcd') || f === 'trajectory.dcd');
-        if (legacy) trajectoryDcd = path.join(folderPath, legacy);
-      }
-
-	    if (systemPdb) {
-	      const {
-	        clusterCount,
-	        clusterDirPath,
-	        clusteringResultsPath,
-	      } = getSimulationClusterArtifacts(folderPath);
-	      return {
-	        id: `sim:${folderName}`,
-	        type: 'simulation',
-	        folder: folderName,
-	        label: folderName,
-        path: folderPath,
-        lastModified: folderStat.mtimeMs,
-	        systemPdb,
-	        trajectoryDcd,
-	        hasTrajectory: !!trajectoryDcd,
-	        clusterCount,
-	        clusterDir: clusterDirPath,
-	        clusteringResultsPath,
-	      };
-	    }
 
       const conformerFiles = folderFiles
         .filter((f) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f))

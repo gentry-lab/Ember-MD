@@ -34,6 +34,9 @@ interface ProjectTableProps {
   alignSubstructureLabel: string | null;
   hasAlignment: boolean;
   onResetAlignment: () => void;
+  onViewResults?: () => void;
+  viewResultsDisabled?: boolean;
+  viewResultsTooltip?: string;
 }
 
 const ChevronRight: Component = () => (
@@ -327,7 +330,19 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
           </div>
         </div>
 
-      <div class="px-3 py-2 border-t border-base-300 flex items-center gap-1.5">
+      <div class="px-3 py-2 border-t border-base-300 flex flex-col gap-1.5">
+        <Show when={props.onViewResults}>
+          <button
+            class="btn btn-primary btn-sm w-full"
+            onClick={props.onViewResults}
+            disabled={props.viewResultsDisabled}
+            title={props.viewResultsTooltip || undefined}
+            data-testid="project-table-view-results"
+          >
+            View Results
+          </button>
+        </Show>
+        <div class="flex items-center gap-1.5">
         <div class="dropdown dropdown-top dropdown-start">
           <label
             tabindex="0"
@@ -372,6 +387,7 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
         >
           Export
         </button>
+        </div>
       </div>
     </div>
   );

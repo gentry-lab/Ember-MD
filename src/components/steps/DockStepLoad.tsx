@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, Show, createMemo, createSignal, For } from 'solid-js';
+import { Component, Show, createMemo, createSignal, onCleanup, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { DockMolecule, LigandSource } from '../../../shared/types/dock';
 import { projectPaths, DockingPaths } from '../../utils/projectPaths';
@@ -25,6 +25,7 @@ const DockStepLoad: Component = () => {
   const api = window.electronAPI;
 
   const [isLoading, setIsLoading] = createSignal(false);
+  const [isPreparing, setIsPreparing] = createSignal(false);
   const [isLoadingLigands, setIsLoadingLigands] = createSignal(false);
   const [statusText, setStatusText] = createSignal<string | null>(null);
   const [pdbIdText, setPdbIdText] = createSignal('');
@@ -32,6 +33,15 @@ const DockStepLoad: Component = () => {
   const [structureFilePaths, setStructureFilePaths] = createSignal<string[]>([]);
   const [csvFilePath, setCsvFilePath] = createSignal<string | null>(null);
   const [smilesText, setSmilesText] = createSignal('');
+  const [showCancelConfirm, setShowCancelConfirm] = createSignal(false);
+
+  // Subscribe to live prep progress from main process
+  const cleanupPrepProgress = api.onPrepProgress((message: string) => {
+    if (isPreparing()) {
+      setStatusText(`Preparing receptor: ${message}`);
+    }
+  });
+  onCleanup(cleanupPrepProgress);
 
   const detectedSmiles = createMemo(() => {
     const lines = smilesText().split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -144,7 +154,8 @@ const DockStepLoad: Component = () => {
       setDockReferenceLigandPath(data.sdfPath);
       setReceptorThumbnail(data.thumbnail);
 
-      setStatusText('Preparing receptor (adding hydrogens)...');
+      setStatusText('Preparing receptor...');
+      setIsPreparing(true);
       const receptorPath = path.join(dockPaths.inputs, 'receptor.pdb');
       const receptorPh = (state().dock.protonationConfig.phMin + state().dock.protonationConfig.phMax) / 2;
       const wrc = state().dock.waterRetentionConfig;
@@ -156,12 +167,14 @@ const DockStepLoad: Component = () => {
         receptorPh
       );
 
+      setIsPreparing(false);
       setIsLoading(false);
       setStatusText(null);
+      setShowCancelConfirm(false);
 
       if (receptorResult.ok) {
         setDockReceptorPrepared(receptorResult.value);
-      } else {
+      } else if (receptorResult.error?.type !== 'USER_CANCELLED') {
         setError(`Receptor preparation failed: ${receptorResult.error?.message || 'Unknown error'}`);
       }
     } else {
@@ -169,6 +182,11 @@ const DockStepLoad: Component = () => {
       setStatusText(null);
       setError(extractResult.error?.message || 'Reference ligand extraction failed');
     }
+  };
+
+  const handleCancelPrep = () => {
+    api.cancelPrep();
+    setShowCancelConfirm(false);
   };
 
   const handleClearReceptor = () => {
@@ -325,6 +343,12 @@ const DockStepLoad: Component = () => {
                         fetchDisabled={isLoading() || pdbIdText().trim().length !== 4}
                         fetchLoading={isLoading()}
                         statusText={!detectedLigands().length || statusText() ? statusText() : null}
+                        showStatusSpinner={isLoading()}
+                        showCancelButton={isPreparing()}
+                        showCancelConfirm={showCancelConfirm()}
+                        onCancel={handleCancelPrep}
+                        onCancelConfirmShow={() => setShowCancelConfirm(true)}
+                        onCancelConfirmHide={() => setShowCancelConfirm(false)}
                         beforeInputs={
                           <Show when={detectedLigands().length > 1}>
                             <select

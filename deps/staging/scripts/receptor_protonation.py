@@ -848,10 +848,13 @@ def prepare_receptor_with_propka(
 
     if fixer is None:
         # Self-contained path: Reduce -> PROPKA -> PDBFixer from scratch
+        print("PROGRESS: Optimizing side-chain orientations...", file=sys.stderr)
         reduced_path, reduce_report = run_reduce_if_available(input_pdb)
         if propka_report is None:
+            print("PROGRESS: Analyzing pKa values (PROPKA)...", file=sys.stderr)
             propka_report = collect_propka_shifted_residues(reduced_path, protonation_ph)
 
+        print("PROGRESS: Filling missing atoms...", file=sys.stderr)
         fixer = PDBFixer(filename=reduced_path)
         fixer.findMissingResidues()
         # Remove terminal missing residues — disordered tails absent from
@@ -879,6 +882,7 @@ def prepare_receptor_with_propka(
         if propka_report is None:
             propka_report = {"propka_available": False, "shifted_residues": []}
 
+    print("PROGRESS: Planning protonation variants...", file=sys.stderr)
     variant_plan = build_variant_plan(
         fixer.topology,
         fixer.positions,
@@ -891,6 +895,7 @@ def prepare_receptor_with_propka(
     his_scoring_report: Dict[str, Any] = {"scored_count": 0}
     if minimize_hydrogens:
         try:
+            print("PROGRESS: Scoring HIS tautomers...", file=sys.stderr)
             scoring_result = score_histidine_variants(
                 fixer.topology, fixer.positions, protonation_ph, variant_plan,
             )
@@ -906,6 +911,7 @@ def prepare_receptor_with_propka(
             print(f"  Warning: HIS tautomer scoring failed ({exc}), using geometric picks",
                   file=sys.stderr)
 
+    print("PROGRESS: Adding hydrogens...", file=sys.stderr)
     protonated_topology, protonated_positions, actual_variants = add_hydrogens_with_variants(
         fixer.topology,
         fixer.positions,
@@ -916,6 +922,7 @@ def prepare_receptor_with_propka(
     # Hydrogen minimization — relaxes template-placed H with heavy atoms frozen.
     h_min_report: Dict[str, Any] = {"applied": False}
     if minimize_hydrogens:
+        print("PROGRESS: Minimizing hydrogen positions...", file=sys.stderr)
         print("  Minimizing hydrogen positions (ff19SB + OBC2)...", file=sys.stderr)
         protonated_positions, h_min_report = _minimize_hydrogens(
             protonated_topology, protonated_positions,
@@ -926,6 +933,7 @@ def prepare_receptor_with_propka(
             print(f"  H-min: {reduction:.0f} kJ/mol reduction in {wall:.1f}s",
                   file=sys.stderr)
 
+    print("PROGRESS: Writing prepared receptor...", file=sys.stderr)
     write_prepared_receptor_pdb(
         protonated_topology,
         protonated_positions,

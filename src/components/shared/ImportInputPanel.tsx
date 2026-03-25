@@ -21,6 +21,12 @@ interface ImportInputPanelProps {
   smilesLoading?: boolean;
   smilesCount?: number;
   statusText?: string | null;
+  showStatusSpinner?: boolean;
+  showCancelButton?: boolean;
+  showCancelConfirm?: boolean;
+  onCancel?: () => void;
+  onCancelConfirmShow?: () => void;
+  onCancelConfirmHide?: () => void;
   beforeInputs?: JSXElement;
   afterInputs?: JSXElement;
 }
@@ -32,7 +38,31 @@ const ImportInputPanel: Component<ImportInputPanelProps> = (props) => (
     </Show>
 
     <Show when={props.statusText}>
-      <p class="text-[10px] text-base-content/60 text-center">{props.statusText}</p>
+      <div class="flex items-center gap-2 justify-center">
+        <Show when={props.showStatusSpinner}>
+          <span class="loading loading-spinner loading-xs" />
+        </Show>
+        <p class="text-[10px] text-base-content/60">{props.statusText}</p>
+      </div>
+      <Show when={props.showCancelButton}>
+        <Show
+          when={!props.showCancelConfirm}
+          fallback={
+            <div class="flex items-center justify-center gap-2 mt-1">
+              <span class="text-[10px] text-warning">Stop preparation?</span>
+              <button class="btn btn-error btn-xs" onClick={() => props.onCancel?.()}>Stop</button>
+              <button class="btn btn-ghost btn-xs" onClick={() => props.onCancelConfirmHide?.()}>Continue</button>
+            </div>
+          }
+        >
+          <button
+            class="btn btn-ghost btn-xs w-full mt-1 text-base-content/50"
+            onClick={() => props.onCancelConfirmShow?.()}
+          >
+            Cancel
+          </button>
+        </Show>
+      </Show>
     </Show>
 
     <button

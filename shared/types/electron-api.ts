@@ -141,6 +141,8 @@ export interface ElectronAPI {
     waterDistance?: number,
     protonationPh?: number
   ) => Promise<Result<string, AppError>>;
+  cancelPrep: () => Promise<void>;
+  onPrepProgress: (callback: (message: string) => void) => () => void;
   prepareDockingComplex: (
     receptorPdb: string,
     xrayLigandSdf: string,

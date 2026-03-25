@@ -6,14 +6,40 @@ interface MDTorsionPanelProps {
   analysis: MdTorsionAnalysis;
 }
 
+/* ── Plot layout ── */
 const PLOT_WIDTH = 420;
-const PLOT_HEIGHT = 210;
-const PLOT_MARGIN = 24;
-const VIEW_PADDING = 1.2;
+const PLOT_HEIGHT = 240;
+const M = { top: 14, right: 14, bottom: 34, left: 42 };
+const PL = M.left;
+const PR = PLOT_WIDTH - M.right;
+const PT = M.top;
+const PB = PLOT_HEIGHT - M.bottom;
+const PW = PR - PL;
+const PH = PB - PT;
 
-const formatAngle = (value: number | null | undefined) => {
-  if (value == null || Number.isNaN(value)) return '-';
-  return `${value.toFixed(1)}°`;
+/* ── Bond rendering ── */
+const BOND_W = 2.0;
+const BOND_W_ACTIVE = 2.8;
+const BOND_W_SEL = 3.2;
+const GLOW_W = 12;
+const HIT_W = 14;
+const VIEW_PAD = 1.2;
+
+/* ── Colors ── */
+const C_BOND = '#94a3b8';
+const C_ACTIVE = '#3b82f6';
+const C_SEL = '#ef4444';
+const C_GLOW = 'rgba(239, 68, 68, 0.22)';
+const C_TRAJ = '#2563eb';
+const C_CLUST = '#0f766e';
+
+const Y_TICKS = [-180, -90, 0, 90, 180];
+
+const angleToY = (a: number) => PT + ((180 - a) / 360) * PH;
+
+const fmtAngle = (v: number | null | undefined) => {
+  if (v == null || Number.isNaN(v)) return '-';
+  return `${v.toFixed(1)}°`;
 };
 
 const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
@@ -24,132 +50,151 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
   const torsions = () => props.analysis.data.torsions;
   const depiction = () => props.analysis.depiction;
 
+  /* Auto-select first torsion */
   createEffect(() => {
-    const currentId = selectedTorsionId();
+    const id = selectedTorsionId();
     const rows = torsions();
-    if (!rows.length) {
-      setSelectedTorsionId(null);
-      return;
-    }
-    if (!currentId || !rows.some((row) => row.torsionId === currentId)) {
+    if (!rows.length) { setSelectedTorsionId(null); return; }
+    if (!id || !rows.some((r) => r.torsionId === id)) {
       setSelectedTorsionId(rows[0].torsionId);
     }
   });
 
   const selectedTorsion = createMemo<MdTorsionEntry | null>(() => {
-    const torsionId = selectedTorsionId();
-    if (!torsionId) return null;
-    return torsions().find((row) => row.torsionId === torsionId) ?? null;
+    const id = selectedTorsionId();
+    return id ? torsions().find((r) => r.torsionId === id) ?? null : null;
   });
 
-  const torsionBondIds = createMemo(() => new Map(torsions().map((row) => [row.bondId, row.torsionId])));
+  const torsionBondIds = createMemo(() =>
+    new Map(torsions().map((r) => [r.bondId, r.torsionId]))
+  );
 
+  /* ── Molecule viewBox ── */
   const viewBox = createMemo(() => {
-    const data = depiction();
-    if (!data) return '0 0 10 10';
-    const { minX, maxX, minY, maxY } = data.bounds;
-    const width = Math.max(2, maxX - minX);
-    const height = Math.max(2, maxY - minY);
-    const padX = width * 0.15;
-    const padY = height * 0.15;
-    return `${minX - padX} ${minY - padY} ${width + padX * 2} ${height + padY * 2}`;
+    const d = depiction();
+    if (!d) return '0 0 10 10';
+    const { minX, maxX, minY, maxY } = d.bounds;
+    const w = Math.max(2, maxX - minX);
+    const h = Math.max(2, maxY - minY);
+    const px = w * 0.18;
+    const py = h * 0.18;
+    return `${minX - px} ${minY - py} ${w + px * 2} ${h + py * 2}`;
   });
 
+  /* Double-bond offset scaled to average bond length */
+  const bondGap = createMemo(() => {
+    const bonds = depiction()?.bonds;
+    if (!bonds || bonds.length === 0) return 0.08;
+    let total = 0;
+    for (const b of bonds) total += Math.hypot(b.x2 - b.x1, b.y2 - b.y1);
+    return (total / bonds.length) * 0.085;
+  });
+
+  /* ── Cluster data ── */
   const clusterValues = createMemo(() => {
     const row = selectedTorsion();
     return row ? [...row.clusterValues].sort((a, b) => a.clusterId - b.clusterId) : [];
   });
 
-  const makeTrajectoryPoints = createMemo(() => {
+  /* ── Trajectory polyline ── */
+  const trajectoryPoints = createMemo(() => {
     const row = selectedTorsion();
     const frames = props.analysis.sampledFrameIndices;
-    if (!row || row.trajectoryAngles.length === 0 || frames.length === 0) return '';
-    const minFrame = frames[0];
-    const maxFrame = frames[frames.length - 1];
-    const frameSpan = Math.max(1, maxFrame - minFrame);
-    const points = row.trajectoryAngles.map((angle, idx) => {
-      const x = PLOT_MARGIN + ((frames[idx] - minFrame) / frameSpan) * (PLOT_WIDTH - PLOT_MARGIN * 2);
-      const y = PLOT_MARGIN + ((180 - (angle + 180)) / 360) * (PLOT_HEIGHT - PLOT_MARGIN * 2);
-      return `${x},${y}`;
-    });
-    return points.join(' ');
-  });
-
-  const makeClusterPoints = createMemo(() => {
-    const values = clusterValues();
-    if (values.length === 0) return '';
-    const span = Math.max(1, values.length - 1);
-    return values.map((value, idx) => {
-      const x = PLOT_MARGIN + (idx / span) * (PLOT_WIDTH - PLOT_MARGIN * 2);
-      const y = PLOT_MARGIN + ((180 - (value.angle + 180)) / 360) * (PLOT_HEIGHT - PLOT_MARGIN * 2);
-      return `${x},${y}`;
+    if (!row || !row.trajectoryAngles.length || !frames.length) return '';
+    const lo = frames[0];
+    const hi = frames[frames.length - 1];
+    const span = Math.max(1, hi - lo);
+    return row.trajectoryAngles.map((a, i) => {
+      const x = PL + ((frames[i] - lo) / span) * PW;
+      return `${x},${angleToY(a)}`;
     }).join(' ');
   });
 
-  const yTicks = [-180, -90, 0, 90, 180];
-
-  const copyText = async (text: string, message: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyStatus(message);
-      window.setTimeout(() => setCopyStatus(null), 1500);
-    } catch (err) {
-      console.error('Failed to copy torsion text:', err);
-      setCopyStatus('Copy failed');
-      window.setTimeout(() => setCopyStatus(null), 1500);
-    }
+  /* ── Clipboard ── */
+  const copyText = async (text: string, msg: string) => {
+    try { await navigator.clipboard.writeText(text); setCopyStatus(msg); }
+    catch { setCopyStatus('Copy failed'); }
+    window.setTimeout(() => setCopyStatus(null), 1500);
   };
 
   const copySelectedTorsion = () => {
     const row = selectedTorsion();
     if (!row) return;
     const lines = [
-      `torsionId: ${row.torsionId}`,
-      `bondId: ${row.bondId}`,
-      `label: ${row.label}`,
-      `quartet: ${row.atomNames.join(' - ')}`,
-      `mean: ${formatAngle(row.circularMean)}`,
-      `std: ${formatAngle(row.circularStd)}`,
-      `range: ${formatAngle(row.min)} to ${formatAngle(row.max)}`,
+      `torsionId: ${row.torsionId}`, `bondId: ${row.bondId}`,
+      `label: ${row.label}`, `quartet: ${row.atomNames.join(' - ')}`,
+      `mean: ${fmtAngle(row.circularMean)}`, `std: ${fmtAngle(row.circularStd)}`,
+      `range: ${fmtAngle(row.min)} to ${fmtAngle(row.max)}`,
       `trajectoryAngles: ${row.trajectoryAngles.join(', ')}`,
     ];
-    if (row.clusterValues.length > 0) {
+    if (row.clusterValues.length) {
       lines.push('clusterValues:');
-      for (const value of row.clusterValues) {
-        lines.push(`  cluster ${value.clusterId + 1}: ${formatAngle(value.angle)} (${value.population.toFixed(1)}%)`);
-      }
+      for (const v of row.clusterValues)
+        lines.push(`  cluster ${v.clusterId + 1}: ${fmtAngle(v.angle)} (${v.population.toFixed(1)}%)`);
     }
     copyText(lines.join('\n'), 'Copied torsion');
   };
 
   const copyAllTorsions = () => {
-    const lines = torsions().map((row) => (
-      [
-        row.torsionId,
-        row.label,
-        row.bondId,
-        row.centralBondAtomIndices.join('-'),
-        formatAngle(row.circularMean),
-        formatAngle(row.circularStd),
-      ].join('\t')
-    ));
+    const lines = torsions().map((r) =>
+      [r.torsionId, r.label, r.bondId, r.centralBondAtomIndices.join('-'),
+        fmtAngle(r.circularMean), fmtAngle(r.circularStd)].join('\t')
+    );
     copyText(['torsionId\tlabel\tbondId\tcentralBond\tmean\tstd', ...lines].join('\n'), 'Copied torsion table');
   };
 
   const handleBondClick = (bond: MdLigandDepictionBond) => {
-    const torsionId = torsionBondIds().get(bond.bondId);
-    if (torsionId) {
-      setSelectedTorsionId(torsionId);
-    }
+    const id = torsionBondIds().get(bond.bondId);
+    if (id) setSelectedTorsionId(id);
   };
 
-  const isSelectedBond = (bondId: string) => selectedTorsion()?.bondId === bondId;
-  const isInteractiveBond = (bondId: string) => torsionBondIds().has(bondId);
+  /* Reactive helpers — must be called inside JSX for SolidJS tracking */
+  const isSel = (bondId: string) => selectedTorsion()?.bondId === bondId;
+  const isAct = (bondId: string) => torsionBondIds().has(bondId);
 
+  /* ── Bond line renderer ── */
+  const renderBondLines = (bond: MdLigandDepictionBond) => {
+    const dx = bond.x2 - bond.x1;
+    const dy = bond.y2 - bond.y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const g = bondGap();
+
+    /* stroke/width as functions so JSX attributes track signals */
+    const sc = () => isSel(bond.bondId) ? C_SEL : isAct(bond.bondId) ? C_ACTIVE : C_BOND;
+    const sw = () => isSel(bond.bondId) ? BOND_W_SEL : isAct(bond.bondId) ? BOND_W_ACTIVE : BOND_W;
+
+    if ((bond.order >= 2 && !bond.isAromatic) || bond.isAromatic) {
+      const dash = bond.isAromatic ? '3 2' : undefined;
+      return (
+        <>
+          <line x1={bond.x1 + nx * g} y1={bond.y1 + ny * g}
+                x2={bond.x2 + nx * g} y2={bond.y2 + ny * g}
+                stroke={sc()} stroke-width={sw()}
+                vector-effect="non-scaling-stroke" stroke-linecap="round" pointer-events="none" />
+          <line x1={bond.x1 - nx * g} y1={bond.y1 - ny * g}
+                x2={bond.x2 - nx * g} y2={bond.y2 - ny * g}
+                stroke={sc()} stroke-width={sw()}
+                stroke-dasharray={dash}
+                vector-effect="non-scaling-stroke" stroke-linecap="round" pointer-events="none" />
+        </>
+      );
+    }
+    return (
+      <line x1={bond.x1} y1={bond.y1} x2={bond.x2} y2={bond.y2}
+            stroke={sc()} stroke-width={sw()}
+            vector-effect="non-scaling-stroke" stroke-linecap="round" pointer-events="none" />
+    );
+  };
+
+  /* ═══════════════════════════ JSX ═══════════════════════════ */
   return (
     <Show when={props.analysis.ligandPresent && torsions().length > 0 && depiction()}>
       <div class="card bg-base-200 shadow-sm">
         <div class="card-body p-4 gap-3">
+
+          {/* ── Header ── */}
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h3 class="text-sm font-semibold">Ligand Dihedrals</h3>
@@ -159,25 +204,13 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
             </div>
             <div class="flex items-center gap-2 flex-wrap">
               <div role="tablist" class="tabs tabs-boxed tabs-xs">
-                <button
-                  class={`tab ${activeTab() === 'trajectory' ? 'tab-active' : ''}`}
-                  onClick={() => setActiveTab('trajectory')}
-                >
-                  Trajectory
-                </button>
-                <button
-                  class={`tab ${activeTab() === 'clusters' ? 'tab-active' : ''}`}
-                  onClick={() => setActiveTab('clusters')}
-                >
-                  Clusters
-                </button>
+                <button class={`tab ${activeTab() === 'trajectory' ? 'tab-active' : ''}`}
+                        onClick={() => setActiveTab('trajectory')}>Trajectory</button>
+                <button class={`tab ${activeTab() === 'clusters' ? 'tab-active' : ''}`}
+                        onClick={() => setActiveTab('clusters')}>Clusters</button>
               </div>
-              <button class="btn btn-outline btn-xs" onClick={copySelectedTorsion}>
-                Copy Selected
-              </button>
-              <button class="btn btn-outline btn-xs" onClick={copyAllTorsions}>
-                Copy Table
-              </button>
+              <button class="btn btn-outline btn-xs" onClick={copySelectedTorsion}>Copy Selected</button>
+              <button class="btn btn-outline btn-xs" onClick={copyAllTorsions}>Copy Table</button>
             </div>
           </div>
 
@@ -185,70 +218,51 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
             <div class="text-xs text-success">{copyStatus()}</div>
           </Show>
 
+          {/* ── Main grid ── */}
           <div class="grid grid-cols-1 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] gap-4">
+
+            {/* ── Molecule depiction ── */}
             <div class="bg-base-100 rounded-lg border border-base-300 p-3">
-              <svg viewBox={viewBox()} class="w-full h-64">
+              <svg viewBox={viewBox()} preserveAspectRatio="xMidYMid meet" class="w-full h-64">
+                {/* Underglow layer — behind everything */}
                 <For each={depiction()!.bonds}>
-                  {(bond) => {
-                    const interactive = isInteractiveBond(bond.bondId);
-                    const selected = isSelectedBond(bond.bondId);
-                    let stroke = '#94a3b8';
-                    let strokeWidth = 1.4;
-
-                    if (interactive) {
-                      stroke = '#2563eb';
-                      strokeWidth = 1.8;
-                    }
-                    if (selected) {
-                      stroke = '#dc2626';
-                      strokeWidth = 2.4;
-                    }
-
-                    return (
-                      <g
-                        class={interactive ? 'cursor-pointer' : ''}
-                        onClick={() => handleBondClick(bond)}
-                      >
-                        <Show when={interactive}>
-                          <line
-                            x1={bond.x1}
-                            y1={bond.y1}
-                            x2={bond.x2}
-                            y2={bond.y2}
-                            stroke="transparent"
-                            stroke-width="10"
-                            vector-effect="non-scaling-stroke"
-                            stroke-linecap="round"
-                            pointer-events="stroke"
-                          />
-                        </Show>
-                        <line
-                          x1={bond.x1}
-                          y1={bond.y1}
-                          x2={bond.x2}
-                          y2={bond.y2}
-                          stroke={stroke}
-                          stroke-width={strokeWidth}
-                          vector-effect="non-scaling-stroke"
-                          stroke-linecap="round"
-                          pointer-events="none"
-                        />
-                      </g>
-                    );
-                  }}
+                  {(bond) => (
+                    <Show when={isSel(bond.bondId)}>
+                      <line x1={bond.x1} y1={bond.y1} x2={bond.x2} y2={bond.y2}
+                            stroke={C_GLOW} stroke-width={GLOW_W}
+                            vector-effect="non-scaling-stroke" stroke-linecap="round"
+                            pointer-events="none" />
+                    </Show>
+                  )}
                 </For>
+
+                {/* Bond lines + hit areas */}
+                <For each={depiction()!.bonds}>
+                  {(bond) => (
+                    <g class={isAct(bond.bondId) ? 'cursor-pointer' : ''}
+                       onClick={() => handleBondClick(bond)}>
+                      <Show when={isAct(bond.bondId)}>
+                        <line x1={bond.x1} y1={bond.y1} x2={bond.x2} y2={bond.y2}
+                              stroke="transparent" stroke-width={HIT_W}
+                              vector-effect="non-scaling-stroke" stroke-linecap="round"
+                              pointer-events="stroke" />
+                      </Show>
+                      {renderBondLines(bond)}
+                    </g>
+                  )}
+                </For>
+
+                {/* Atom labels with white halo */}
                 <For each={depiction()!.atoms}>
                   {(atom) => (
                     <Show when={atom.showLabel}>
-                      <text
-                        x={atom.x}
-                        y={atom.y}
-                        text-anchor="middle"
-                        dominant-baseline="middle"
-                        font-size={`${0.48 * VIEW_PADDING}`}
-                        fill="#0f172a"
-                        class="select-none"
-                      >
+                      <text x={atom.x} y={atom.y}
+                            text-anchor="middle" dominant-baseline="middle"
+                            font-size={`${0.48 * VIEW_PAD}`}
+                            fill="#0f172a"
+                            stroke="white" stroke-width={`${0.18 * VIEW_PAD}`}
+                            paint-order="stroke" stroke-linejoin="round"
+                            class="select-none">
                         {atom.symbol}
                       </text>
                     </Show>
@@ -256,11 +270,14 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
                 </For>
               </svg>
               <p class="mt-2 text-xs text-base-content/70">
-                Click a highlighted bond or select a torsion row to sync the diagram.
+                Click a <span class="font-semibold" style={{ color: C_ACTIVE }}>blue</span> bond to view its dihedral.
               </p>
             </div>
 
+            {/* ── Right column ── */}
             <div class="flex flex-col gap-3 min-w-0">
+
+              {/* Torsion table */}
               <div class="bg-base-100 rounded-lg border border-base-300 p-3">
                 <div class="overflow-auto max-h-48">
                   <table class="table table-xs">
@@ -274,13 +291,11 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
                     <tbody>
                       <For each={torsions()}>
                         {(row) => (
-                          <tr
-                            class={`cursor-pointer ${selectedTorsionId() === row.torsionId ? 'bg-primary/10' : ''}`}
-                            onClick={() => setSelectedTorsionId(row.torsionId)}
-                          >
+                          <tr class={`cursor-pointer ${selectedTorsionId() === row.torsionId ? 'bg-primary/10' : ''}`}
+                              onClick={() => setSelectedTorsionId(row.torsionId)}>
                             <td class="font-mono text-[11px]">{row.label}</td>
-                            <td class="text-right font-mono text-[11px]">{formatAngle(row.circularMean)}</td>
-                            <td class="text-right font-mono text-[11px]">{formatAngle(row.circularStd)}</td>
+                            <td class="text-right font-mono text-[11px]">{fmtAngle(row.circularMean)}</td>
+                            <td class="text-right font-mono text-[11px]">{fmtAngle(row.circularStd)}</td>
                           </tr>
                         )}
                       </For>
@@ -289,6 +304,7 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
                 </div>
               </div>
 
+              {/* ── Plot + detail ── */}
               <Show when={selectedTorsion()}>
                 <div class="bg-base-100 rounded-lg border border-base-300 p-3 flex flex-col gap-3 min-w-0">
                   <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -299,50 +315,116 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
                       </div>
                     </div>
                     <div class="text-xs text-base-content/70">
-                      median {formatAngle(selectedTorsion()!.median)}
+                      median {fmtAngle(selectedTorsion()!.median)}
                     </div>
                   </div>
 
-                  <svg viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`} class="w-full h-56 bg-base-200 rounded">
-                    <For each={yTicks}>
+                  {/* Plot SVG */}
+                  <svg viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
+                       preserveAspectRatio="xMidYMid meet"
+                       class="w-full bg-base-200 rounded overflow-hidden"
+                       style={{ "aspect-ratio": `${PLOT_WIDTH} / ${PLOT_HEIGHT}` }}>
+
+                    {/* Plot border */}
+                    <rect x={PL} y={PT} width={PW} height={PH}
+                          fill="none" stroke="#e2e8f0" stroke-width="1" />
+
+                    {/* Y-axis grid + labels */}
+                    <For each={Y_TICKS}>
                       {(tick) => {
-                        const y = PLOT_MARGIN + ((180 - (tick + 180)) / 360) * (PLOT_HEIGHT - PLOT_MARGIN * 2);
+                        const y = angleToY(tick);
                         return (
                           <>
-                            <line x1={PLOT_MARGIN} y1={y} x2={PLOT_WIDTH - PLOT_MARGIN} y2={y} stroke="#cbd5e1" stroke-width="1" />
-                            <text x={8} y={y + 4} font-size="10" fill="#475569">{tick}</text>
+                            <line x1={PL} y1={y} x2={PR} y2={y}
+                                  stroke="#cbd5e1" stroke-width="1" />
+                            <text x={M.left - 4} y={y + 3.5}
+                                  font-size="10" fill="#475569" text-anchor="end">
+                              {tick}°
+                            </text>
                           </>
                         );
                       }}
                     </For>
 
-                    <Show when={activeTab() === 'trajectory' && makeTrajectoryPoints()}>
-                      <polyline
-                        fill="none"
-                        stroke="#2563eb"
-                        stroke-width="2"
-                        points={makeTrajectoryPoints()}
-                      />
+                    {/* ── Trajectory view ── */}
+                    <Show when={activeTab() === 'trajectory' && trajectoryPoints()}>
+                      <polyline fill="none" stroke={C_TRAJ} stroke-width="1.5"
+                                points={trajectoryPoints()} opacity="0.85" />
+                      {/* X-axis frame labels */}
+                      {(() => {
+                        const frames = props.analysis.sampledFrameIndices;
+                        if (!frames.length) return null;
+                        return (
+                          <>
+                            <text x={PL} y={PB + 16} font-size="9" fill="#64748b" text-anchor="start">
+                              {frames[0]}
+                            </text>
+                            <text x={PR} y={PB + 16} font-size="9" fill="#64748b" text-anchor="end">
+                              {frames[frames.length - 1]}
+                            </text>
+                            <text x={(PL + PR) / 2} y={PB + 16} font-size="9" fill="#64748b" text-anchor="middle">
+                              Frame
+                            </text>
+                          </>
+                        );
+                      })()}
                     </Show>
 
-                    <Show when={activeTab() === 'clusters' && makeClusterPoints()}>
-                      <polyline
-                        fill="none"
-                        stroke="#0f766e"
-                        stroke-width="2"
-                        points={makeClusterPoints()}
-                      />
-                      <For each={clusterValues()}>
-                        {(value, index) => {
-                          const span = Math.max(1, clusterValues().length - 1);
-                          const x = PLOT_MARGIN + (index() / span) * (PLOT_WIDTH - PLOT_MARGIN * 2);
-                          const y = PLOT_MARGIN + ((180 - (value.angle + 180)) / 360) * (PLOT_HEIGHT - PLOT_MARGIN * 2);
-                          return <circle cx={x} cy={y} r="3.5" fill="#0f766e" />;
-                        }}
-                      </For>
+                    {/* ── Cluster lollipop view ── */}
+                    <Show when={activeTab() === 'clusters' && clusterValues().length > 0}>
+                      {(() => {
+                        const vals = clusterValues();
+                        const n = vals.length;
+                        const span = Math.max(1, n - 1);
+                        const zeroY = angleToY(0);
+                        return (
+                          <>
+                            {/* 0° reference dashed line */}
+                            <line x1={PL} y1={zeroY} x2={PR} y2={zeroY}
+                                  stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3" />
+
+                            <For each={vals}>
+                              {(v, i) => {
+                                const x = n === 1
+                                  ? (PL + PR) / 2
+                                  : PL + (i() / span) * PW;
+                                const y = angleToY(v.angle);
+                                const r = 4 + (v.population / 100) * 6;
+                                return (
+                                  <>
+                                    {/* Stem from 0° to angle */}
+                                    <line x1={x} y1={zeroY} x2={x} y2={y}
+                                          stroke={C_CLUST} stroke-width="2" opacity="0.45" />
+                                    {/* Dot (radius scaled by population) */}
+                                    <circle cx={x} cy={y} r={r}
+                                            fill={C_CLUST} opacity="0.85" />
+                                    {/* Angle label above dot */}
+                                    <text x={x} y={y - r - 3}
+                                          font-size="9" fill="#0f766e" text-anchor="middle"
+                                          font-weight="600">
+                                      {v.angle.toFixed(0)}°
+                                    </text>
+                                    {/* Cluster ID below plot */}
+                                    <text x={x} y={PB + 14}
+                                          font-size="9" fill="#64748b" text-anchor="middle">
+                                      C{v.clusterId + 1}
+                                    </text>
+                                    {/* Population below ID */}
+                                    <text x={x} y={PB + 24}
+                                          font-size="8" fill="#94a3b8" text-anchor="middle">
+                                      {v.population.toFixed(0)}%
+                                    </text>
+                                  </>
+                                );
+                              }}
+                            </For>
+                          </>
+                        );
+                      })()}
                     </Show>
                   </svg>
 
+                  {/* Below-plot info */}
                   <Show
                     when={activeTab() === 'trajectory'}
                     fallback={
@@ -357,11 +439,11 @@ const MDTorsionPanel: Component<MDTorsionPanelProps> = (props) => {
                           </thead>
                           <tbody>
                             <For each={clusterValues()}>
-                              {(value) => (
+                              {(v) => (
                                 <tr>
-                                  <td class="font-mono text-[11px]">{value.clusterId + 1}</td>
-                                  <td class="text-right font-mono text-[11px]">{value.population.toFixed(1)}%</td>
-                                  <td class="text-right font-mono text-[11px]">{formatAngle(value.angle)}</td>
+                                  <td class="font-mono text-[11px]">{v.clusterId + 1}</td>
+                                  <td class="text-right font-mono text-[11px]">{v.population.toFixed(1)}%</td>
+                                  <td class="text-right font-mono text-[11px]">{fmtAngle(v.angle)}</td>
                                 </tr>
                               )}
                             </For>

@@ -304,6 +304,7 @@ def prepare_docking_receptor(
         add_hydrogens: Add missing hydrogens via PDBFixer (default: True).
         protonation_ph: Uniform pH used for receptor hydrogen addition.
     """
+    print("PROGRESS: Removing ligand and cleaning receptor...", file=sys.stderr)
     ligands = parse_pdb_ligands(pdb_path)
 
     if ligand_id not in ligands:
@@ -315,6 +316,7 @@ def prepare_docking_receptor(
     chain = ligand['chain']
     resnum = ligand['resnum']
     ligand_coords = [(a['x'], a['y'], a['z']) for a in ligand['atoms']]
+    print("PROGRESS: Identifying binding pocket residues...", file=sys.stderr)
     pocket_residue_keys = identify_pocket_residue_keys_from_pdb(pdb_path, ligand_coords)
 
     # First pass: collect HETATM coordinates for distance-based retention

@@ -58,6 +58,9 @@ interface PreparedComplexRunResult {
 /** Track active docking processes for cancellation */
 const dockingProcesses = new Set<ChildProcess>();
 
+/** Track active receptor preparation process for cancellation */
+let activePrepProcess: ChildProcess | null = null;
+
 // ---------------------------------------------------------------------------
 // Local convenience wrappers that close over appState
 // ---------------------------------------------------------------------------
@@ -1104,7 +1107,7 @@ export function register(): void {
   ipcMain.handle(
     IpcChannels.PREPARE_RECEPTOR,
     async (
-      _event,
+      event,
       pdbPath: string,
       ligandId: string,
       outputPath: string,
@@ -1145,6 +1148,8 @@ export function register(): void {
         console.log(`[Dock:RecPrep] Preparing receptor ${path.basename(pdbPath)}, ligand ${ligandId}`);
 
         const python = spawn(appState.condaPythonPath, prepArgs);
+        activePrepProcess = python;
+        childProcesses.add(python);
 
         let stdout = '';
         let stderr = '';
@@ -1161,14 +1166,27 @@ export function register(): void {
           const text = data.toString();
           stderr += text;
           for (const line of text.split('\n')) {
-            if (line.trim()) console.log(`[Dock:RecPrep:err] ${line}`);
+            const trimmed = line.trim();
+            if (trimmed) console.log(`[Dock:RecPrep:err] ${trimmed}`);
+            // Forward PROGRESS lines to renderer
+            if (trimmed.startsWith('PROGRESS: ')) {
+              const message = trimmed.slice('PROGRESS: '.length);
+              event.sender.send(IpcChannels.PREP_PROGRESS, message);
+            }
           }
         });
 
         python.on('close', (code: number | null) => {
+          childProcesses.delete(python);
+          activePrepProcess = null;
           if (code === 0) {
             console.log(`[Dock:RecPrep] Complete: ${outputPath}`);
             resolve(Ok(outputPath));
+          } else if (code === null || python.killed) {
+            resolve(Err({
+              type: 'USER_CANCELLED',
+              message: 'Receptor preparation cancelled',
+            }));
           } else {
             console.error(`[Dock:RecPrep] Failed: ${stderr.slice(0, 200)}`);
             resolve(Err({
@@ -1179,6 +1197,8 @@ export function register(): void {
         });
 
         python.on('error', (error: Error) => {
+          childProcesses.delete(python);
+          activePrepProcess = null;
           resolve(Err({
             type: 'PARSE_FAILED',
             message: error.message,
@@ -1187,6 +1207,15 @@ export function register(): void {
       });
     }
   );
+
+  // Cancel receptor preparation
+  ipcMain.handle(IpcChannels.CANCEL_PREP, async () => {
+    if (activePrepProcess && !activePrepProcess.killed) {
+      console.log('[Dock:RecPrep] Cancelling receptor preparation');
+      activePrepProcess.kill('SIGTERM');
+      activePrepProcess = null;
+    }
+  });
 
   // Prepare docking complex
   ipcMain.handle(
