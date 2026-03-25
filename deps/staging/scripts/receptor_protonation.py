@@ -514,10 +514,13 @@ def collect_propka_shifted_residues(input_pdb: str, protonation_ph: float) -> Di
                 propka_state = "protonated" if group.pka_value > protonation_ph else "deprotonated"
             if propka_state == default_state:
                 continue
+            # chain_id/res_num live on group.atom, not the group itself
+            g_chain = group.atom.chain_id
+            g_resnum = group.atom.res_num
             report["shifted_residues"].append({
-                "residue_key": residue_key(group.chain_id, str(group.res_num)),
-                "chain_id": group.chain_id,
-                "residue_number": str(group.res_num),
+                "residue_key": residue_key(g_chain, str(g_resnum)),
+                "chain_id": g_chain,
+                "residue_number": str(g_resnum),
                 "residue_name": family,
                 "pka": float(group.pka_value),
                 "default_state": default_state,

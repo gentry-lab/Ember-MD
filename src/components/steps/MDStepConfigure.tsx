@@ -241,7 +241,7 @@ const MDStepConfigure: Component = () => {
               <DurationDial
                 value={state().md.config.productionNs}
                 min={0.1}
-                max={10000}
+                max={1000}
                 onChange={(v) => setMdConfig({ productionNs: v })}
                 disabled={state().md.isBenchmarking}
               />
@@ -387,7 +387,7 @@ const MDStepConfigure: Component = () => {
                 <div class="space-y-2 text-xs">
                   <div class="flex justify-between py-1.5 border-b border-base-300">
                     <span class="text-base-content/90">Padding</span>
-                    <span class="font-mono">1.2 nm</span>
+                    <span class="font-mono">{MD_COMMON_PARAMS.paddingNm} nm</span>
                   </div>
                   <div class="flex justify-between py-1.5 border-b border-base-300">
                     <span class="text-base-content/90">Timestep</span>
@@ -395,7 +395,7 @@ const MDStepConfigure: Component = () => {
                   </div>
                   <div class="flex justify-between py-1.5 border-b border-base-300">
                     <span class="text-base-content/90">Box Shape</span>
-                    <span class="font-mono">Rhombic dodecahedron</span>
+                    <span class="font-mono">Auto (minimize volume)</span>
                   </div>
                   <div class="flex justify-between py-1.5 border-b border-base-300">
                     <span class="text-base-content/90">Integrator</span>

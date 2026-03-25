@@ -501,7 +501,7 @@ export function register(): void {
           '--force_field_preset', config.forceFieldPreset || 'ff19sb-opc',
           '--temperature', String(config.temperatureK || 300),
           '--salt_concentration', String(config.saltConcentrationM || 0.15),
-          '--padding', String(config.paddingNm || 1.2),
+          '--padding', String(config.paddingNm || 1.0),
         ];
 
         if (!apo && ligandSdf) {

@@ -12,7 +12,7 @@ export interface MDConfig {
   compoundId: string;             // Optional compound identifier (e.g., "imatinib")
   temperatureK: number;           // Kelvin (default: 300)
   saltConcentrationM: number;     // Molar (default: 0.15 = 150 mM)
-  paddingNm: number;              // nm (default: 1.2)
+  paddingNm: number;              // nm (default: 1.0)
   seed: number;                   // Random seed for velocities + Langevin noise (0 = auto)
 }
 
@@ -22,7 +22,7 @@ export const DEFAULT_MD_CONFIG: MDConfig = {
   compoundId: '',
   temperatureK: 300,
   saltConcentrationM: 0.15,
-  paddingNm: 1.2,
+  paddingNm: 1.0,
   seed: 0,
 };
 
@@ -30,8 +30,8 @@ export const DEFAULT_MD_CONFIG: MDConfig = {
 export const MD_COMMON_PARAMS = {
   temperature: 300,           // K
   saltConcentration: 0.15,    // M (150 mM)
-  boxShape: 'dodecahedron',
-  paddingNm: 1.2,             // nm
+  boxShape: 'auto',           // auto-selects dodecahedron or orthorhombic (whichever is smaller)
+  paddingNm: 1.0,             // nm
   timestepFs: 4,              // fs (HMR enabled for faster production)
   forceFieldLigand: 'OpenFF Sage 2.3.0',
   integrator: 'LangevinMiddle',

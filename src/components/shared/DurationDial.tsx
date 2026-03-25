@@ -32,8 +32,8 @@ const SNAP_VALUES: number[] = [];
     [125, 250, 25],     // 125, 150, ... 250
     [300, 500, 50],     // 300, 350, ... 500
     [600, 1000, 100],   // 600, 700, ... 1000
-    [1100, 5000, 100], // 1.1, 1.2, ... 5.0 us
-    [5500, 10000, 500], // 5.5, 6.0, ... 10.0 us
+    [1100, 5000, 100], // 1.1, 1.2, ... 5.0 us (only used if max > 1000)
+    [5500, 10000, 500], // 5.5, 6.0, ... 10.0 us (only used if max > 1000)
   ];
   for (const [start, end, step] of ranges) {
     for (let v = start; v <= end + step * 0.01; v += step) {
@@ -131,6 +131,11 @@ const DurationDial: Component<DurationDialProps> = (props) => {
     const arcEnd = (ARC_START + ARC_SWEEP) % 360; // 45°
     if (angle > arcEnd && angle < ARC_START) {
       return null;
+    }
+    // Angles 0°–45° are past the 360° wrap but still on the arc (135°→405°).
+    // Unwrap so angleToValue sees them as 360°–405° instead of clamping to min.
+    if (angle < ARC_START) {
+      angle += 360;
     }
     return angle;
   };
@@ -245,8 +250,8 @@ const DurationDial: Component<DurationDialProps> = (props) => {
           stroke-linecap="round"
         />
 
-        {/* Minor ticks in the 1-10 us decade for smoother visual guidance */}
-        {MINOR_TICKS.map((v) => {
+        {/* Minor ticks for smoother visual guidance (filtered to dial range) */}
+        {MINOR_TICKS.filter(v => v >= min() && v <= max()).map((v) => {
           const angle = valueToAngle(v);
           const inner = polarToXY(angle, RADIUS - TRACK_WIDTH / 2 - 1);
           const outer = polarToXY(angle, RADIUS + TRACK_WIDTH / 2 + 1);
@@ -260,8 +265,8 @@ const DurationDial: Component<DurationDialProps> = (props) => {
           );
         })}
 
-        {/* Major tick marks and labels */}
-        {MAJOR_TICK_LABELS.map((v) => {
+        {/* Major tick marks and labels (filtered to dial range) */}
+        {MAJOR_TICK_LABELS.filter(v => v >= min() && v <= max()).map((v) => {
           const angle = valueToAngle(v);
           const inner = polarToXY(angle, RADIUS - TRACK_WIDTH / 2 - 2);
           const outer = polarToXY(angle, RADIUS + TRACK_WIDTH / 2 + 2);
