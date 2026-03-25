@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, onMount, createSignal, createMemo, For, Show } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, createMemo, For, Show } from 'solid-js';
 import path from 'path';
 import { workflowStore } from '../../stores/workflow';
 import { useMdOutput } from '../../hooks/useElectronApi';
@@ -51,6 +51,20 @@ const MDStepProgress: Component = () => {
   const [hasStarted, setHasStarted] = createSignal(false);
   const [productionNs, setProductionNs] = createSignal<{ current: number; total: number } | null>(null);
   const [chargeEstimate, setChargeEstimate] = createSignal<string | null>(null);
+  const [showPrepHint, setShowPrepHint] = createSignal(false);
+
+  // After 8s in building/parameterizing, show a "this is normal" hint
+  let prepHintTimer: ReturnType<typeof setTimeout> | undefined;
+  const startPrepHintTimer = () => {
+    clearTimeout(prepHintTimer);
+    setShowPrepHint(false);
+    prepHintTimer = setTimeout(() => setShowPrepHint(true), 8000);
+  };
+  const clearPrepHintTimer = () => {
+    clearTimeout(prepHintTimer);
+    setShowPrepHint(false);
+  };
+  onCleanup(clearPrepHintTimer);
 
   const api = window.electronAPI;
 
@@ -67,6 +81,13 @@ const MDStepProgress: Component = () => {
       const stage = progressMatch[1] as MDStage;
       const value = progressMatch[2];
       setMdCurrentStage(stage);
+
+      // Manage the "still working" hint for early prep stages
+      if (stage === 'building' || stage === 'parameterizing') {
+        if (!showPrepHint()) startPrepHintTimer();
+      } else {
+        clearPrepHintTimer();
+      }
 
       if (stage === 'production' && value.includes('/')) {
         // Parse ns format: current/total
@@ -390,6 +411,13 @@ const MDStepProgress: Component = () => {
                     ? STAGES.find(s => s.id === state().md.currentStage)?.description || 'Processing...'
                     : 'Initializing...'}
           </p>
+          <Show when={showPrepHint() && state().isRunning && (state().md.currentStage === 'building' || state().md.currentStage === 'parameterizing')}>
+            <p class="text-xs text-warning mt-0.5">
+              {state().md.currentStage === 'parameterizing'
+                ? 'AM1-BCC charge generation can be slow for larger ligands — this is normal'
+                : 'System setup is still running — receptor prep and solvation can take a moment'}
+            </p>
+          </Show>
         </div>
         <div class="flex items-center gap-2">
           <Show when={state().md.systemInfo}>

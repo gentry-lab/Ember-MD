@@ -60,6 +60,66 @@ _PRESET_ALIASES = {'fast': 'ff14sb-tip3p', 'accurate': 'ff19sb-opc'}
 KCAL_MOL_A2 = kilocalories_per_mole / angstroms**2
 
 
+def _optimize_box(modeller, padding_nm=1.0):
+    """Choose the smallest periodic box for the solute.
+
+    OpenMM's addSolvent(padding=...) uses a bounding SPHERE for all box shapes:
+      width = 2*sphere_radius + padding
+    This wastes water for non-spherical proteins because the sphere must enclose
+    the longest diagonal.
+
+    Compares dodecahedron (sphere-based) vs orthorhombic (per-axis, PCA-rotated)
+    and picks the smaller box.
+    Returns kwargs dict for addSolvent.
+    """
+    import numpy as np
+
+    positions = modeller.positions
+    coords = np.array(positions.value_in_unit(nanometers))
+
+    centroid = coords.mean(axis=0)
+    centered = coords - centroid
+    sphere_radius = np.linalg.norm(centered, axis=1).max()
+    dodec_width = 2 * sphere_radius + padding_nm
+    dodec_vol = dodec_width**3 * (2**0.5 / 2)
+
+    c = centered
+    Ixx = np.sum(c[:, 1]**2 + c[:, 2]**2)
+    Iyy = np.sum(c[:, 0]**2 + c[:, 2]**2)
+    Izz = np.sum(c[:, 0]**2 + c[:, 1]**2)
+    Ixy = -np.sum(c[:, 0] * c[:, 1])
+    Ixz = -np.sum(c[:, 0] * c[:, 2])
+    Iyz = -np.sum(c[:, 1] * c[:, 2])
+    inertia = np.array([[Ixx, Ixy, Ixz], [Ixy, Iyy, Iyz], [Ixz, Iyz, Izz]])
+    _, evecs = np.linalg.eigh(inertia)
+    if np.linalg.det(evecs) < 0:
+        evecs[:, 0] *= -1
+
+    rotated = centered @ evecs
+    rot_extent = rotated.max(axis=0) - rotated.min(axis=0)
+    ortho_box = rot_extent + 2 * padding_nm
+    ortho_vol = ortho_box[0] * ortho_box[1] * ortho_box[2]
+
+    extent_A = rot_extent * 10
+    sphere_r_A = sphere_radius * 10
+
+    if dodec_vol <= ortho_vol:
+        modeller.positions = [Vec3(*r) for r in centered] * nanometers
+        desc = (f'dodecahedron (sphere r={sphere_r_A:.0f} A, '
+                f'extent {extent_A[0]:.0f}x{extent_A[1]:.0f}x{extent_A[2]:.0f})')
+        kwargs = dict(boxShape='dodecahedron', padding=padding_nm * nanometers)
+    else:
+        modeller.positions = [Vec3(*r) for r in rotated] * nanometers
+        box_A = ortho_box * 10
+        desc = (f'orthorhombic {box_A[0]:.0f}x{box_A[1]:.0f}x{box_A[2]:.0f} A '
+                f'({(1 - ortho_vol / dodec_vol) * 100:.0f}% smaller than dodecahedron)')
+        kwargs = dict(boxSize=Vec3(*ortho_box) * nanometers)
+
+    vol_A3 = min(dodec_vol, ortho_vol) * 1000
+    print(f'  Box optimization: {desc}, est. {vol_A3:.0f} A^3', file=sys.stderr)
+    return kwargs
+
+
 def _estimate_am1bcc_time(n_atoms: int) -> str:
     """Estimate AM1-BCC charge computation time from atom count.
 
@@ -227,16 +287,17 @@ def build_ligand_only_system(ligand_sdf: str, output_dir: str, force_field_prese
     print(f'[{time.time()-t_start:.1f}s] AM1-BCC charges computed', file=sys.stderr)
     print('PROGRESS:parameterizing:100', flush=True)
 
-    # 5. Add solvent (cubic box — dodecahedron gives no volume savings for small systems)
-    print(f'[{time.time()-t_start:.1f}s] Adding solvent ({water_label} water, cubic box)...', file=sys.stderr)
+    # 5. Optimize box shape and size, then add solvent
+    box_kwargs = _optimize_box(modeller, 1.0)
+    print(f'[{time.time()-t_start:.1f}s] Adding solvent ({water_label} water)...', file=sys.stderr)
     modeller.addSolvent(
         ff,
         model=water_model,
-        padding=1.2*nanometers,
         ionicStrength=0.15*molar,
         positiveIon='Na+',
         negativeIon='Cl-',
-        neutralize=True
+        neutralize=True,
+        **box_kwargs
     )
     print(f'[{time.time()-t_start:.1f}s] Solvation complete', file=sys.stderr)
     print('PROGRESS:building:80', flush=True)
@@ -454,16 +515,16 @@ def build_system(receptor_pdb: str, ligand_sdf: str, output_dir: str, force_fiel
     modeller.add(lig_top, lig_pos)
     print('PROGRESS:building:50', flush=True)
 
-    print(f'Adding solvent ({water_label} water, dodecahedron)...', file=sys.stderr)
+    box_kwargs = _optimize_box(modeller, 1.0)
+    print(f'Adding solvent ({water_label} water)...', file=sys.stderr)
     modeller.addSolvent(
         ff,
         model=water_model,
-        boxShape='dodecahedron',
-        padding=1.2*nanometers,
         ionicStrength=0.15*molar,
         positiveIon='Na+',
         negativeIon='Cl-',
-        neutralize=True
+        neutralize=True,
+        **box_kwargs
     )
     print('PROGRESS:building:80', flush=True)
 
