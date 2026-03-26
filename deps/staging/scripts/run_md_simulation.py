@@ -1345,10 +1345,12 @@ def run_production(system: Any, modeller: Any, equilibrated_state: Any, output_d
         ns_per_day = (ns_completed / elapsed) * 86400 if elapsed > 0 else 0
         remaining_ns = production_ns - ns_completed
         eta_s = (remaining_ns / ns_completed) * elapsed if ns_completed > 0 else 0
-        # Format: current_ns/total_ns:ns_per_day:eta_seconds
-        print(f'PROGRESS:production:{ns_completed:.1f}/{production_ns:.1f}:{ns_per_day:.1f}:{eta_s:.0f}', flush=True)
+        now = time.strftime('%H:%M:%S')
+        # Format: current_ns/total_ns:ns_per_day:eta_seconds:timestamp
+        print(f'PROGRESS:production:{ns_completed:.1f}/{production_ns:.1f}:{ns_per_day:.1f}:{eta_s:.0f}:{now}', flush=True)
 
-    print(f'PROGRESS:production:{production_ns:.1f}/{production_ns:.1f}:0:0', flush=True)
+    now = time.strftime('%H:%M:%S')
+    print(f'PROGRESS:production:{production_ns:.1f}/{production_ns:.1f}:0:0:{now}', flush=True)
 
     # Save final frame
     state = simulation.context.getState(getPositions=True)
