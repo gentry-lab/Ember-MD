@@ -1,9 +1,10 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, Show, For, createSignal, createMemo, onMount, onCleanup, batch } from 'solid-js';
+import { Component, Show, For, createSignal, createMemo, createEffect, on, onMount, onCleanup, batch } from 'solid-js';
 import { workflowStore, ViewerQueueItem } from '../../stores/workflow';
 import path from 'path';
 import MDTorsionPanel from './MDTorsionPanel';
 import { buildMdProjectTable } from '../../utils/viewerQueue';
+import type { MoleculeDetailsResult } from '../../../shared/types/ipc';
 
 type SortField = 'clusterId' | 'population' | 'vinaRescore' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity';
 type SortDirection = 'asc' | 'desc';
@@ -15,6 +16,7 @@ type DisplayCluster = {
   population: number;
   centroidFrame: number;
   centroidPdbPath?: string;
+  ligandSdfPath?: string;
   vinaRescore?: number;
   cordialExpectedPkd?: number;
   cordialPHighAffinity?: number;
@@ -101,6 +103,21 @@ const MDStepResults: Component = () => {
     if (idx == null) return null;
     return sortedClusters()[idx] ?? null;
   });
+
+  // Lazy-load molecule thumbnail + RMSD for selected cluster's ligand
+  const [clusterMolDetails, setClusterMolDetails] = createSignal<MoleculeDetailsResult | null>(null);
+  createEffect(on(
+    () => selectedCluster()?.ligandSdfPath,
+    async (sdfPath) => {
+      setClusterMolDetails(null);
+      if (!sdfPath) return;
+      try {
+        const referenceSdf = state().md.ligandSdf || undefined;
+        const result = await api.getMoleculeDetails(sdfPath, referenceSdf);
+        if (result.ok) setClusterMolDetails(result.value);
+      } catch { /* ignore */ }
+    },
+  ));
 
   const selectIndex = (idx: number) => {
     setSelectedIndex(idx);
@@ -423,6 +440,28 @@ const MDStepResults: Component = () => {
                         </svg>
                       </button>
                     </div>
+
+                    {/* 2D molecule thumbnail + RMSD */}
+                    <Show when={clusterMolDetails()?.thumbnail}>
+                      <div class="flex justify-center">
+                        <img
+                          src={clusterMolDetails()!.thumbnail!}
+                          alt="2D structure"
+                          class="rounded border border-base-300 bg-white"
+                          style={{ width: '160px', height: '160px', 'object-fit': 'contain' }}
+                        />
+                      </div>
+                    </Show>
+                    <Show when={clusterMolDetails() && (clusterMolDetails()!.rmsd != null || clusterMolDetails()!.centroid != null)}>
+                      <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-base-content/60">
+                        <Show when={clusterMolDetails()!.rmsd != null}>
+                          <span>RMSD <span class="font-mono font-semibold text-base-content">{clusterMolDetails()!.rmsd!.toFixed(2)} A</span></span>
+                        </Show>
+                        <Show when={clusterMolDetails()!.centroid != null}>
+                          <span>Centroid <span class="font-mono font-semibold text-base-content text-[9px]">({clusterMolDetails()!.centroid!.x.toFixed(1)}, {clusterMolDetails()!.centroid!.y.toFixed(1)}, {clusterMolDetails()!.centroid!.z.toFixed(1)})</span></span>
+                        </Show>
+                      </div>
+                    </Show>
 
                     {/* Scores row */}
                     <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">

@@ -151,6 +151,7 @@ export const runCordialScoringJob = async (
   outputCsv: string,
   batchSize: number,
   options?: {
+    env?: NodeJS.ProcessEnv;
     cwd?: string;
     onStdout?: (text: string) => void;
     onStderr?: (text: string) => void;
@@ -199,7 +200,7 @@ export const runCordialScoringJob = async (
   const proc = spawn(pythonPath, args, {
     cwd: options?.cwd || cordialRoot,
     env: {
-      ...process.env,
+      ...getSpawnEnv(),
       PYTHONPATH: cordialRoot,
       KMP_DUPLICATE_LIB_OK: 'TRUE',
       OMP_NUM_THREADS: process.env.OMP_NUM_THREADS || '1',
@@ -207,6 +208,7 @@ export const runCordialScoringJob = async (
       OPENBLAS_NUM_THREADS: process.env.OPENBLAS_NUM_THREADS || '1',
       NUMEXPR_NUM_THREADS: process.env.NUMEXPR_NUM_THREADS || '1',
       VECLIB_MAXIMUM_THREADS: process.env.VECLIB_MAXIMUM_THREADS || '1',
+      ...options?.env,
     },
   });
 

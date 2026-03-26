@@ -35,11 +35,12 @@ import {
   DetectedLigand as DockDetectedLigand,
 } from '../../shared/types/dock';
 
-export type WorkflowMode = 'dock' | 'md' | 'score' | 'viewer' | 'map' | 'conform';
+export type WorkflowMode = 'dock' | 'md' | 'score' | 'xray' | 'viewer' | 'map' | 'conform';
 export type DockStep = 'dock-load' | 'dock-configure' | 'dock-progress' | 'dock-results';
 export type MDStep = 'md-home' | 'md-load' | 'md-configure' | 'md-progress' | 'md-results';
 export type ConformStep = 'conform-load' | 'conform-configure' | 'conform-progress' | 'conform-results';
 export type ScoreStep = 'score-load' | 'score-progress' | 'score-results';
+export type XrayStep = 'xray-load' | 'xray-progress' | 'xray-results';
 export type MapStep = 'map-load' | 'map-configure' | 'map-progress' | 'map-results';
 
 // Map mode types — mirrors PocketMapMethod in shared/types/ipc.ts
@@ -49,6 +50,8 @@ import type {
   ScoredClusterResult,
   MdTorsionAnalysis,
   XrayAnalysisResult,
+  XrayDirectoryScanResult,
+  BatchScoreEntryResult,
 } from '../../shared/types/ipc';
 export type MapMethod = PocketMapMethod;
 
@@ -294,11 +297,35 @@ export interface ConformState {
   isRunning: boolean;
 }
 
+export interface ScoreComplexEntry {
+  id: string;
+  pdbPath: string;
+  name: string;
+  detectedLigands: DetectedLigand[];
+  selectedLigandId: string | null;
+  isPrepared: boolean;
+  preparedReceptorPath: string | null;
+  extractedLigandSdfPath: string | null;
+  vinaScore: number | null;
+  cordialExpectedPkd: number | null;
+  cordialPHighAffinity: number | null;
+  qed: number | null;
+  status: 'pending' | 'detecting' | 'preparing' | 'scoring' | 'done' | 'error';
+  errorMessage: string | null;
+}
+
 export interface ScoreState {
-  inputDir: string | null;
+  entries: ScoreComplexEntry[];
   outputDir: string | null;
-  pdfPaths: string[];
-  lastResult: XrayAnalysisResult | null;
+  isRunning: boolean;
+  cordialAvailable: boolean;
+}
+
+export interface XrayState {
+  inputDir: string | null;
+  scanResult: XrayDirectoryScanResult | null;
+  outputDir: string | null;
+  result: XrayAnalysisResult | null;
   isRunning: boolean;
 }
 
@@ -369,6 +396,7 @@ export interface WorkflowState {
   mdStep: MDStep;
   conformStep: ConformStep;
   scoreStep: ScoreStep;
+  xrayStep: XrayStep;
   pdbFile: PdbFile | null;
   customOutputDir: string | null;
   jobName: string;
@@ -384,6 +412,7 @@ export interface WorkflowState {
   map: MapState;
   conform: ConformState;
   score: ScoreState;
+  xray: XrayState;
 }
 
 const defaultDockState: DockState = {
@@ -467,10 +496,17 @@ const defaultConformState: ConformState = {
 };
 
 const defaultScoreState: ScoreState = {
-  inputDir: null,
+  entries: [],
   outputDir: null,
-  pdfPaths: [],
-  lastResult: null,
+  isRunning: false,
+  cordialAvailable: false,
+};
+
+const defaultXrayState: XrayState = {
+  inputDir: null,
+  scanResult: null,
+  outputDir: null,
+  result: null,
   isRunning: false,
 };
 
@@ -537,6 +573,7 @@ function createWorkflowStore() {
     mdStep: 'md-load',
     conformStep: 'conform-load',
     scoreStep: 'score-load',
+    xrayStep: 'xray-load',
     pdbFile: null,
     customOutputDir: null,
     jobName: initialJobName,
@@ -552,6 +589,7 @@ function createWorkflowStore() {
     map: { ...defaultMapState },
     conform: { ...defaultConformState },
     score: { ...defaultScoreState },
+    xray: { ...defaultXrayState },
   });
 
   // Mode selection
@@ -578,6 +616,11 @@ function createWorkflowStore() {
   const setScoreStep = (scoreStep: ScoreStep) => {
     console.log(`[Store] setScoreStep: ${state().scoreStep} → ${scoreStep}`);
     setState((s) => ({ ...s, scoreStep }));
+  };
+
+  const setXrayStep = (xrayStep: XrayStep) => {
+    console.log(`[Store] setXrayStep: ${state().xrayStep} → ${xrayStep}`);
+    setState((s) => ({ ...s, xrayStep }));
   };
 
   const setPdbFile = (pdbFile: PdbFile | null) =>
@@ -1277,20 +1320,99 @@ function createWorkflowStore() {
   const setConformRunning = (isRunning: boolean) =>
     setState((s) => ({ ...s, conform: { ...s.conform, isRunning } }));
 
-  const setScoreInputDir = (inputDir: string | null) =>
-    setState((s) => ({ ...s, score: { ...s.score, inputDir } }));
+  const setScoreEntries = (entries: ScoreComplexEntry[]) =>
+    setState((s) => ({ ...s, score: { ...s.score, entries } }));
+
+  const addScoreEntries = (newEntries: ScoreComplexEntry[]) =>
+    setState((s) => ({ ...s, score: { ...s.score, entries: [...s.score.entries, ...newEntries] } }));
+
+  const removeScoreEntry = (id: string) =>
+    setState((s) => ({ ...s, score: { ...s.score, entries: s.score.entries.filter((e) => e.id !== id) } }));
+
+  const updateScoreEntry = (id: string, updates: Partial<ScoreComplexEntry>) =>
+    setState((s) => ({
+      ...s,
+      score: {
+        ...s.score,
+        entries: s.score.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+      },
+    }));
 
   const setScoreOutputDir = (outputDir: string | null) =>
     setState((s) => ({ ...s, score: { ...s.score, outputDir } }));
 
-  const setScorePdfPaths = (pdfPaths: string[]) =>
-    setState((s) => ({ ...s, score: { ...s.score, pdfPaths } }));
-
-  const setScoreLastResult = (lastResult: XrayAnalysisResult | null) =>
-    setState((s) => ({ ...s, score: { ...s.score, lastResult } }));
-
   const setScoreRunning = (isRunning: boolean) =>
     setState((s) => ({ ...s, score: { ...s.score, isRunning } }));
+
+  const setScoreCordialAvailable = (cordialAvailable: boolean) =>
+    setState((s) => ({ ...s, score: { ...s.score, cordialAvailable } }));
+
+  const setXrayInputDir = (inputDir: string | null) =>
+    setState((s) => ({ ...s, xray: { ...s.xray, inputDir } }));
+
+  const setXrayScanResult = (scanResult: XrayDirectoryScanResult | null) =>
+    setState((s) => ({ ...s, xray: { ...s.xray, scanResult } }));
+
+  const setXrayOutputDir = (outputDir: string | null) =>
+    setState((s) => ({ ...s, xray: { ...s.xray, outputDir } }));
+
+  const setXrayResult = (result: XrayAnalysisResult | null) =>
+    setState((s) => ({ ...s, xray: { ...s.xray, result } }));
+
+  const setXrayRunning = (isRunning: boolean) =>
+    setState((s) => ({ ...s, xray: { ...s.xray, isRunning } }));
+
+  const applyScoreBatchResults = (results: BatchScoreEntryResult[], cordialAvailable: boolean) => {
+    let matchedById = 0;
+    let matchedByPath = 0;
+    const usedResultIds = new Set<string>();
+
+    setState((s) => ({
+      ...s,
+      score: {
+        ...s.score,
+        cordialAvailable,
+        entries: s.score.entries.map((entry) => {
+          let r = results.find((res) => res.id === entry.id);
+          if (r) {
+            matchedById += 1;
+            usedResultIds.add(r.id);
+          } else {
+            const pathMatches = results.filter(
+              (res) =>
+                !usedResultIds.has(res.id) &&
+                res.pdbPath === entry.pdbPath &&
+                res.ligandId === entry.selectedLigandId,
+            );
+            if (pathMatches.length === 1) {
+              r = pathMatches[0];
+              matchedByPath += 1;
+              usedResultIds.add(r.id);
+            }
+          }
+          if (!r) return entry;
+          return {
+            ...entry,
+            status: r.status as ScoreComplexEntry['status'],
+            errorMessage: r.errorMessage,
+            preparedReceptorPath: r.preparedReceptorPath,
+            extractedLigandSdfPath: r.extractedLigandSdfPath,
+            vinaScore: r.vinaScore,
+            cordialExpectedPkd: r.cordialExpectedPkd,
+            cordialPHighAffinity: r.cordialPHighAffinity,
+            qed: r.qed,
+          };
+        }),
+      },
+    }));
+
+    return {
+      matchedById,
+      matchedByPath,
+      unmatchedResults: results.length - usedResultIds.size,
+      updatedEntries: usedResultIds.size,
+    };
+  };
 
   const clearViewerSession = () =>
     setState((s) => ({
@@ -1342,8 +1464,20 @@ function createWorkflowStore() {
       logs: '',
       errorMessage: null,
       isRunning: false,
-      runningMode: null,
+      runningMode: s.runningMode === 'score' ? null : s.runningMode,
       score: { ...defaultScoreState },
+    }));
+
+  const resetXray = () =>
+    setState((s) => ({
+      ...s,
+      xrayStep: 'xray-load' as XrayStep,
+      currentPhase: 'idle',
+      logs: '',
+      errorMessage: null,
+      isRunning: false,
+      runningMode: s.runningMode === 'xray' ? null : s.runningMode,
+      xray: { ...defaultXrayState },
     }));
 
   const resetViewer = () => {
@@ -1375,6 +1509,7 @@ function createWorkflowStore() {
       mdStep: 'md-home',
       conformStep: 'conform-load' as ConformStep,
       scoreStep: 'score-load' as ScoreStep,
+      xrayStep: 'xray-load' as XrayStep,
       pdbFile: null,
       customOutputDir: null,
       jobName: '',
@@ -1390,6 +1525,7 @@ function createWorkflowStore() {
       map: { ...defaultMapState },
       conform: { ...defaultConformState },
       score: { ...defaultScoreState },
+      xray: { ...defaultXrayState },
     }));
 
   // Auto-save project table to disk when it changes
@@ -1412,6 +1548,7 @@ function createWorkflowStore() {
     setMdStep,
     setConformStep,
     setScoreStep,
+    setXrayStep,
     setPdbFile,
     setCustomOutputDir,
     setJobName,
@@ -1554,13 +1691,22 @@ function createWorkflowStore() {
     setConformEnergies,
     setConformRunning,
     // Score state
-    setScoreInputDir,
+    setScoreEntries,
+    addScoreEntries,
+    removeScoreEntry,
+    updateScoreEntry,
     setScoreOutputDir,
-    setScorePdfPaths,
-    setScoreLastResult,
     setScoreRunning,
+    setScoreCordialAvailable,
+    applyScoreBatchResults,
+    setXrayInputDir,
+    setXrayScanResult,
+    setXrayOutputDir,
+    setXrayResult,
+    setXrayRunning,
     resetConform,
     resetScore,
+    resetXray,
     clearViewerSession,
     openViewerSession,
     // Utilities

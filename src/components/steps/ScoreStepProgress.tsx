@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, Show, createSignal, onCleanup, onMount } from 'solid-js';
-import path from 'path';
+import { Component, Show, For, createSignal, onCleanup, onMount } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { buildXrayRunFolderName } from '../../utils/jobName';
-import { projectPaths } from '../../utils/projectPaths';
+import { projectPathsFromProjectDir } from '../../utils/projectPaths';
+import { generateJobName } from '../../utils/jobName';
 import TerminalOutput from '../shared/TerminalOutput';
+import type { BatchScoreRequest, BatchScoreEntryResult } from '../../../shared/types/ipc';
 
 const ScoreStepProgress: Component = () => {
   const {
@@ -14,25 +14,60 @@ const ScoreStepProgress: Component = () => {
     setCurrentPhase,
     setError,
     setIsRunning,
-    setScoreOutputDir,
-    setScorePdfPaths,
-    setScoreLastResult,
     setScoreRunning,
+    setScoreOutputDir,
+    applyScoreBatchResults,
+    updateScoreEntry,
     setScoreStep,
   } = workflowStore;
   const api = window.electronAPI;
   const [hasStarted, setHasStarted] = createSignal(false);
 
   onMount(() => {
-    const cleanup = api.onXrayOutput((data) => {
+    const cleanup = api.onScoreOutput((data) => {
+      // Fast-path: only parse lines if structured marker present
+      if (data.data.includes('SCORE_ENTRY_RESULT')) {
+        for (const line of data.data.split('\n')) {
+          const match = line.match(/^SCORE_ENTRY_RESULT:([^:]+):(.+)$/);
+          if (match) {
+            try {
+              const result: BatchScoreEntryResult = JSON.parse(match[2]);
+              const matchedEntry = state().score.entries.find((entry) => entry.id === result.id)
+                ?? state().score.entries.find((entry) =>
+                  entry.pdbPath === result.pdbPath && entry.selectedLigandId === result.ligandId,
+                );
+
+              if (!matchedEntry) {
+                appendLog(`[Score][UI] Warning: received result for unknown entry id=${result.id} pdb=${result.pdbPath}\n`);
+                continue;
+              }
+
+              if (matchedEntry.id !== result.id) {
+                appendLog(`[Score][UI] Fallback-matched result by pdbPath for ${matchedEntry.name}\n`);
+              }
+
+              updateScoreEntry(matchedEntry.id, {
+                status: result.status === 'done' ? 'done' : 'error',
+                preparedReceptorPath: result.preparedReceptorPath,
+                extractedLigandSdfPath: result.extractedLigandSdfPath,
+                vinaScore: result.vinaScore,
+                cordialExpectedPkd: result.cordialExpectedPkd,
+                cordialPHighAffinity: result.cordialPHighAffinity,
+                qed: result.qed,
+                errorMessage: result.errorMessage,
+              });
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      }
       appendLog(data.data);
     });
     onCleanup(cleanup);
   });
 
-  const runAnalysis = async () => {
-    const inputDir = state().score.inputDir;
-    if (!inputDir) return;
+  const runScoring = async () => {
+    const entries = state().score.entries.filter((e) => e.status !== 'error');
+    if (entries.length === 0) return;
 
     setScoreRunning(true);
     setIsRunning(true);
@@ -40,24 +75,49 @@ const ScoreStepProgress: Component = () => {
     setError(null);
     clearLogs();
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName.trim());
-    const inputFolderName = path.basename(inputDir);
-    const runFolder = buildXrayRunFolderName(inputFolderName);
-    const outputDir = path.join(paths.xray(runFolder), 'reports');
+    // Mark all valid entries as pending
+    for (const entry of entries) {
+      updateScoreEntry(entry.id, { status: 'scoring' });
+    }
 
+    // Build output directory
+    const projectDir = state().projectDir;
+    if (!projectDir) {
+      setError('No project selected');
+      setCurrentPhase('error');
+      setScoreRunning(false);
+      setIsRunning(false);
+      return;
+    }
+    const paths = projectPathsFromProjectDir(projectDir);
+    const runFolder = `Score_${generateJobName()}`;
+    const outputDir = paths.scoring(runFolder).results;
     setScoreOutputDir(outputDir);
 
-    try {
-      await api.createDirectory(outputDir);
-      const result = await api.runXrayAnalysis(inputDir, outputDir);
+    const request: BatchScoreRequest = {
+      entries: entries.map((e) => ({
+        id: e.id,
+        name: e.name,
+        pdbPath: e.pdbPath,
+        ligandId: e.selectedLigandId,
+        isPrepared: e.isPrepared,
+      })),
+      outputDir,
+    };
 
+    try {
+      const result = await api.scoreBatch(request);
       if (result.ok) {
-        setScoreLastResult(result.value);
-        setScorePdfPaths(result.value.pdfPaths);
+        const mergeSummary = applyScoreBatchResults(result.value.entries, result.value.cordialAvailable);
         setCurrentPhase('complete');
-        appendLog(`\nGenerated ${result.value.pdfPaths.length} PDF report${result.value.pdfPaths.length === 1 ? '' : 's'}.\n`);
+        appendLog(
+          `\n[Score][UI] Merged ${mergeSummary.updatedEntries}/${result.value.entries.length} results ` +
+          `(id=${mergeSummary.matchedById}, path=${mergeSummary.matchedByPath}, unmatched=${mergeSummary.unmatchedResults}).\n`,
+        );
+        if (result.value.entries.length > 0 && mergeSummary.updatedEntries === 0) {
+          appendLog('[Score][UI] Warning: batch returned results, but no rows were updated in the table.\n');
+        }
+        appendLog(`\nScoring complete: ${result.value.entries.filter((e) => e.status === 'done').length} scored successfully.\n`);
       } else {
         setError(result.error.message);
         setCurrentPhase('error');
@@ -72,9 +132,9 @@ const ScoreStepProgress: Component = () => {
   };
 
   onMount(() => {
-    if (!state().score.isRunning && !hasStarted() && state().currentPhase !== 'complete') {
+    if (!state().score.isRunning && !hasStarted()) {
       setHasStarted(true);
-      runAnalysis();
+      runScoring();
     }
   });
 
@@ -83,18 +143,45 @@ const ScoreStepProgress: Component = () => {
     setCurrentPhase('idle');
     setError(null);
     clearLogs();
+    // Reset entry statuses back to pending
+    for (const entry of state().score.entries) {
+      if (entry.status !== 'error' || entry.selectedLigandId) {
+        updateScoreEntry(entry.id, {
+          status: 'pending',
+          vinaScore: null,
+          cordialExpectedPkd: null,
+          cordialPHighAffinity: null,
+          qed: null,
+          errorMessage: null,
+        });
+      }
+    }
     setScoreStep('score-load');
   };
+
+  const handleCancel = async () => {
+    try {
+      await api.cancelScoreBatch();
+    } catch { /* ignore */ }
+  };
+
+  const scoredEntries = () => state().score.entries.filter((e) => e.status !== 'error' || e.vinaScore !== null);
+  const totalValid = () => state().score.entries.filter((e) => e.selectedLigandId).length;
+  const completedCount = () => state().score.entries.filter((e) => e.status === 'done' || e.status === 'error').length;
 
   return (
     <div class="h-full flex flex-col">
       <div class="flex items-center justify-between mb-3">
         <div>
           <h2 class="text-xl font-bold">
-            {state().currentPhase === 'complete' ? 'X-ray Analysis Complete' : 'Running X-ray Pose Analysis'}
+            {state().currentPhase === 'complete' ? 'Scoring Complete' : 'Scoring Complexes'}
           </h2>
           <p class="text-sm text-base-content/90">
-            {state().score.inputDir || 'Waiting for input folder'}
+            {state().score.isRunning
+              ? `${completedCount()} of ${totalValid()} scored`
+              : state().currentPhase === 'complete'
+                ? `${state().score.entries.filter((e) => e.status === 'done').length} complexes scored`
+                : 'Waiting...'}
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -116,7 +203,52 @@ const ScoreStepProgress: Component = () => {
         </div>
       </Show>
 
-      <TerminalOutput title="X-ray Analyzer Output" logs={state().logs} />
+      {/* Progress table */}
+      <Show when={scoredEntries().length > 0}>
+        <div class="overflow-x-auto max-h-40 overflow-y-auto mb-2">
+          <table class="table table-xs table-zebra w-full">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th class="text-right">Vina</th>
+                <th class="text-right">QED</th>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={scoredEntries()}>{(entry, i) => (
+                <tr>
+                  <td class="font-mono text-xs">{i() + 1}</td>
+                  <td class="text-xs font-medium">{entry.name}</td>
+                  <td class="text-xs">
+                    <Show when={entry.status === 'scoring'}>
+                      <span class="loading loading-spinner loading-xs" />
+                    </Show>
+                    <Show when={entry.status === 'done'}>
+                      <span class="badge badge-success badge-xs">Done</span>
+                    </Show>
+                    <Show when={entry.status === 'error'}>
+                      <span class="badge badge-error badge-xs" title={entry.errorMessage || ''}>Error</span>
+                    </Show>
+                    <Show when={entry.status === 'pending'}>
+                      <span class="text-base-content/50">Pending</span>
+                    </Show>
+                  </td>
+                  <td class="text-right font-mono text-xs">
+                    {entry.vinaScore != null ? entry.vinaScore : '--'}
+                  </td>
+                  <td class="text-right font-mono text-xs">
+                    {entry.qed != null ? entry.qed : '--'}
+                  </td>
+                </tr>
+              )}</For>
+            </tbody>
+          </table>
+        </div>
+      </Show>
+
+      <TerminalOutput title="Scoring Output" logs={state().logs} />
 
       <div class="flex justify-between mt-3">
         <button class="btn btn-ghost btn-sm" onClick={handleBack} disabled={state().score.isRunning}>
@@ -125,14 +257,19 @@ const ScoreStepProgress: Component = () => {
           </svg>
           Back
         </button>
-        <Show when={state().currentPhase === 'complete'}>
-          <button class="btn btn-primary" onClick={() => setScoreStep('score-results')}>
-            View Results
-            <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-            </svg>
-          </button>
-        </Show>
+        <div class="flex gap-2">
+          <Show when={state().score.isRunning}>
+            <button class="btn btn-error btn-sm" onClick={handleCancel}>Cancel</button>
+          </Show>
+          <Show when={state().currentPhase === 'complete'}>
+            <button class="btn btn-primary" onClick={() => setScoreStep('score-results')}>
+              View Results
+              <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+            </button>
+          </Show>
+        </div>
       </div>
     </div>
   );

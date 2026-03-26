@@ -5,6 +5,7 @@ import type { JSXElement } from 'solid-js';
 interface ImportInputPanelProps {
   importButtonLabel: string;
   onImport: () => void;
+  compact?: boolean;
   importDisabled?: boolean;
   importLoading?: boolean;
   showPdbFetch?: boolean;
@@ -32,7 +33,7 @@ interface ImportInputPanelProps {
 }
 
 const ImportInputPanel: Component<ImportInputPanelProps> = (props) => (
-  <div class="space-y-3">
+  <div class={props.compact ? 'space-y-2' : 'space-y-3'}>
     <Show when={props.beforeInputs}>
       {props.beforeInputs}
     </Show>
@@ -66,7 +67,7 @@ const ImportInputPanel: Component<ImportInputPanelProps> = (props) => (
     </Show>
 
     <button
-      class="btn btn-outline btn-sm w-full"
+      class={`btn btn-outline w-full ${props.compact ? 'btn-xs font-semibold' : 'btn-sm'}`}
       onClick={props.onImport}
       disabled={props.importDisabled}
     >
@@ -81,7 +82,7 @@ const ImportInputPanel: Component<ImportInputPanelProps> = (props) => (
         <div class="flex gap-1 mt-1">
           <input
             type="text"
-            class="input input-bordered input-sm flex-1 font-mono uppercase"
+            class={`input input-bordered flex-1 font-mono uppercase ${props.compact ? 'input-xs' : 'input-sm'}`}
             placeholder="e.g. 8TCE"
             value={props.pdbIdValue || ''}
             onInput={(e) => props.onPdbIdInput?.(e.currentTarget.value)}
@@ -89,7 +90,7 @@ const ImportInputPanel: Component<ImportInputPanelProps> = (props) => (
             maxLength={4}
           />
           <button
-            class="btn btn-primary btn-sm"
+            class={`btn btn-primary ${props.compact ? 'btn-xs font-semibold' : 'btn-sm'}`}
             onClick={() => props.onFetchPdb?.()}
             disabled={props.fetchDisabled}
           >
@@ -116,14 +117,14 @@ const ImportInputPanel: Component<ImportInputPanelProps> = (props) => (
           placeholder="Enter SMILES strings (one compound per line)"
           value={props.smilesValue || ''}
           onInput={(e) => props.onSmilesInput?.(e.currentTarget.value)}
-          rows={4}
+          rows={props.compact ? 3 : 4}
         />
       </div>
     </Show>
 
     <Show when={props.showSmiles}>
       <button
-        class="btn btn-primary btn-sm w-full"
+        class={`btn btn-primary w-full ${props.compact ? 'btn-xs font-semibold' : 'btn-sm'}`}
         onClick={() => props.onSubmitSmiles?.()}
         disabled={props.smilesDisabled}
       >

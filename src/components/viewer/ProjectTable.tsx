@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, For, Show, createSignal } from 'solid-js';
+import { Component, For, Show, createSignal, onCleanup, onMount } from 'solid-js';
 import type { ViewerProjectColumn, ViewerProjectFamily, ViewerProjectTableState } from '../../stores/workflow';
 import { getSortedRowsForFamily, getVisibleColumnsForFamily } from '../../utils/projectTable';
+import ImportInputPanel from '../shared/ImportInputPanel';
 
 interface ProjectTableProps {
   projectTable: ViewerProjectTableState;
@@ -19,12 +20,32 @@ interface ProjectTableProps {
   onNavigatePrevious: () => void;
   onNavigateNext: () => void;
   canTransfer: boolean;
+  transferTooltip?: string;
   canExport: boolean;
+  canTransferDock: boolean;
+  transferDockTooltip?: string;
+  canTransferMcmm: boolean;
+  transferMcmmTooltip?: string;
+  canTransferSimulate: boolean;
+  transferSimulateTooltip?: string;
   onTransferDock: () => void;
   onTransferMcmm: () => void;
   onTransferSimulate: () => void;
   onExport: () => void;
-  onImport: () => void;
+  onBrowseImport: () => void;
+  importPdbIdValue: string;
+  onImportPdbIdInput: (value: string) => void;
+  onFetchImportPdb: () => void;
+  importPdbFetchDisabled: boolean;
+  importPdbFetchLoading: boolean;
+  importSmilesValue: string;
+  onImportSmilesInput: (value: string) => void;
+  onSubmitImportSmiles: () => void;
+  importSmilesDisabled: boolean;
+  importSmilesLoading: boolean;
+  importSmilesCount: number;
+  importDisabled: boolean;
+  importLoading: boolean;
   canAlignProtein: boolean;
   canAlignLigand: boolean;
   canAlignSubstructure: boolean;
@@ -67,6 +88,21 @@ const formatMetric = (value: string | number | null | undefined, column: ViewerP
 const ProjectTable: Component<ProjectTableProps> = (props) => {
   const [editingRowId, setEditingRowId] = createSignal<string | null>(null);
   const [editText, setEditText] = createSignal('');
+  const [showImportPopover, setShowImportPopover] = createSignal(false);
+  let importButtonRef: HTMLButtonElement | undefined;
+  let importPopoverRef: HTMLDivElement | undefined;
+
+  onMount(() => {
+    const handleClickAway = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (importPopoverRef?.contains(target)) return;
+      if (importButtonRef?.contains(target)) return;
+      setShowImportPopover(false);
+    };
+    document.addEventListener('mousedown', handleClickAway);
+    onCleanup(() => document.removeEventListener('mousedown', handleClickAway));
+  });
 
   const startRenameRow = (rowId: string, currentLabel: string) => {
     setEditingRowId(rowId);
@@ -138,143 +174,157 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
       </div>
 
       <div class="flex-1 overflow-auto">
-        <For each={props.projectTable.families}>
-          {(family) => (
-            <div class="border-b border-base-300 last:border-b-0" data-testid={`project-family-${family.id}`}>
-              <div class="px-2 py-2 flex items-center gap-2 bg-base-100/60">
-                <button
-                  class="btn btn-ghost btn-xs btn-square"
-                  onClick={() => props.onToggleFamilyCollapsed(family.id)}
-                  title={family.collapsed ? 'Expand family' : 'Collapse family'}
-                >
-                  {family.collapsed ? <ChevronRight /> : <ChevronDown />}
-                </button>
-                <div class="flex-1 min-w-0">
-                  <div class="text-xs font-semibold truncate">{family.title}</div>
-                  <div class="text-[10px] text-base-content/55 capitalize">{family.jobType}</div>
-                </div>
-                <Show when={family.trajectoryPath}>
-                  <button
-                    class="btn btn-primary btn-xs"
-                    onClick={() => props.onPlayTrajectory(family.id)}
-                    data-testid={`project-family-action-play-${family.id}`}
-                  >
-                    Play
-                  </button>
-                </Show>
-                <button
-                  class="btn btn-ghost btn-xs btn-square opacity-40 hover:opacity-100"
-                  onClick={(e) => { e.stopPropagation(); props.onRemoveFamily(family.id); }}
-                  title="Remove from table"
-                  data-testid={`project-family-remove-${family.id}`}
-                >
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+        <Show
+          when={props.projectTable.families.length > 0}
+          fallback={
+            <div class="h-full flex items-center justify-center px-5 text-center">
+              <div class="space-y-1.5">
+                <p class="text-sm font-semibold">No project rows yet</p>
+                <p class="text-xs text-base-content/60">
+                  Import a structure or add the current view to start building the project table.
+                </p>
               </div>
+            </div>
+          }
+        >
+          <For each={props.projectTable.families}>
+            {(family) => (
+              <div class="border-b border-base-300 last:border-b-0" data-testid={`project-family-${family.id}`}>
+                <div class="px-2 py-2 flex items-center gap-2 bg-base-100/60">
+                  <button
+                    class="btn btn-ghost btn-xs btn-square"
+                    onClick={() => props.onToggleFamilyCollapsed(family.id)}
+                    title={family.collapsed ? 'Expand family' : 'Collapse family'}
+                  >
+                    {family.collapsed ? <ChevronRight /> : <ChevronDown />}
+                  </button>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-semibold truncate">{family.title}</div>
+                    <div class="text-[10px] text-base-content/55 capitalize">{family.jobType}</div>
+                  </div>
+                  <Show when={family.trajectoryPath}>
+                    <button
+                      class="btn btn-primary btn-xs"
+                      onClick={() => props.onPlayTrajectory(family.id)}
+                      data-testid={`project-family-action-play-${family.id}`}
+                    >
+                      Play
+                    </button>
+                  </Show>
+                  <button
+                    class="btn btn-ghost btn-xs btn-square text-error/70 hover:text-error hover:bg-error/10"
+                    onClick={(e) => { e.stopPropagation(); props.onRemoveFamily(family.id); }}
+                    title="Remove from table"
+                    data-testid={`project-family-remove-${family.id}`}
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
 
-              <Show when={!family.collapsed}>
-                <div class="overflow-hidden">
-                  <table class="table table-xs table-fixed w-full">
-                    <thead>
-                      <tr class="bg-base-200/70">
-                        <th class="w-6" />
-                        <th class="w-[11rem]">Structure</th>
-                        <For each={getVisibleColumnsForFamily(family, props.panelWidth)}>
-                          {(column) => (
-                            <th
-                              class="cursor-pointer select-none text-right"
-                              onClick={() => props.onSortFamily(family.id, column.key)}
+                <Show when={!family.collapsed}>
+                  <div class="overflow-hidden">
+                    <table class="table table-xs table-fixed w-full">
+                      <thead>
+                        <tr class="bg-base-200/70">
+                          <th class="w-6" />
+                          <th class="w-[11rem]">Structure</th>
+                          <For each={getVisibleColumnsForFamily(family, props.panelWidth)}>
+                            {(column) => (
+                              <th
+                                class="cursor-pointer select-none text-right"
+                                onClick={() => props.onSortFamily(family.id, column.key)}
+                              >
+                                {column.label}{sortIndicator(family, column.key)}
+                              </th>
+                            )}
+                          </For>
+                          <th class="w-5" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <For each={getSortedRowsForFamily(
+                          family,
+                          props.projectTable.rows,
+                          getVisibleColumnsForFamily(family, props.panelWidth),
+                        )}>
+                          {(row) => (
+                            <tr
+                              class={`cursor-pointer hover:bg-base-200 group/row ${
+                                isActive(row.id)
+                                  ? 'bg-primary/10'
+                                  : isSelected(row.id)
+                                    ? 'bg-primary/5'
+                                    : ''
+                              }`}
+                              onClick={(e) => handleRowClick(row.id, e)}
+                              data-testid={`project-row-${row.id}`}
                             >
-                              {column.label}{sortIndicator(family, column.key)}
-                            </th>
+                              <td>
+                                <div
+                                  class={`w-2 h-2 rounded-full mx-auto ${
+                                    isActive(row.id)
+                                      ? 'bg-primary'
+                                      : isSelected(row.id)
+                                        ? 'bg-primary/40'
+                                        : 'bg-base-300'
+                                  }`}
+                                />
+                              </td>
+                              <td class="font-medium truncate">
+                                <Show when={editingRowId() === row.id} fallback={
+                                  <span
+                                    title={row.label}
+                                    onDblClick={(e) => { e.stopPropagation(); startRenameRow(row.id, row.label); }}
+                                  >
+                                    {row.label}
+                                  </span>
+                                }>
+                                  <input
+                                    type="text"
+                                    class="input input-xs input-bordered w-full font-medium"
+                                    value={editText()}
+                                    onInput={(e) => setEditText(e.currentTarget.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                                      else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+                                    }}
+                                    onBlur={commitRename}
+                                    onClick={(e) => e.stopPropagation()}
+                                    ref={(el) => requestAnimationFrame(() => { el.focus(); el.select(); })}
+                                  />
+                                </Show>
+                              </td>
+                              <For each={getVisibleColumnsForFamily(family, props.panelWidth)}>
+                                {(column) => (
+                                  <td class="text-right font-mono truncate">
+                                    {formatMetric(row.metrics[column.key], column)}
+                                  </td>
+                                )}
+                              </For>
+                              <td class="w-5 p-0">
+                                <button
+                                  class="btn btn-ghost btn-xs btn-square text-error/65 hover:text-error hover:bg-error/10"
+                                  onClick={(e) => { e.stopPropagation(); props.onRemoveRow(row.id); }}
+                                  title="Remove row"
+                                >
+                                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </td>
+                            </tr>
                           )}
                         </For>
-                        <th class="w-5" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <For each={getSortedRowsForFamily(
-                        family,
-                        props.projectTable.rows,
-                        getVisibleColumnsForFamily(family, props.panelWidth),
-                      )}>
-                        {(row) => (
-                          <tr
-                            class={`cursor-pointer hover:bg-base-200 group/row ${
-                              isActive(row.id)
-                                ? 'bg-primary/10'
-                                : isSelected(row.id)
-                                  ? 'bg-primary/5'
-                                  : ''
-                            }`}
-                            onClick={(e) => handleRowClick(row.id, e)}
-                            data-testid={`project-row-${row.id}`}
-                          >
-                            <td>
-                              <div
-                                class={`w-2 h-2 rounded-full mx-auto ${
-                                  isActive(row.id)
-                                    ? 'bg-primary'
-                                    : isSelected(row.id)
-                                      ? 'bg-primary/40'
-                                      : 'bg-base-300'
-                                }`}
-                              />
-                            </td>
-                            <td class="font-medium truncate">
-                              <Show when={editingRowId() === row.id} fallback={
-                                <span
-                                  title={row.label}
-                                  onDblClick={(e) => { e.stopPropagation(); startRenameRow(row.id, row.label); }}
-                                >
-                                  {row.label}
-                                </span>
-                              }>
-                                <input
-                                  type="text"
-                                  class="input input-xs input-bordered w-full font-medium"
-                                  value={editText()}
-                                  onInput={(e) => setEditText(e.currentTarget.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
-                                    else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
-                                  }}
-                                  onBlur={commitRename}
-                                  onClick={(e) => e.stopPropagation()}
-                                  ref={(el) => requestAnimationFrame(() => { el.focus(); el.select(); })}
-                                />
-                              </Show>
-                            </td>
-                            <For each={getVisibleColumnsForFamily(family, props.panelWidth)}>
-                              {(column) => (
-                                <td class="text-right font-mono truncate">
-                                  {formatMetric(row.metrics[column.key], column)}
-                                </td>
-                              )}
-                            </For>
-                            <td class="w-5 p-0">
-                              <button
-                                class="btn btn-ghost btn-xs btn-square opacity-0 group-hover/row:opacity-40 hover:!opacity-100"
-                                onClick={(e) => { e.stopPropagation(); props.onRemoveRow(row.id); }}
-                                title="Remove row"
-                              >
-                                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            </td>
-                          </tr>
-                        )}
-                      </For>
-                    </tbody>
-                  </table>
-                </div>
-              </Show>
-            </div>
-          )}
-        </For>
+                      </tbody>
+                    </table>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </For>
+        </Show>
       </div>
 
       {/* Alignment toolbar — always visible, buttons enabled per selection */}
@@ -330,7 +380,7 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
           </div>
         </div>
 
-      <div class="px-3 py-2 border-t border-base-300 flex flex-col gap-1.5">
+      <div class="relative px-3 py-2 border-t border-base-300 flex flex-col gap-1.5">
         <Show when={props.onViewResults}>
           <button
             class="btn btn-primary btn-sm w-full"
@@ -344,37 +394,58 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
         </Show>
         <div class="flex items-center gap-1.5">
         <div class="dropdown dropdown-top dropdown-start">
-          <label
-            tabindex="0"
+          <button
+            type="button"
             class={`btn btn-outline btn-sm whitespace-nowrap ${props.canTransfer ? '' : 'btn-disabled'}`}
+            disabled={!props.canTransfer}
+            title={props.transferTooltip || undefined}
             data-testid="project-table-transfer"
           >
             Add to
             <svg class="w-3 h-3 ml-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
-          </label>
+          </button>
           <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow-lg z-30 w-full mb-1">
             <li>
-              <button onClick={props.onTransferDock} data-testid="project-table-transfer-dock">
+              <button
+                onClick={props.onTransferDock}
+                disabled={!props.canTransferDock}
+                title={props.transferDockTooltip || undefined}
+                data-testid="project-table-transfer-dock"
+              >
                 Dock
               </button>
             </li>
             <li>
-              <button onClick={props.onTransferMcmm} data-testid="project-table-transfer-mcmm">
+              <button
+                onClick={props.onTransferMcmm}
+                disabled={!props.canTransferMcmm}
+                title={props.transferMcmmTooltip || undefined}
+                data-testid="project-table-transfer-mcmm"
+              >
                 MCMM
               </button>
             </li>
             <li>
-              <button onClick={props.onTransferSimulate} data-testid="project-table-transfer-simulate">
+              <button
+                onClick={props.onTransferSimulate}
+                disabled={!props.canTransferSimulate}
+                title={props.transferSimulateTooltip || undefined}
+                data-testid="project-table-transfer-simulate"
+              >
                 Dynamics
               </button>
             </li>
           </ul>
         </div>
         <button
-          class="btn btn-outline btn-sm flex-1 min-w-0 px-2"
-          onClick={props.onImport}
+          ref={importButtonRef}
+          class={`btn btn-outline btn-sm flex-1 min-w-0 px-2 ${showImportPopover() ? 'btn-active' : ''}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setShowImportPopover((open) => !open);
+          }}
           data-testid="project-table-import"
         >
           Import
@@ -388,6 +459,50 @@ const ProjectTable: Component<ProjectTableProps> = (props) => {
           Export
         </button>
         </div>
+        <Show when={showImportPopover()}>
+          <div
+            ref={importPopoverRef}
+            class="absolute bottom-full left-3 right-3 mb-2 z-40 rounded-lg border border-base-300 bg-base-100 shadow-xl"
+          >
+            <div class="flex items-center justify-between border-b border-base-300 px-3 py-2">
+              <div>
+                <div class="text-xs font-semibold">Import Into View</div>
+                <div class="text-[10px] text-base-content/55">Browse files, fetch a PDB, or load SMILES</div>
+              </div>
+              <button
+                class="btn btn-ghost btn-xs btn-square"
+                onClick={() => setShowImportPopover(false)}
+                title="Close import popover"
+              >
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="p-3">
+              <ImportInputPanel
+                compact
+                importButtonLabel="Browse structures"
+                onImport={props.onBrowseImport}
+                importDisabled={props.importDisabled}
+                importLoading={props.importLoading}
+                showPdbFetch={true}
+                pdbIdValue={props.importPdbIdValue}
+                onPdbIdInput={props.onImportPdbIdInput}
+                onFetchPdb={props.onFetchImportPdb}
+                fetchDisabled={props.importPdbFetchDisabled}
+                fetchLoading={props.importPdbFetchLoading}
+                showSmiles={true}
+                smilesValue={props.importSmilesValue}
+                onSmilesInput={props.onImportSmilesInput}
+                onSubmitSmiles={props.onSubmitImportSmiles}
+                smilesDisabled={props.importSmilesDisabled}
+                smilesLoading={props.importSmilesLoading}
+                smilesCount={props.importSmilesCount}
+              />
+            </div>
+          </div>
+        </Show>
       </div>
     </div>
   );

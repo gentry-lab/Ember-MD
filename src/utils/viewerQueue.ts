@@ -300,24 +300,26 @@ const IMPORT_FAMILY_ID = 'imports';
 export function buildImportFamily(options: {
   filePaths: string[];
   fileTypes: Array<'protein' | 'ligand'>;
+  labels?: string[];
 }): { family: ViewerProjectFamily; rows: ViewerProjectRow[] } {
-  const { filePaths, fileTypes } = options;
+  const { filePaths, fileTypes, labels } = options;
   const familyId = IMPORT_FAMILY_ID;
 
   const rows: ViewerProjectRow[] = filePaths.map((filePath, index) => {
     const fileName = filePath.split('/').pop() ?? filePath;
+    const rowLabel = labels?.[index]?.trim() || fileName;
     // Use a hash of the path for stable, deduplicate-safe row IDs
     const pathHash = filePath.replace(/[^a-zA-Z0-9]/g, '_').slice(-60);
     const isLigand = fileTypes[index] === 'ligand';
     return {
       id: `${familyId}:${pathHash}`,
       familyId,
-      label: fileName,
+      label: rowLabel,
       rowKind: isLigand ? 'ligand' as const : 'apo' as const,
       jobType: 'import' as const,
       item: {
         pdbPath: filePath,
-        label: fileName,
+        label: rowLabel,
         ...(isLigand ? { type: 'ligand' as const } : {}),
       },
       loadKind: isLigand ? 'standalone-ligand' as const : 'structure' as const,
