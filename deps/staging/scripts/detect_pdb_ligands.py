@@ -507,7 +507,10 @@ def main() -> None:
             'structureInfo': {
                 'totalAtoms': total_atoms,
                 'hydrogenCount': h_count,
-                'isPrepared': h_count > total_atoms * 0.1,  # >10% H → likely prepared
+                # Raw X-ray inputs can still contain some hydrogens (for example on ligands).
+                # Only mark as prepared when the hydrogen count is both substantial in absolute
+                # terms and large relative to the full structure.
+                'isPrepared': h_count >= 50 and h_count > total_atoms * 0.2,
             }
         }))
 

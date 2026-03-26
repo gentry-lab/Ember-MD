@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "prepared_receptor_pdb": "/Users/controller/Desktop/Ember-MD/deps/staging/scripts/tests/md_receptor_fixtures/healthy_contiguous_prepared.pdb",
+  "receptor_protonation_ph": 7.4,
+  "pocket_filtered": false,
+  "pocket_cutoff_angstrom": 6.0,
+  "pocket_residue_keys": [],
+  "reduce_available": false,
+  "reduce_applied": false,
+  "propka_available": false,
+  "propka_error": null,
+  "propka_shifted_residues": [],
+  "applied_overrides": [],
+  "ignored_shifted_residues": [],
+  "resolved_variants": {
+    "A:2:": "GLU"
+  },
+  "actual_variants": [
+    null,
+    "GLU",
+    null
+  ],
+  "disulfide_residue_keys": [],
+  "prepared_chain_count": 1,
+  "prepared_residue_count": 3,
+  "prepared_atom_count": 39,
+  "hydrogen_minimization": {
+    "applied": true,
+    "energy_before_kjmol": 15441493.4,
+    "energy_after_kjmol": 977.4,
+    "energy_reduction_kjmol": 15440515.9,
+    "used_gbsa": true,
+    "wall_time_s": 0.11,
+    "max_iterations": 500,
+    "force_constant_kcal_mol_a2": 50.0
+  },
+  "his_tautomer_scoring": {
+    "scored_count": 0,
+    "changes_made": 0,
+    "wall_time_s": 0.0,
+    "per_residue": []
+  },
+  "input_path": "/Users/controller/Desktop/Ember-MD/deps/staging/scripts/tests/md_receptor_fixtures/healthy_contiguous.pdb"
+}

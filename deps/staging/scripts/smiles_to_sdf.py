@@ -10,16 +10,65 @@ import argparse
 import base64
 import io
 import json
+import math
 import os
+import statistics
 import sys
 from typing import Any, Optional, Tuple
 
 try:
     import rdkit.Chem as Chem
     from rdkit.Chem import AllChem, Draw, Descriptors
+    from rdkit.Geometry import Point3D
 except ImportError:
     print("ERROR:Missing dependency: rdkit", file=sys.stderr)
     sys.exit(1)
+
+
+def median_bond_length(mol: Any) -> Optional[float]:
+    """Return the median bond length in angstroms for the first conformer."""
+    if mol.GetNumConformers() == 0 or mol.GetNumBonds() == 0:
+        return None
+
+    conf = mol.GetConformer()
+    lengths = []
+    for bond in mol.GetBonds():
+        begin = conf.GetAtomPosition(bond.GetBeginAtomIdx())
+        end = conf.GetAtomPosition(bond.GetEndAtomIdx())
+        dx = begin.x - end.x
+        dy = begin.y - end.y
+        dz = begin.z - end.z
+        length = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if length > 1e-6:
+            lengths.append(length)
+
+    if not lengths:
+        return None
+    return float(statistics.median(lengths))
+
+
+def normalize_bond_lengths(mol: Any, target_length: float = 1.45) -> Any:
+    """Rescale suspiciously stretched or shrunk coordinates to normal bond lengths."""
+    if mol.GetNumConformers() == 0:
+        return mol
+
+    median_length = median_bond_length(mol)
+    if median_length is None:
+        return mol
+
+    # Preserve ordinary molecular coordinates, but rescue 2D editor-style scales.
+    if 0.9 <= median_length <= 1.9:
+        return mol
+
+    scale = target_length / median_length
+    conf = mol.GetConformer()
+    for atom_idx in range(mol.GetNumAtoms()):
+        pos = conf.GetAtomPosition(atom_idx)
+        conf.SetAtomPosition(
+            atom_idx,
+            Point3D(pos.x * scale, pos.y * scale, pos.z * scale),
+        )
+    return mol
 
 
 def smiles_to_mol(smiles: str) -> Tuple[Any, Optional[str]]:
@@ -82,6 +131,8 @@ def load_mol_file(mol_path: str) -> Tuple[Any, Optional[str]]:
             AllChem.MMFFOptimizeMolecule(mol, maxIters=1000)
         except Exception:
             pass
+    else:
+        mol = normalize_bond_lengths(mol)
 
     return mol, None
 

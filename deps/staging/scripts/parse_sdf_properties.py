@@ -15,8 +15,9 @@ import sys
 import tempfile
 import os
 
+import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem, Descriptors, Draw, QED
+from rdkit.Chem import AllChem, Descriptors, Draw, QED, rdMolAlign
 
 
 def _load_first_mol_with_kekulize_fallback(sdf_path: str):
@@ -53,7 +54,8 @@ def _load_first_mol_with_kekulize_fallback(sdf_path: str):
     return _sanitize(mol)
 
 
-def parse_sdf_properties(sdf_path: str, generate_thumbnail: bool = True, thumbnail_size: int = 300) -> dict:
+def parse_sdf_properties(sdf_path: str, generate_thumbnail: bool = True, thumbnail_size: int = 300,
+                         reference_sdf: str = None) -> dict:
     """
     Parse an SDF file and extract all properties.
 
@@ -79,6 +81,8 @@ def parse_sdf_properties(sdf_path: str, generate_thumbnail: bool = True, thumbna
         'mw': 0.0,
         'logp': 0.0,
         'thumbnail': None,
+        'centroid': None,
+        'rmsd': None,
     }
 
     try:
@@ -139,6 +143,28 @@ def parse_sdf_properties(sdf_path: str, generate_thumbnail: bool = True, thumbna
                 # Thumbnail generation failed, but continue with other data
                 result['thumbnail'] = None
 
+        # Compute centroid from 3D coordinates
+        try:
+            conf = mol.GetConformer()
+            positions = np.array(conf.GetPositions())
+            centroid = positions.mean(axis=0)
+            result['centroid'] = {
+                'x': round(float(centroid[0]), 2),
+                'y': round(float(centroid[1]), 2),
+                'z': round(float(centroid[2]), 2),
+            }
+        except Exception:
+            pass  # No 3D coordinates available (e.g., 2D-only SDF)
+
+        # Compute RMSD to reference if provided
+        if reference_sdf:
+            try:
+                ref_mol = _load_first_mol_with_kekulize_fallback(reference_sdf)
+                if ref_mol is not None and ref_mol.GetNumAtoms() > 0:
+                    result['rmsd'] = round(rdMolAlign.GetBestRMS(mol, ref_mol), 3)
+            except Exception:
+                pass  # RMSD computation failed (atom count mismatch, etc.)
+
         result['success'] = True
 
     except Exception as e:
@@ -152,12 +178,14 @@ def main():
     parser.add_argument('--sdf_file', required=True, help='Input SDF file (.sdf or .sdf.gz)')
     parser.add_argument('--no_thumbnail', action='store_true', help='Skip thumbnail generation')
     parser.add_argument('--thumbnail_size', type=int, default=300, help='Thumbnail size in pixels')
+    parser.add_argument('--reference_sdf', default=None, help='Reference SDF for RMSD computation')
     args = parser.parse_args()
 
     result = parse_sdf_properties(
         args.sdf_file,
         generate_thumbnail=not args.no_thumbnail,
-        thumbnail_size=args.thumbnail_size
+        thumbnail_size=args.thumbnail_size,
+        reference_sdf=args.reference_sdf
     )
 
     print(json.dumps(result))

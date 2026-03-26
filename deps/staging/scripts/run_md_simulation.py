@@ -369,7 +369,8 @@ def _patch_forcefield_for_chain_breaks(ff: Any) -> None:
                 # Find and remap the residue
                 remapped = False
                 for res in topology.residues():
-                    if res.index == res_index:
+                    # OpenMM reports residue numbers here as 1-based (res.index+1).
+                    if (res.index + 1) == res_index:
                         rt[res] = matched_template
                         print(f'  Remapping residue {res_index} ({res_name}) → {matched_template}', file=sys.stderr)
                         remapped = True
