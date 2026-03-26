@@ -49,7 +49,7 @@ const MDStepProgress: Component = () => {
   } = workflowStore;
 
   const [hasStarted, setHasStarted] = createSignal(false);
-  const [productionNs, setProductionNs] = createSignal<{ current: number; total: number; nsPerDay?: number; etaSeconds?: number } | null>(null);
+  const [productionNs, setProductionNs] = createSignal<{ current: number; total: number; nsPerDay?: number; etaSeconds?: number; timestamp?: string } | null>(null);
   const [chargeEstimate, setChargeEstimate] = createSignal<string | null>(null);
   const [showPrepHint, setShowPrepHint] = createSignal(false);
 
@@ -95,7 +95,8 @@ const MDStepProgress: Component = () => {
         const [current, total] = parts[0].split('/').map(parseFloat);
         const nsPerDay = parts.length > 1 ? parseFloat(parts[1]) : undefined;
         const etaSeconds = parts.length > 2 ? parseFloat(parts[2]) : undefined;
-        setProductionNs({ current, total, nsPerDay, etaSeconds });
+        const timestamp = parts.length > 3 ? parts[3] : undefined;
+        setProductionNs({ current, total, nsPerDay, etaSeconds, timestamp });
         // Convert to percentage for progress bar
         setMdStageProgress(total > 0 ? (current / total) * 100 : 0);
       } else if (stage === 'parameterizing' && value.includes(':')) {
@@ -561,16 +562,25 @@ const MDStepProgress: Component = () => {
         </div>
         <Show when={state().md.currentStage === 'production' && productionNs()?.nsPerDay}>
           <div class="flex justify-between text-[10px] text-base-content/50 mt-0.5">
-            <span>{productionNs()!.nsPerDay!.toFixed(1)} ns/day</span>
+            <span>
+              {productionNs()!.nsPerDay!.toFixed(1)} ns/day
+              <Show when={productionNs()!.timestamp}>
+                {' '}&bull; {productionNs()!.timestamp}
+              </Show>
+            </span>
             <Show when={productionNs()!.etaSeconds! > 0}>
               <span>
                 {(() => {
                   const s = productionNs()!.etaSeconds!;
-                  if (s < 60) return `~${Math.round(s)}s remaining`;
-                  if (s < 3600) return `~${Math.round(s / 60)}m remaining`;
+                  const eta = new Date(Date.now() + s * 1000);
+                  const timeStr = eta.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  const isToday = eta.toDateString() === new Date().toDateString();
+                  const dateStr = isToday ? '' : ` ${eta.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+                  if (s < 60) return `done ~${timeStr}${dateStr} (~${Math.round(s)}s)`;
+                  if (s < 3600) return `done ~${timeStr}${dateStr} (~${Math.round(s / 60)}m)`;
                   const h = Math.floor(s / 3600);
                   const m = Math.round((s % 3600) / 60);
-                  return `~${h}h ${m}m remaining`;
+                  return `done ~${timeStr}${dateStr} (~${h}h ${m}m)`;
                 })()}
               </span>
             </Show>
