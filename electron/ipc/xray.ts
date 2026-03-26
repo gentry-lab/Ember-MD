@@ -130,15 +130,19 @@ export function register(): void {
         }
 
         fs.mkdirSync(outputDir, { recursive: true });
+        const runRoot = path.dirname(outputDir);
+        const stagedInputDir = path.join(runRoot, 'inputs');
+        fs.rmSync(stagedInputDir, { recursive: true, force: true });
+        fs.cpSync(inputDir, stagedInputDir, { recursive: true });
 
         const outputPrefix = path.join(outputDir, 'xray_analysis');
-        const args = [scriptPath, inputDir, '-o', outputPrefix];
+        const args = [scriptPath, stagedInputDir, '-o', outputPrefix];
 
         event.sender.send(IpcChannels.XRAY_OUTPUT, {
           type: 'stdout',
           data:
             `=== X-ray Pose Scoring ===\n` +
-            `Input folder: ${inputDir}\n` +
+            `Input folder: ${stagedInputDir}\n` +
             `Output folder: ${outputDir}\n\n`,
         });
 
@@ -177,7 +181,7 @@ export function register(): void {
 
           if (code === 0) {
             resolve(Ok({
-              inputDir,
+              inputDir: stagedInputDir,
               outputDir,
               pdfPaths: listGeneratedPdfs(outputDir),
             }));

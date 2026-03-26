@@ -24,69 +24,73 @@ const settingsPath = path.join(defaultEmberDir, '.ember-settings.json');
 
 let cachedBaseDir: string | null = null;
 
+type StoredSettings = {
+  homeDir?: string;
+  [key: string]: unknown;
+};
+
+const normalizeDir = (dir: string) => path.resolve(dir);
+
+const readSettings = (): StoredSettings => {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as StoredSettings;
+    }
+  } catch { /* fall through */ }
+  return {};
+};
+
+const writeSettings = (settings: StoredSettings): void => {
+  fs.mkdirSync(defaultEmberDir, { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+};
+
+const resolveConfiguredHome = (): string => {
+  const settings = readSettings();
+  if (typeof settings.homeDir === 'string' && settings.homeDir.trim().length > 0) {
+    return normalizeDir(settings.homeDir);
+  }
+  return defaultEmberDir;
+};
+
+const persistHomeDir = (newDir: string): void => {
+  const normalized = normalizeDir(newDir);
+  fs.mkdirSync(normalized, { recursive: true });
+  const settings = readSettings();
+  settings.homeDir = normalized;
+  writeSettings(settings);
+  cachedBaseDir = normalized;
+};
+
 /** Read the configured home directory, falling back to ~/Ember/. */
 export function getEmberBaseDir(): string {
   if (cachedBaseDir) return cachedBaseDir;
-  try {
-    if (fs.existsSync(settingsPath)) {
-      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      if (settings.homeDir && fs.existsSync(settings.homeDir)) {
-        cachedBaseDir = settings.homeDir as string;
-        return settings.homeDir as string;
-      }
-    }
-  } catch { /* fall through */ }
-  cachedBaseDir = defaultEmberDir;
+  cachedBaseDir = resolveConfiguredHome();
   return cachedBaseDir;
 }
 
 /** Update the home directory setting. Returns the new path. */
 export function setEmberBaseDir(newDir: string): void {
-  fs.mkdirSync(defaultEmberDir, { recursive: true });
-  fs.mkdirSync(newDir, { recursive: true });
-
-  // Read existing settings to preserve other fields
-  let settings: Record<string, any> = {};
-  try {
-    if (fs.existsSync(settingsPath)) {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    }
-  } catch { /* start fresh */ }
-
-  settings.homeDir = newDir;
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  cachedBaseDir = newDir;
-
-  // Add old ~/Ember/ projects to external manifest so they remain visible
-  if (newDir !== defaultEmberDir) {
-    const manifestPath = path.join(newDir, '.external-projects.json');
-    let external: string[] = [];
-    try {
-      if (fs.existsSync(manifestPath)) {
-        external = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      }
-    } catch { /* start fresh */ }
-
-    // Scan old ~/Ember/ for projects and add them
-    try {
-      const oldEntries = fs.readdirSync(defaultEmberDir, { withFileTypes: true });
-      for (const entry of oldEntries) {
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-        const oldProjectPath = path.join(defaultEmberDir, entry.name);
-        if (fs.existsSync(path.join(oldProjectPath, '.ember-project')) && !external.includes(oldProjectPath)) {
-          external.push(oldProjectPath);
-        }
-      }
-    } catch { /* old dir may not exist */ }
-
-    if (external.length > 0) {
-      fs.writeFileSync(manifestPath, JSON.stringify(external, null, 2));
-    }
-  }
+  persistHomeDir(newDir);
 }
 
 export function setMainWindow(w: BrowserWindow | null): void {
   mainWindow = w;
+}
+
+// ---------------------------------------------------------------------------
+// Last-seen version (for changelog popup)
+// ---------------------------------------------------------------------------
+
+export function getLastSeenVersion(): string | null {
+  const settings = readSettings();
+  return (settings.lastSeenVersion as string) || null;
+}
+
+export function setLastSeenVersion(version: string): void {
+  const settings = readSettings();
+  settings.lastSeenVersion = version;
+  writeSettings(settings);
 }
 
 export function initializeState(resolved: {

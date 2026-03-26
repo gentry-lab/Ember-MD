@@ -2,7 +2,7 @@
 import { Component, Show, createMemo, createSignal, onCleanup, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { DockMolecule, LigandSource } from '../../../shared/types/dock';
-import { projectPaths, DockingPaths } from '../../utils/projectPaths';
+import { projectPathsFromProjectDir, DockingPaths, ProjectPaths } from '../../utils/projectPaths';
 import { buildDockFolderName } from '../../utils/jobName';
 import ImportInputPanel from '../shared/ImportInputPanel';
 import DropZone from '../shared/DropZone';
@@ -56,8 +56,13 @@ const DockStepLoad: Component = () => {
   const detectedLigands = () => dock().detectedLigands;
   const ligandSource = () => dock().ligandSource;
   const ligandMolecules = () => dock().ligandMolecules;
+  const getProjectPaths = (): ProjectPaths => {
+    const projectDir = state().projectDir;
+    if (!projectDir) throw new Error('No project selected');
+    return projectPathsFromProjectDir(projectDir);
+  };
 
-  const getDockPaths = (paths: ReturnType<typeof projectPaths>): DockingPaths => {
+  const getDockPaths = (paths: ProjectPaths): DockingPaths => {
     const dockFolder = buildDockFolderName({ referenceLigandId: referenceLigandId() });
     return paths.docking(dockFolder);
   };
@@ -142,9 +147,7 @@ const DockStepLoad: Component = () => {
     setIsLoading(true);
     setStatusText('Extracting reference ligand...');
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const paths = getProjectPaths();
     const dockPaths = paths.docking(buildDockFolderName({ referenceLigandId: ligandId }));
 
     const extractResult = await api.extractXrayLigand(currentPdb, ligandId, dockPaths.prep);
@@ -216,9 +219,7 @@ const DockStepLoad: Component = () => {
     setIsLoadingLigands(true);
     setError(null);
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const paths = getProjectPaths();
     const dockPaths = getDockPaths(paths);
 
     const result = await api.convertSmilesList(smiles, dockPaths.inputsLigands);
@@ -241,9 +242,7 @@ const DockStepLoad: Component = () => {
     setIsLoadingLigands(true);
     setError(null);
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const paths = getProjectPaths();
     const dockPaths = getDockPaths(paths);
 
     const result = await api.importMoleculeFiles(filePaths, dockPaths.inputsLigands);
@@ -272,9 +271,7 @@ const DockStepLoad: Component = () => {
     setCsvFilePath(filePath);
     setError(null);
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const paths = getProjectPaths();
     const dockPaths = getDockPaths(paths);
 
     const result = await api.parseSmilesCsv(filePath, dockPaths.inputsLigands);

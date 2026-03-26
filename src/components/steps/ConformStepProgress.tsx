@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, onMount, onCleanup, createSignal, Show } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { projectPaths } from '../../utils/projectPaths';
+import { projectPathsFromProjectDir } from '../../utils/projectPaths';
 import { buildConformRunFolderName } from '../../utils/jobName';
 import TerminalOutput from '../shared/TerminalOutput';
 
@@ -38,10 +38,13 @@ const ConformStepProgress: Component = () => {
     clearLogs();
 
     // Build output directory
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const jobName = state().jobName.trim();
-    const paths = projectPaths(baseOutputDir, jobName);
+    const projectDir = state().projectDir;
+    if (!projectDir) {
+      setError('No project selected');
+      setCurrentPhase('error');
+      return;
+    }
+    const paths = projectPathsFromProjectDir(projectDir);
     const activeMethod = conform.config.method === 'none' ? 'etkdg' : conform.config.method;
     const runFolder = buildConformRunFolderName({
       method: activeMethod,
@@ -50,7 +53,7 @@ const ConformStepProgress: Component = () => {
       ligandName: conform.ligandName,
       protonation: conform.protonationConfig,
     });
-    const outputDir = paths.conformers(runFolder);
+    const outputDir = paths.conformers(runFolder).results;
     setConformOutputDir(outputDir);
 
     try {

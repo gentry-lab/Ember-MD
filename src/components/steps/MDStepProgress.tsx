@@ -5,7 +5,7 @@ import { workflowStore } from '../../stores/workflow';
 import { useMdOutput } from '../../hooks/useElectronApi';
 import { MDStage } from '../../../shared/types/md';
 import { buildMdRunFolderName, estimateChargeTime } from '../../utils/jobName';
-import { projectPaths } from '../../utils/projectPaths';
+import { projectPathsFromProjectDir } from '../../utils/projectPaths';
 import TerminalOutput from '../shared/TerminalOutput';
 
 interface StageInfo {
@@ -303,10 +303,14 @@ const MDStepProgress: Component = () => {
     setMdStageProgress(0);
 
     // Use global job name as project folder, run folder inside simulations/
-    const globalJobName = state().jobName.trim();
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, globalJobName);
+    const projectDir = state().projectDir;
+    if (!projectDir) {
+      setError('No project selected');
+      setCurrentPhase('error');
+      setIsRunning(false);
+      return;
+    }
+    const paths = projectPathsFromProjectDir(projectDir);
 
     const compoundId = state().md.config.compoundId?.trim() || '';
     const runFolder = buildMdRunFolderName({

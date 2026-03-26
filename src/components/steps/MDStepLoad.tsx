@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
 import { Component, Show, createMemo, createSignal, onCleanup, For } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
-import { projectPaths } from '../../utils/projectPaths';
+import { projectPathsFromProjectDir } from '../../utils/projectPaths';
 import DropZone from '../shared/DropZone';
 import path from 'path';
 
@@ -31,6 +31,7 @@ const MDStepLoad: Component = () => {
   const [needsSmiles, setNeedsSmiles] = createSignal(false);
   const [smilesCorrection, setSmilesCorrection] = createSignal('');
   const [showCancelConfirm, setShowCancelConfirm] = createSignal(false);
+  const importPanelClass = 'w-full max-w-xl';
 
   // Subscribe to live prep progress from main process
   const cleanupPrepProgress = api.onPrepProgress((message: string) => {
@@ -48,6 +49,11 @@ const MDStepLoad: Component = () => {
   const thumbnailDataUrl = () => state().md.thumbnailDataUrl;
   const setThumbnailDataUrl = (v: string | null) => setMdThumbnailDataUrl(v);
   const isLoaded = () => state().md.ligandSdf !== null || state().md.inputMode === 'apo';
+  const getProjectPaths = () => {
+    const projectDir = state().projectDir;
+    if (!projectDir) throw new Error('No project selected');
+    return projectPathsFromProjectDir(projectDir);
+  };
 
   // Fetch structure from RCSB PDB by ID
   const handleFetchPdb = async () => {
@@ -134,12 +140,15 @@ const MDStepLoad: Component = () => {
     setStatusText('Extracting ligand & preparing receptor...');
     setNeedsSmiles(false);
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const paths = getProjectPaths();
+    const supportDir = path.join(paths.structures, 'md-load');
+    const ligandDir = path.join(supportDir, 'ligands');
+    const receptorDir = path.join(supportDir, 'receptors');
+    await api.createDirectory(ligandDir);
+    await api.createDirectory(receptorDir);
 
     const extractResult = await api.extractXrayLigand(
-      currentPdb, ligandId, paths.ligands.sdf, smilesCorrection() || undefined
+      currentPdb, ligandId, ligandDir, smilesCorrection() || undefined
     );
 
     if (extractResult.ok) {
@@ -156,7 +165,7 @@ const MDStepLoad: Component = () => {
       setIsPreparing(true);
       // Use PDB basename for collision-free naming (ties output to source structure)
       const pdbBasename = path.basename(currentPdb, path.extname(currentPdb));
-      const receptorPath = path.join(paths.prepared, `${pdbBasename}_receptor_${ligandId}.pdb`);
+      const receptorPath = path.join(receptorDir, `${pdbBasename}_receptor_${ligandId}.pdb`);
       const receptorResult = await api.prepareReceptor(currentPdb, ligandId, receptorPath);
 
       setIsPreparing(false);
@@ -195,11 +204,11 @@ const MDStepLoad: Component = () => {
     setMdInputMode('ligand_only');
     setError(null);
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const paths = getProjectPaths();
+    const ligandDir = path.join(paths.structures, 'md-load', 'ligands');
+    await api.createDirectory(ligandDir);
 
-    const result = await api.convertSingleMolecule(filePath, paths.ligands.sdf, 'mol_file');
+    const result = await api.convertSingleMolecule(filePath, ligandDir, 'mol_file');
     setIsLoading(false);
 
     if (result.ok) {
@@ -223,11 +232,11 @@ const MDStepLoad: Component = () => {
     setMdInputMode('ligand_only');
     setError(null);
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const paths = getProjectPaths();
+    const ligandDir = path.join(paths.structures, 'md-load', 'ligands');
+    await api.createDirectory(ligandDir);
 
-    const result = await api.convertSmilesList(smiles, paths.ligands.sdf);
+    const result = await api.convertSmilesList(smiles, ligandDir);
     setIsLoading(false);
 
     if (result.ok && result.value.length > 0) {
@@ -275,8 +284,9 @@ const MDStepLoad: Component = () => {
           onFiles={(paths) => handleImportPath(paths[0])}
           disabled={isLoading()}
           hoverLabel="Drop structure (.pdb, .cif, .sdf, .mol)"
+          class={importPanelClass}
         >
-        <div class="card bg-base-200 shadow-lg w-full max-w-lg">
+        <div class="card bg-base-200 shadow-lg w-full">
           <div class="card-body p-4">
             <Show
               when={!isLoaded()}
@@ -440,7 +450,7 @@ const MDStepLoad: Component = () => {
         </DropZone>
 
         <Show when={state().errorMessage}>
-          <div class="alert alert-error py-2 w-full max-w-lg">
+          <div class={`alert alert-error py-2 ${importPanelClass}`}>
             <span class="text-sm">{state().errorMessage}</span>
           </div>
         </Show>

@@ -56,6 +56,10 @@ import type {
   FepScoringOptions,
   FepScoringResult,
   ProjectJob,
+  BatchScoreRequest,
+  BatchScoreResult,
+  ScoreTrajectoryRequest,
+  MoleculeDetailsResult,
 } from './ipc';
 
 export interface ElectronAPI {
@@ -264,6 +268,20 @@ export interface ElectronAPI {
   onMdOutput: (callback: (data: OutputData) => void) => () => void;
   onXrayOutput: (callback: (data: OutputData) => void) => () => void;
 
+  // Score tab operations
+  scoreBatch: (request: BatchScoreRequest) => Promise<Result<BatchScoreResult, AppError>>;
+  cancelScoreBatch: () => Promise<void>;
+  onScoreOutput: (callback: (data: OutputData) => void) => () => void;
+  scoreTrajectory: (request: ScoreTrajectoryRequest) => Promise<Result<BatchScoreResult, AppError>>;
+  exportScoreCsv: (entries: string, csvPath: string) => Promise<Result<string, AppError>>;
+
+  // Molecule details (lazy, on-demand for detail panels)
+  getMoleculeDetails: (sdfPath: string, referenceSdfPath?: string) => Promise<Result<MoleculeDetailsResult, AppError>>;
+
+  // Settings: last seen version for changelog
+  getLastSeenVersion: () => Promise<string | null>;
+  setLastSeenVersion: (version: string) => Promise<void>;
+
   // Trajectory viewer operations
   selectDcdFile: () => Promise<string | null>;
   getTrajectoryInfo: (
@@ -320,16 +338,15 @@ export interface ElectronAPI {
   scanRunFiles: (runDir: string) => Promise<RunFilesResult>;
   importStructure: (sourcePath: string, projectDir: string) => Promise<Result<string, AppError>>;
   fetchPdb: (pdbId: string, projectDir: string) => Promise<Result<string, AppError>>;
-  renameProject: (oldName: string, newName: string) => Promise<Result<void, AppError>>;
-  deleteProject: (projectName: string) => Promise<Result<void, AppError>>;
-  getProjectFileCount: (projectName: string) => Promise<{ fileCount: number; totalSizeMb: number }>;
+  renameProject: (projectDir: string, newName: string) => Promise<Result<void, AppError>>;
+  deleteProject: (projectDir: string) => Promise<Result<void, AppError>>;
+  getProjectFileCount: (projectDir: string) => Promise<{ fileCount: number; totalSizeMb: number }>;
   prepareForViewing: (rawPdbPath: string, preparedPath: string) => Promise<Result<string, AppError>>;
-  scanProjectArtifacts: (projectName: string) => Promise<ProjectJob[]>;
+  scanProjectArtifacts: (projectDir: string) => Promise<ProjectJob[]>;
   selectEmberJobFolder: () => Promise<ProjectJob | null>;
   prepareLigandForViewing: (inputSdf: string, outputSdf: string) => Promise<Result<string, AppError>>;
   getPathForFile: (file: File) => string;
   openProjectFolder: (projectDir: string) => Promise<void>;
-  moveProject: (projectName: string, projectDir: string) => Promise<Result<string, AppError>>;
   importExternalProject: () => Promise<Result<{ name: string; path: string }, AppError>>;
   getHomeDir: () => Promise<string>;
   setHomeDir: () => Promise<Result<string, AppError>>;

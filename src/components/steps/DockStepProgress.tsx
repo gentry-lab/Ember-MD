@@ -3,7 +3,7 @@ import { Component, onMount, onCleanup, createSignal, Show } from 'solid-js';
 import path from 'path';
 import { workflowStore } from '../../stores/workflow';
 import { buildDockFolderName, buildDockConformRunFolderName } from '../../utils/jobName';
-import { projectPaths } from '../../utils/projectPaths';
+import { projectPathsFromProjectDir } from '../../utils/projectPaths';
 import TerminalOutput from '../shared/TerminalOutput';
 
 const DockStepProgress: Component = () => {
@@ -59,10 +59,14 @@ const DockStepProgress: Component = () => {
     setDockPreparedLigandPath(null);
 
     // Build output directory path
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
+    const projectDir = state().projectDir;
+    if (!projectDir) {
+      setError('No project selected');
+      setCurrentPhase('error');
+      return;
+    }
     const jobName = state().jobName.trim();
-    const paths = projectPaths(baseOutputDir, jobName);
+    const paths = projectPathsFromProjectDir(projectDir);
     const dockFolder = buildDockFolderName({
       referenceLigandId: dock.referenceLigandId,
       numLigands: dock.ligandSdfPaths.length,
@@ -175,7 +179,7 @@ const DockStepProgress: Component = () => {
           maxConformers: dock.conformerConfig.maxConformers,
           protonation: dock.protonationConfig,
         });
-        const confDir = paths.conformers(conformerRunFolder);
+        const confDir = paths.conformers(conformerRunFolder).results;
         const mcmmOpts = dock.conformerConfig.method === 'mcmm' ? {
           steps: dock.conformerConfig.mcmmSteps,
           temperature: dock.conformerConfig.mcmmTemperature,

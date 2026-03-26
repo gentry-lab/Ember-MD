@@ -108,7 +108,6 @@ const IpcChannels = {
   SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
   SELECT_EMBER_JOB_FOLDER: 'select-ember-job-folder',
   OPEN_PROJECT_FOLDER: 'open-project-folder',
-  MOVE_PROJECT: 'move-project',
   IMPORT_EXTERNAL_PROJECT: 'import-external-project',
   GET_HOME_DIR: 'get-home-dir',
   SET_HOME_DIR: 'set-home-dir',
@@ -118,6 +117,16 @@ const IpcChannels = {
   READ_IMAGE_AS_DATA_URL: 'read-image-as-data-url',
   // Receptor prep cancellation
   CANCEL_PREP: 'cancel-prep',
+  // Score tab channels
+  SCORE_BATCH: 'score:batch',
+  SCORE_TRAJECTORY: 'score:trajectory',
+  CANCEL_SCORE_BATCH: 'score:cancel',
+  EXPORT_SCORE_CSV: 'score:export-csv',
+  // Molecule details
+  GET_MOLECULE_DETAILS: 'get-molecule-details',
+  // Settings: last seen version
+  GET_LAST_SEEN_VERSION: 'get-last-seen-version',
+  SET_LAST_SEEN_VERSION: 'set-last-seen-version',
   // Send channels
   PREP_OUTPUT: 'prep-output',
   SURFACE_OUTPUT: 'surface-output',
@@ -125,6 +134,7 @@ const IpcChannels = {
   DOCK_OUTPUT: 'dock:output',
   MD_OUTPUT: 'md:output',
   XRAY_OUTPUT: 'xray:output',
+  SCORE_OUTPUT: 'score:output',
   PREP_PROGRESS: 'prep:progress',
 } as const;
 
@@ -614,6 +624,29 @@ const electronAPI = {
   runXrayAnalysis: (inputDir: string, outputDir: string) =>
     ipcRenderer.invoke(IpcChannels.RUN_XRAY_ANALYSIS, inputDir, outputDir),
 
+  // Score tab operations
+  scoreBatch: (request: { entries: Array<{ id: string; name: string; pdbPath: string; ligandId: string | null; isPrepared: boolean }>; outputDir: string }) =>
+    ipcRenderer.invoke(IpcChannels.SCORE_BATCH, request),
+  scoreTrajectory: (request: { trajectoryPath: string; topologyPath: string; ligandSdfPath: string; numClusters: number; outputDir: string }) =>
+    ipcRenderer.invoke(IpcChannels.SCORE_TRAJECTORY, request),
+  cancelScoreBatch: () =>
+    ipcRenderer.invoke(IpcChannels.CANCEL_SCORE_BATCH),
+  onScoreOutput: (callback: (data: OutputData) => void) => {
+    const listener = (_event: any, data: OutputData) => callback(data);
+    ipcRenderer.on(IpcChannels.SCORE_OUTPUT, listener);
+    return () => { ipcRenderer.removeListener(IpcChannels.SCORE_OUTPUT, listener); };
+  },
+  exportScoreCsv: (entries: string, csvPath: string) =>
+    ipcRenderer.invoke(IpcChannels.EXPORT_SCORE_CSV, entries, csvPath),
+
+  getMoleculeDetails: (sdfPath: string, referenceSdfPath?: string) =>
+    ipcRenderer.invoke(IpcChannels.GET_MOLECULE_DETAILS, sdfPath, referenceSdfPath),
+
+  getLastSeenVersion: () =>
+    ipcRenderer.invoke(IpcChannels.GET_LAST_SEEN_VERSION),
+  setLastSeenVersion: (version: string) =>
+    ipcRenderer.invoke(IpcChannels.SET_LAST_SEEN_VERSION, version),
+
   loadMdTorsionAnalysis: (options: LoadMdTorsionAnalysisOptions) =>
     ipcRenderer.invoke(IpcChannels.LOAD_MD_TORSION_ANALYSIS, options),
 
@@ -692,14 +725,14 @@ const electronAPI = {
     ipcRenderer.invoke(IpcChannels.IMPORT_STRUCTURE, sourcePath, projectDir),
   prepareForViewing: (rawPdbPath: string, preparedPath: string) =>
     ipcRenderer.invoke(IpcChannels.PREPARE_FOR_VIEWING, rawPdbPath, preparedPath),
-  renameProject: (oldName: string, newName: string) =>
-    ipcRenderer.invoke(IpcChannels.RENAME_PROJECT, oldName, newName),
-  deleteProject: (projectName: string) =>
-    ipcRenderer.invoke(IpcChannels.DELETE_PROJECT, projectName),
-  getProjectFileCount: (projectName: string) =>
-    ipcRenderer.invoke(IpcChannels.GET_PROJECT_FILE_COUNT, projectName),
-  scanProjectArtifacts: (projectName: string) =>
-    ipcRenderer.invoke(IpcChannels.SCAN_PROJECT_ARTIFACTS, projectName),
+  renameProject: (projectDir: string, newName: string) =>
+    ipcRenderer.invoke(IpcChannels.RENAME_PROJECT, projectDir, newName),
+  deleteProject: (projectDir: string) =>
+    ipcRenderer.invoke(IpcChannels.DELETE_PROJECT, projectDir),
+  getProjectFileCount: (projectDir: string) =>
+    ipcRenderer.invoke(IpcChannels.GET_PROJECT_FILE_COUNT, projectDir),
+  scanProjectArtifacts: (projectDir: string) =>
+    ipcRenderer.invoke(IpcChannels.SCAN_PROJECT_ARTIFACTS, projectDir),
   selectEmberJobFolder: () =>
     ipcRenderer.invoke(IpcChannels.SELECT_EMBER_JOB_FOLDER),
 
@@ -712,7 +745,6 @@ const electronAPI = {
 
   // Project portability
   openProjectFolder: (projectDir: string) => ipcRenderer.invoke(IpcChannels.OPEN_PROJECT_FOLDER, projectDir),
-  moveProject: (projectName: string, projectDir: string) => ipcRenderer.invoke(IpcChannels.MOVE_PROJECT, projectName, projectDir),
   importExternalProject: () => ipcRenderer.invoke(IpcChannels.IMPORT_EXTERNAL_PROJECT),
   getHomeDir: () => ipcRenderer.invoke(IpcChannels.GET_HOME_DIR),
   setHomeDir: () => ipcRenderer.invoke(IpcChannels.SET_HOME_DIR),

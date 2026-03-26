@@ -11,7 +11,12 @@ import * as zlib from 'zlib';
 import { Ok, Err, Result } from '../../shared/types/result';
 import { AppError } from '../../shared/types/errors';
 import { IpcChannels } from '../../shared/types/ipc';
-import { getEmberBaseDir, setEmberBaseDir } from '../app-state';
+import {
+  getEmberBaseDir,
+  getLastSeenVersion,
+  setEmberBaseDir,
+  setLastSeenVersion,
+} from '../app-state';
 import { childProcesses } from '../spawn';
 import type {
   ClusteringResult,
@@ -31,6 +36,33 @@ type MapJobMetadata = {
   ligandResname?: string;
   ligandResnum?: number;
   computedAt?: string;
+};
+
+const normalizePath = (inputPath: string) => path.resolve(inputPath);
+
+const readProjectNameFromMetadata = (projectDir: string): string => {
+  const idFile = path.join(projectDir, '.ember-project');
+  let projectName = path.basename(projectDir);
+  try {
+    const meta = JSON.parse(fs.readFileSync(idFile, 'utf-8'));
+    if (typeof meta.name === 'string' && meta.name.trim().length > 0) {
+      projectName = meta.name.trim();
+    }
+  } catch { /* fall back to folder name */ }
+  return projectName;
+};
+
+const promptForImportDestinationName = async (rootDir: string, sourceName: string): Promise<string | null> => {
+  const suggestion = `${sourceName}-imported`;
+  const saveResult = await dialog.showSaveDialog({
+    title: 'Choose Imported Project Name',
+    defaultPath: path.join(rootDir, suggestion),
+    buttonLabel: 'Import Project',
+    showsTagField: false,
+  });
+  if (saveResult.canceled || !saveResult.filePath) return null;
+  const chosenName = path.basename(saveResult.filePath).trim();
+  return chosenName.length > 0 ? chosenName : null;
 };
 
 // ---------------------------------------------------------------------------
@@ -307,11 +339,12 @@ export const findSimulationJob = (runPath: string, runName: string): ProjectJob 
 export const findConformerJob = (runPath: string, runName: string): ProjectJob | null => {
   if (!fs.existsSync(runPath)) return null;
   const stat = fs.statSync(runPath);
-
-  const conformerPaths = fs.readdirSync(runPath)
+  const resultsDir = path.join(runPath, 'results');
+  const searchDir = fs.existsSync(resultsDir) ? resultsDir : runPath;
+  const conformerPaths = fs.readdirSync(searchDir)
     .filter((f) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    .map((f) => path.join(runPath, f));
+    .map((f) => path.join(searchDir, f));
 
   if (conformerPaths.length === 0) return null;
 
@@ -445,7 +478,7 @@ export function register(): void {
     async (): Promise<Result<string, AppError>> => {
       try {
         const result = await dialog.showOpenDialog({
-          title: 'Set Ember Home Directory',
+          title: 'Set Ember Working Directory',
           properties: ['openDirectory', 'createDirectory'],
           buttonLabel: 'Use This Folder',
         });
@@ -454,13 +487,22 @@ export function register(): void {
         }
         const newDir = result.filePaths[0];
         setEmberBaseDir(newDir);
-        console.log(`[Project] Home directory set to: ${newDir}`);
+        console.log(`[Project] Working directory set to: ${newDir}`);
         return Ok(newDir);
       } catch (err: any) {
         return Err({ type: 'UNKNOWN', message: `Failed to set home directory: ${err.message}` });
       }
     }
   );
+
+  // Last-seen version for changelog popup
+  ipcMain.handle(IpcChannels.GET_LAST_SEEN_VERSION, async () => {
+    return getLastSeenVersion();
+  });
+
+  ipcMain.handle(IpcChannels.SET_LAST_SEEN_VERSION, async (_event, version: string) => {
+    setLastSeenVersion(version);
+  });
 
   // Ensure a project directory exists with a .ember-project ID file
   ipcMain.handle(
@@ -548,202 +590,119 @@ export function register(): void {
     }
   );
 
-  // Project browser: scan ~/Ember for projects and runs
-  // Primary: .ember-project ID file -> project detected regardless of run state
-  // Secondary: scan simulations/ + docking/ for runs
-  // Tertiary: legacy fallback for old directories without .ember-project
+  // Project browser: scan the active working directory for metadata-backed projects only.
   ipcMain.handle(IpcChannels.SCAN_PROJECTS, async (): Promise<any[]> => {
-    const emberDir = getEmberBaseDir();
-    if (!fs.existsSync(emberDir)) return [];
-
+    const rootDir = getEmberBaseDir();
     const projects: any[] = [];
-    const legacyPattern = /^(.+?)_(ff14sb-TIP3P|ff19sb-OPC|ff19sb-OPC3)_MD-/;
+
+    const scanRunDir = (runPath: string, folderName: string): any | null => {
+      try {
+        const runFiles = fs.readdirSync(runPath);
+        const md = resolveMdRun(runPath);
+        const hasSimOutput = md !== null;
+        const newPosesPath = path.join(runPath, 'results', 'poses');
+        const legacyPosesPath = path.join(runPath, 'poses');
+        const hasDockOutput = runFiles.some((f: string) => f.endsWith('_docked.sdf.gz') || f.endsWith('_docked.sdf'))
+          || (fs.existsSync(newPosesPath) && fs.readdirSync(newPosesPath).some((f: string) => f.endsWith('_docked.sdf.gz')))
+          || (fs.existsSync(legacyPosesPath) && fs.readdirSync(legacyPosesPath).some((f: string) => f.endsWith('_docked.sdf.gz')));
+        const hasInputs = fs.existsSync(path.join(runPath, 'inputs', 'receptor.pdb'));
+        const conformerResultsDir = path.join(runPath, 'results');
+        const hasConformerOutput = runFiles.some((f: string) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f))
+          || (fs.existsSync(conformerResultsDir) && fs.readdirSync(conformerResultsDir).some((f: string) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f)));
+        const hasMapOutput = runFiles.some((f: string) => f === 'binding_site_results.json' || f.endsWith('_binding_site_results.json'));
+        if (!hasSimOutput && !hasDockOutput && !hasInputs && !hasConformerOutput && !hasMapOutput) return null;
+        const stat = fs.statSync(runPath);
+        const type = hasMapOutput
+          ? 'map'
+          : hasConformerOutput
+            ? 'conformer'
+            : hasSimOutput
+              ? 'simulation'
+              : 'docking';
+        return {
+          folderName,
+          path: runPath,
+          lastModified: stat.mtimeMs,
+          type,
+          hasTrajectory: md ? !!md.trajectory : false,
+          hasFinalPdb: md ? !!md.finalPdb : false,
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const scanProjectRuns = (entryPath: string): any[] => {
+      const runs: any[] = [];
+      try {
+        const subEntries = fs.readdirSync(entryPath, { withFileTypes: true });
+        for (const sub of subEntries) {
+          if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
+
+          if (sub.name === 'simulations' || sub.name === 'docking' || sub.name === 'conformers') {
+            const typeDir = path.join(entryPath, sub.name);
+            try {
+              const typeEntries = fs.readdirSync(typeDir, { withFileTypes: true });
+              for (const runEntry of typeEntries) {
+                if (!runEntry.isDirectory() || runEntry.name.startsWith('.')) continue;
+                const runInfo = scanRunDir(path.join(typeDir, runEntry.name), `${sub.name}/${runEntry.name}`);
+                if (runInfo) runs.push(runInfo);
+              }
+            } catch { /* skip unreadable */ }
+            continue;
+          }
+
+          if (sub.name === 'surfaces') {
+            const surfaceDir = path.join(entryPath, sub.name);
+            try {
+              const typeEntries = fs.readdirSync(surfaceDir, { withFileTypes: true });
+              for (const runEntry of typeEntries) {
+                if (!runEntry.isDirectory() || runEntry.name.startsWith('.')) continue;
+                if (runEntry.name !== 'binding_site_map' && !runEntry.name.startsWith('pocket_map_')) continue;
+                const runInfo = scanRunDir(path.join(surfaceDir, runEntry.name), `${sub.name}/${runEntry.name}`);
+                if (runInfo) runs.push(runInfo);
+              }
+            } catch { /* skip unreadable */ }
+            continue;
+          }
+
+          if (sub.name === 'structures' || sub.name === 'fep' || sub.name === 'scoring' || sub.name === 'xray') {
+            continue;
+          }
+
+          const runInfo = scanRunDir(path.join(entryPath, sub.name), sub.name);
+          if (runInfo) runs.push(runInfo);
+        }
+      } catch { /* skip unreadable */ }
+      return runs;
+    };
 
     try {
-      const entries = fs.readdirSync(emberDir, { withFileTypes: true });
-      const legacyGroups: Record<string, any[]> = {};
+      if (fs.existsSync(rootDir)) {
+        const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+          const entryPath = path.join(rootDir, entry.name);
+          const idFile = path.join(entryPath, '.ember-project');
+          if (!fs.existsSync(idFile)) continue;
 
-      // Helper: check a directory for simulation or docking output files and return run info
-      const scanRunDir = (runPath: string, folderName: string): any | null => {
-        try {
-          const runFiles = fs.readdirSync(runPath);
-
-          // MD detection via shared resolver
-          const md = resolveMdRun(runPath);
-          const hasSimOutput = md !== null;
-
-          // Docking detection
-          const newPosesPath = path.join(runPath, 'results', 'poses');
-          const legacyPosesPath = path.join(runPath, 'poses');
-          const hasDockOutput = runFiles.some((f: string) => f.endsWith('_docked.sdf.gz') || f.endsWith('_docked.sdf'))
-            || (fs.existsSync(newPosesPath) && fs.readdirSync(newPosesPath).some((f: string) => f.endsWith('_docked.sdf.gz')))
-            || (fs.existsSync(legacyPosesPath) && fs.readdirSync(legacyPosesPath).some((f: string) => f.endsWith('_docked.sdf.gz')));
-          const hasInputs = fs.existsSync(path.join(runPath, 'inputs', 'receptor.pdb'));
-          const hasConformerOutput = runFiles.some((f: string) => /\.(sdf|sdf\.gz|mol|mol2)$/i.test(f));
-          const hasMapOutput = runFiles.some((f: string) => f === 'binding_site_results.json' || f.endsWith('_binding_site_results.json'));
-          if (!hasSimOutput && !hasDockOutput && !hasInputs && !hasConformerOutput && !hasMapOutput) return null;
-          const stat = fs.statSync(runPath);
-          const type = hasMapOutput
-            ? 'map'
-            : hasConformerOutput
-              ? 'conformer'
-              : hasSimOutput
-                ? 'simulation'
-                : 'docking';
-          return {
-            folderName,
-            path: runPath,
-            lastModified: stat.mtimeMs,
-            type,
-            hasTrajectory: md ? !!md.trajectory : false,
-            hasFinalPdb: md ? !!md.finalPdb : false,
-          };
-        } catch { return null; }
-      };
-
-      // Scan runs inside a project directory (simulations/, docking/, or legacy direct children)
-      const scanProjectRuns = (entryPath: string): any[] => {
-        const runs: any[] = [];
-        try {
-          const subEntries = fs.readdirSync(entryPath, { withFileTypes: true });
-          for (const sub of subEntries) {
-            if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
-
-            // New layout: runs live under simulations/ and docking/ subdirectories
-            if (sub.name === 'simulations' || sub.name === 'docking' || sub.name === 'conformers') {
-              const typeDir = path.join(entryPath, sub.name);
-              try {
-                const typeEntries = fs.readdirSync(typeDir, { withFileTypes: true });
-                for (const runEntry of typeEntries) {
-                  if (!runEntry.isDirectory() || runEntry.name.startsWith('.')) continue;
-                  const runInfo = scanRunDir(path.join(typeDir, runEntry.name), `${sub.name}/${runEntry.name}`);
-                  if (runInfo) runs.push(runInfo);
-                }
-              } catch { /* skip unreadable */ }
-              continue;
-            }
-
-            if (sub.name === 'surfaces') {
-              const surfaceDir = path.join(entryPath, sub.name);
-              try {
-                const typeEntries = fs.readdirSync(surfaceDir, { withFileTypes: true });
-                for (const runEntry of typeEntries) {
-                  if (!runEntry.isDirectory() || runEntry.name.startsWith('.')) continue;
-                  if (runEntry.name !== 'binding_site_map' && !runEntry.name.startsWith('pocket_map_')) continue;
-                  const runInfo = scanRunDir(path.join(surfaceDir, runEntry.name), `${sub.name}/${runEntry.name}`);
-                  if (runInfo) runs.push(runInfo);
-                }
-              } catch { /* skip unreadable */ }
-              continue;
-            }
-
-            if (sub.name === 'structures' || sub.name === 'fep' || sub.name === 'raw' || sub.name === 'prepared' || sub.name === 'ligands') {
-              continue;
-            }
-
-            // Legacy layout: runs directly under project dir
-            const runInfo = scanRunDir(path.join(entryPath, sub.name), sub.name);
-            if (runInfo) runs.push(runInfo);
-          }
-        } catch { /* skip unreadable */ }
-        return runs;
-      };
-
-      for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-        const entryPath = path.join(emberDir, entry.name);
-
-        // Primary: .ember-project ID file -> project always detected
-        const idFile = path.join(entryPath, '.ember-project');
-        if (fs.existsSync(idFile)) {
           const runs = scanProjectRuns(entryPath);
           runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
           const stat = fs.statSync(entryPath);
           projects.push({
-            name: entry.name,
-            path: entryPath,
+            name: readProjectNameFromMetadata(entryPath),
+            path: normalizePath(entryPath),
             runs,
             lastModified: runs.length > 0 ? runs[0].lastModified : stat.mtimeMs,
           });
-          continue;
-        }
-
-        // Fallback: detect by run output (for projects created before .ember-project)
-        const runs = scanProjectRuns(entryPath);
-        if (runs.length > 0) {
-          runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
-          projects.push({
-            name: entry.name,
-            path: entryPath,
-            runs,
-            lastModified: runs[0].lastModified,
-          });
-        } else {
-          // Legacy grouped layout: folder name matches ff pattern
-          const match = entry.name.match(legacyPattern);
-          if (match) {
-            const projectName = match[1];
-            const files = fs.readdirSync(entryPath);
-            const hasSimOutput = files.some((f: string) => f.endsWith('_system.pdb') || f.endsWith('_trajectory.dcd') || f === 'simulation.log' || f === 'system.pdb' || f === 'trajectory.dcd');
-            if (hasSimOutput) {
-              if (!legacyGroups[projectName]) legacyGroups[projectName] = [];
-              const stat = fs.statSync(entryPath);
-              legacyGroups[projectName].push({
-                folderName: entry.name,
-                path: entryPath,
-                lastModified: stat.mtimeMs,
-                type: 'simulation',
-                hasTrajectory: files.some((f: string) => f.endsWith('_trajectory.dcd') || f === 'trajectory.dcd'),
-                hasFinalPdb: files.some((f: string) => f.endsWith('_final.pdb') || f === 'final.pdb'),
-              });
-            }
-          }
         }
       }
-
-      for (const [name, runs] of Object.entries(legacyGroups)) {
-        runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
-        projects.push({
-          name,
-          path: path.join(emberDir, name),
-          runs,
-          lastModified: runs[0].lastModified,
-        });
-      }
-
-      // Scan external projects from manifest
-      const knownPaths = new Set(projects.map((p: any) => p.path));
-      try {
-        const manifestPath = path.join(emberDir, '.external-projects.json');
-        if (fs.existsSync(manifestPath)) {
-          const externalPaths: string[] = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-          const stillValid: string[] = [];
-          for (const extPath of externalPaths) {
-            if (!fs.existsSync(extPath) || !fs.existsSync(path.join(extPath, '.ember-project'))) continue;
-            stillValid.push(extPath);
-            if (knownPaths.has(extPath)) continue;
-            const runs = scanProjectRuns(extPath);
-            runs.sort((a: any, b: any) => b.lastModified - a.lastModified);
-            const stat = fs.statSync(extPath);
-            projects.push({
-              name: path.basename(extPath),
-              path: extPath,
-              runs,
-              lastModified: runs.length > 0 ? runs[0].lastModified : stat.mtimeMs,
-              external: true,
-            });
-          }
-          // Clean stale entries from manifest
-          if (stillValid.length < externalPaths.length) {
-            fs.writeFileSync(manifestPath, JSON.stringify(stillValid, null, 2));
-          }
-        }
-      } catch { /* manifest read failure is non-fatal */ }
 
       projects.sort((a, b) => b.lastModified - a.lastModified);
     } catch (err) {
       console.error('Error scanning projects:', err);
     }
+
     return projects;
   });
 
@@ -788,9 +747,8 @@ export function register(): void {
   });
 
   // Get file count and total size for a project (for delete confirmation)
-  ipcMain.handle(IpcChannels.GET_PROJECT_FILE_COUNT, async (_event: any, projectName: string): Promise<{ fileCount: number; totalSizeMb: number }> => {
-    const emberDir = getEmberBaseDir();
-    const projectDir = path.join(emberDir, projectName);
+  ipcMain.handle(IpcChannels.GET_PROJECT_FILE_COUNT, async (_event: any, projectDir: string): Promise<{ fileCount: number; totalSizeMb: number }> => {
+    projectDir = normalizePath(projectDir);
     if (!fs.existsSync(projectDir)) return { fileCount: 0, totalSizeMb: 0 };
 
     let fileCount = 0;
@@ -814,10 +772,10 @@ export function register(): void {
   });
 
   // Rename a project directory
-  ipcMain.handle(IpcChannels.RENAME_PROJECT, async (_event: any, oldName: string, newName: string): Promise<any> => {
-    const emberDir = getEmberBaseDir();
-    const oldDir = path.join(emberDir, oldName);
-    const newDir = path.join(emberDir, newName);
+  ipcMain.handle(IpcChannels.RENAME_PROJECT, async (_event: any, projectDir: string, newName: string): Promise<any> => {
+    const oldDir = normalizePath(projectDir);
+    const oldName = path.basename(oldDir);
+    const newDir = path.join(path.dirname(oldDir), newName);
 
     if (!fs.existsSync(oldDir)) {
       return { ok: false, error: { type: 'NOT_FOUND', message: `Project "${oldName}" not found` } };
@@ -864,19 +822,18 @@ export function register(): void {
   });
 
   // Delete a project directory entirely
-  ipcMain.handle(IpcChannels.DELETE_PROJECT, async (_event: any, projectName: string): Promise<any> => {
+  ipcMain.handle(IpcChannels.DELETE_PROJECT, async (_event: any, projectDir: string): Promise<any> => {
     if (childProcesses.size > 0) {
       return { ok: false, error: { type: 'DELETE_BLOCKED', message: 'Cannot delete project while a job is running' } };
     }
-    const emberDir = getEmberBaseDir();
-    const projectDir = path.join(emberDir, projectName);
+    const normalizedProjectDir = normalizePath(projectDir);
 
-    if (!fs.existsSync(projectDir)) {
-      return { ok: false, error: { type: 'NOT_FOUND', message: `Project "${projectName}" not found` } };
+    if (!fs.existsSync(normalizedProjectDir)) {
+      return { ok: false, error: { type: 'NOT_FOUND', message: `Project "${path.basename(normalizedProjectDir)}" not found` } };
     }
 
     try {
-      fs.rmSync(projectDir, { recursive: true, force: true });
+      fs.rmSync(normalizedProjectDir, { recursive: true, force: true });
       return { ok: true, value: undefined };
     } catch (err: any) {
       return { ok: false, error: { type: 'DELETE_FAILED', message: err.message || 'Failed to delete project' } };
@@ -886,12 +843,12 @@ export function register(): void {
   // Scan project artifacts as ProjectJob[] -- docking runs/poses, simulation runs, MCMM runs, and maps
   ipcMain.handle(
     IpcChannels.SCAN_PROJECT_ARTIFACTS,
-    async (_event: any, projectName: string): Promise<ProjectJob[]> => {
-      const emberDir = getEmberBaseDir();
-      const projectDir = path.join(emberDir, projectName);
+    async (_event: any, projectDir: string): Promise<ProjectJob[]> => {
+      projectDir = normalizePath(projectDir);
       if (!fs.existsSync(projectDir)) return [];
 
       const jobs: ProjectJob[] = [];
+      const projectName = path.basename(projectDir);
 
       // Strip project name prefix from filenames for cleaner labels
       const stripPrefix = (name: string) => {
@@ -976,88 +933,14 @@ export function register(): void {
   );
 
   // ---------------------------------------------------------------------------
-  // Project portability: Open Folder, Move Project, Import External Project
+  // Project folder actions and metadata-backed import
   // ---------------------------------------------------------------------------
-
-  const externalProjectsPath = () =>
-    path.join(getEmberBaseDir(), '.external-projects.json');
-
-  const readExternalProjects = (): string[] => {
-    try {
-      const data = fs.readFileSync(externalProjectsPath(), 'utf-8');
-      return JSON.parse(data);
-    } catch {
-      return [];
-    }
-  };
-
-  const writeExternalProjects = (paths: string[]) => {
-    const emberDir = getEmberBaseDir();
-    fs.mkdirSync(emberDir, { recursive: true });
-    fs.writeFileSync(externalProjectsPath(), JSON.stringify(paths, null, 2));
-  };
 
   // Open project folder in Finder
   ipcMain.handle(
     IpcChannels.OPEN_PROJECT_FOLDER,
     async (_event, projectDir: string) => {
       shell.openPath(projectDir);
-    }
-  );
-
-  // Move project to a new location
-  ipcMain.handle(
-    IpcChannels.MOVE_PROJECT,
-    async (_event, projectName: string, currentDir: string): Promise<Result<string, AppError>> => {
-      if (childProcesses.size > 0) {
-        return Err({ type: 'MOVE_FAILED', message: 'Cannot move project while a job is running' });
-      }
-      try {
-        const result = await dialog.showOpenDialog({
-          title: 'Move Project To...',
-          properties: ['openDirectory', 'createDirectory'],
-          buttonLabel: 'Move Here',
-        });
-        if (result.canceled || !result.filePaths.length) {
-          return Err({ type: 'USER_CANCELLED', message: 'Move cancelled' });
-        }
-
-        const destParent = result.filePaths[0];
-        const destDir = path.join(destParent, projectName);
-
-        if (fs.existsSync(destDir)) {
-          return Err({
-            type: 'MOVE_FAILED',
-            message: `A folder named "${projectName}" already exists at ${destParent}`,
-          });
-        }
-
-        // Try atomic rename (same volume), fall back to copy for cross-volume
-        try {
-          await fs.promises.rename(currentDir, destDir);
-        } catch {
-          await fs.promises.cp(currentDir, destDir, { recursive: true });
-          const idFile = path.join(destDir, '.ember-project');
-          try {
-            await fs.promises.access(idFile);
-          } catch {
-            return Err({ type: 'MOVE_FAILED', message: 'Copy verification failed' });
-          }
-          await fs.promises.rm(currentDir, { recursive: true });
-        }
-
-        // Register in external projects manifest
-        const external = readExternalProjects();
-        if (!external.includes(destDir)) {
-          external.push(destDir);
-          writeExternalProjects(external);
-        }
-
-        console.log(`[Project] Moved ${projectName}: ${currentDir} → ${destDir}`);
-        return Ok(destDir);
-      } catch (err: any) {
-        return Err({ type: 'MOVE_FAILED', message: `Move failed: ${err.message}` });
-      }
     }
   );
 
@@ -1075,8 +958,8 @@ export function register(): void {
           return Err({ type: 'USER_CANCELLED', message: 'Import cancelled' });
         }
 
-        const dirPath = result.filePaths[0];
-        const idFile = path.join(dirPath, '.ember-project');
+        const sourceDir = normalizePath(result.filePaths[0]);
+        const idFile = path.join(sourceDir, '.ember-project');
         if (!fs.existsSync(idFile)) {
           return Err({
             type: 'VALIDATION_FAILED',
@@ -1084,22 +967,37 @@ export function register(): void {
           });
         }
 
-        // Read project name from metadata
-        let projectName = path.basename(dirPath);
-        try {
-          const meta = JSON.parse(fs.readFileSync(idFile, 'utf-8'));
-          if (meta.name) projectName = meta.name;
-        } catch { /* use folder name */ }
+        const rootDir = normalizePath(getEmberBaseDir());
+        fs.mkdirSync(rootDir, { recursive: true });
+        const sourceName = path.basename(sourceDir);
 
-        // Register in external projects manifest
-        const external = readExternalProjects();
-        if (!external.includes(dirPath)) {
-          external.push(dirPath);
-          writeExternalProjects(external);
+        if (normalizePath(path.dirname(sourceDir)) === rootDir) {
+          return Ok({ name: readProjectNameFromMetadata(sourceDir), path: sourceDir });
         }
 
-        console.log(`[Project] Imported external project: ${projectName} at ${dirPath}`);
-        return Ok({ name: projectName, path: dirPath });
+        let destName = sourceName;
+        let destDir = path.join(rootDir, destName);
+        while (fs.existsSync(destDir)) {
+          const chosenName = await promptForImportDestinationName(rootDir, destName);
+          if (!chosenName) {
+            return Err({ type: 'USER_CANCELLED', message: 'Import cancelled' });
+          }
+          destName = chosenName;
+          destDir = path.join(rootDir, destName);
+        }
+
+        await fs.promises.cp(sourceDir, destDir, { recursive: true });
+        const copiedIdFile = path.join(destDir, '.ember-project');
+        await fs.promises.access(copiedIdFile);
+
+        try {
+          const meta = JSON.parse(fs.readFileSync(copiedIdFile, 'utf-8'));
+          meta.name = destName;
+          fs.writeFileSync(copiedIdFile, JSON.stringify(meta, null, 2));
+        } catch { /* preserve copied metadata if it cannot be rewritten */ }
+
+        console.log(`[Project] Imported project: ${sourceDir} → ${destDir}`);
+        return Ok({ name: readProjectNameFromMetadata(destDir), path: destDir });
       } catch (err: any) {
         return Err({ type: 'IMPORT_FAILED', message: `Import failed: ${err.message}` });
       }

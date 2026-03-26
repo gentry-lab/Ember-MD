@@ -241,7 +241,6 @@ export const IpcChannels = {
   SCAN_PROJECT_ARTIFACTS: 'scan-project-artifacts',
   SELECT_EMBER_JOB_FOLDER: 'select-ember-job-folder',
   OPEN_PROJECT_FOLDER: 'open-project-folder',
-  MOVE_PROJECT: 'move-project',
   IMPORT_EXTERNAL_PROJECT: 'import-external-project',
   GET_HOME_DIR: 'get-home-dir',
   SET_HOME_DIR: 'set-home-dir',
@@ -257,6 +256,19 @@ export const IpcChannels = {
   // Receptor preparation cancellation
   CANCEL_PREP: 'cancel-prep',
 
+  // Score tab channels
+  SCORE_BATCH: 'score:batch',
+  SCORE_TRAJECTORY: 'score:trajectory',
+  CANCEL_SCORE_BATCH: 'score:cancel',
+  EXPORT_SCORE_CSV: 'score:export-csv',
+
+  // Molecule details (lazy, on-demand)
+  GET_MOLECULE_DETAILS: 'get-molecule-details',
+
+  // Settings: last seen version (for changelog popup)
+  GET_LAST_SEEN_VERSION: 'get-last-seen-version',
+  SET_LAST_SEEN_VERSION: 'set-last-seen-version',
+
   // Send channels (main -> renderer)
   PREP_OUTPUT: 'prep-output',
   SURFACE_OUTPUT: 'surface-output',
@@ -265,6 +277,7 @@ export const IpcChannels = {
   MD_OUTPUT: 'md:output',
   CONFORM_OUTPUT: 'conform:output',
   XRAY_OUTPUT: 'xray:output',
+  SCORE_OUTPUT: 'score:output',
   PREP_PROGRESS: 'prep:progress',
 } as const;
 
@@ -400,6 +413,63 @@ export interface XrayDirectoryScanResult {
   mtzCount: number;
   pairedCount: number;
   unpairedPdbCount: number;
+}
+
+// === Molecule detail types (lazy, on-demand) ===
+
+export interface MoleculeDetailsResult {
+  thumbnail: string | null;
+  centroid: { x: number; y: number; z: number } | null;
+  rmsd: number | null;
+  qed: number;
+  mw: number;
+  logp: number;
+  smiles: string | null;
+}
+
+// === Score tab types ===
+
+export interface BatchScoreEntry {
+  id: string;
+  name: string;
+  pdbPath: string;
+  ligandId: string | null;
+  isPrepared: boolean;
+}
+
+export interface BatchScoreRequest {
+  entries: BatchScoreEntry[];
+  outputDir: string;
+}
+
+export interface ScoreTrajectoryRequest {
+  trajectoryPath: string;
+  topologyPath: string;
+  ligandSdfPath: string;
+  numClusters: number;
+  outputDir: string;
+}
+
+export interface BatchScoreEntryResult {
+  id: string;
+  pdbPath: string;
+  name: string;
+  ligandId: string | null;
+  isPrepared: boolean;
+  preparedReceptorPath: string | null;
+  extractedLigandSdfPath: string | null;
+  vinaScore: number | null;
+  cordialExpectedPkd: number | null;
+  cordialPHighAffinity: number | null;
+  qed: number | null;
+  status: 'done' | 'error';
+  errorMessage: string | null;
+}
+
+export interface BatchScoreResult {
+  entries: BatchScoreEntryResult[];
+  outputDir: string;
+  cordialAvailable: boolean;
 }
 
 export interface MdReportOptions {
@@ -544,7 +614,6 @@ export interface ProjectInfo {
   path: string;
   runs: ProjectRunInfo[];
   lastModified: number;
-  external?: boolean;
 }
 
 export interface RunFilesResult {

@@ -53,7 +53,15 @@ export function register(): void {
 
         fs.mkdirSync(outputDir, { recursive: true });
 
-        const ligandSdfPaths = [ligandSdfPath];
+        const runRoot = path.dirname(outputDir);
+        const inputsDir = path.join(runRoot, 'inputs');
+        fs.mkdirSync(inputsDir, { recursive: true });
+        const stagedLigandPath = path.join(inputsDir, path.basename(ligandSdfPath));
+        if (path.resolve(stagedLigandPath) !== path.resolve(ligandSdfPath)) {
+          fs.copyFileSync(ligandSdfPath, stagedLigandPath);
+        }
+
+        const ligandSdfPaths = [stagedLigandPath];
         const ligandListPath = path.join(outputDir, 'ligand_list_for_conformers.json');
         fs.writeFileSync(ligandListPath, JSON.stringify(ligandSdfPaths, null, 2));
 
@@ -109,7 +117,7 @@ export function register(): void {
           data: `${methodLabel} conformer search — ${maxConformers} max, ${rmsdCutoff} Å cutoff, ${xtbStatus}\n`
         });
 
-        console.log(`[Conform] Starting ${methodLabel} conformer generation for ${path.basename(ligandSdfPath)}`);
+        console.log(`[Conform] Starting ${methodLabel} conformer generation for ${path.basename(stagedLigandPath)}`);
         console.log(`[Conform] Args: ${args.slice(1).join(' ')}`);
 
         const python = spawn(appState.condaPythonPath, args);
@@ -159,7 +167,7 @@ export function register(): void {
                 });
                 const name = path.basename(ligandSdfPath, '.sdf');
                 resolve(Ok({
-                  conformerPaths: [ligandSdfPath],
+                  conformerPaths: [stagedLigandPath],
                   parentMapping: { [name]: name },
                   conformerEnergies: {},
                 }));

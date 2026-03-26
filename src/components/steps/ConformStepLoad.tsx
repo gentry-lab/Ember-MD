@@ -2,6 +2,7 @@
 import { Component, Show, createSignal, createMemo } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { sanitizeConformOutputName } from '../../utils/jobName';
+import { projectPathsFromProjectDir } from '../../utils/projectPaths';
 import DropZone from '../shared/DropZone';
 
 const ConformStepLoad: Component = () => {
@@ -17,6 +18,7 @@ const ConformStepLoad: Component = () => {
 
   const [isLoading, setIsLoading] = createSignal(false);
   const [smilesText, setSmilesText] = createSignal('');
+  const importPanelClass = 'w-full max-w-xl';
 
   const detectedSmiles = createMemo(() =>
     smilesText().split('\n').map(l => l.trim()).filter(l => l.length > 0)
@@ -41,9 +43,10 @@ const ConformStepLoad: Component = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const defaultDir = await api.getDefaultOutputDir();
-      const baseDir = state().customOutputDir || defaultDir;
-      const tmpDir = `${baseDir}/${state().jobName}/conformers/_tmp`;
+      const projectDir = state().projectDir;
+      if (!projectDir) throw new Error('No project selected');
+      const paths = projectPathsFromProjectDir(projectDir);
+      const tmpDir = `${paths.structures}/conform-load`;
       await api.createDirectory(tmpDir);
       const result = await api.convertSmilesList(smiles, tmpDir);
       if (result.ok && result.value.length > 0) {
@@ -83,8 +86,9 @@ const ConformStepLoad: Component = () => {
           onFiles={(paths) => loadLigandFromPath(paths[0])}
           disabled={isLoading()}
           hoverLabel="Drop ligand (.sdf, .mol, .mol2)"
+          class={importPanelClass}
         >
-        <div class="card bg-base-200 shadow-lg w-full max-w-lg">
+        <div class="card bg-base-200 shadow-lg w-full">
           <div class="card-body p-4">
             <Show
               when={!state().conform.ligandSdfPath}
@@ -135,7 +139,7 @@ const ConformStepLoad: Component = () => {
         </DropZone>
 
         <Show when={state().errorMessage}>
-          <div class="alert alert-error py-2 w-full max-w-lg">
+          <div class={`alert alert-error py-2 ${importPanelClass}`}>
             <span class="text-sm">{state().errorMessage}</span>
           </div>
         </Show>
