@@ -7,8 +7,33 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 
-// Track spawned processes for cleanup
-export const childProcesses = new Set<ChildProcess>();
+// Track spawned processes for cleanup.
+// Wrapped in a Proxy so caffeinate is updated automatically on any add/delete,
+// regardless of which IPC module manages the process.
+const _childProcesses = new Set<ChildProcess>();
+export const childProcesses: Set<ChildProcess> = new Proxy(_childProcesses, {
+  get(target, prop, receiver) {
+    const val = Reflect.get(target, prop, receiver);
+    if (prop === 'add') return (proc: ChildProcess) => { target.add(proc); updateCaffeinate(); return childProcesses; };
+    if (prop === 'delete') return (proc: ChildProcess) => { const r = target.delete(proc); updateCaffeinate(); return r; };
+    if (prop === 'clear') return () => { target.clear(); updateCaffeinate(); };
+    return typeof val === 'function' ? val.bind(target) : val;
+  },
+});
+
+// Prevent idle sleep while jobs are running (macOS caffeinate -i)
+let caffeinateProc: ChildProcess | null = null;
+
+function updateCaffeinate(): void {
+  if (_childProcesses.size > 0 && !caffeinateProc) {
+    caffeinateProc = spawn('caffeinate', ['-i'], { stdio: 'ignore', detached: true });
+    caffeinateProc.unref();
+    caffeinateProc.on('exit', () => { caffeinateProc = null; });
+  } else if (_childProcesses.size === 0 && caffeinateProc) {
+    caffeinateProc.kill();
+    caffeinateProc = null;
+  }
+}
 
 export function killAllChildProcesses(): void {
   for (const proc of childProcesses) {
