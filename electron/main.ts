@@ -45,6 +45,7 @@ import * as ipcViewer from './ipc/viewer';
 import * as ipcMaps from './ipc/maps';
 import * as ipcFep from './ipc/fep';
 import * as ipcXray from './ipc/xray';
+import * as ipcScoring from './ipc/scoring';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -108,6 +109,7 @@ app.on('ready', () => {
   ipcMaps.register();
   ipcFep.register();
   ipcXray.register();
+  ipcScoring.register();
 });
 
 app.on('window-all-closed', () => {

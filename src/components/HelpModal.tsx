@@ -33,7 +33,7 @@ const HelpModal: Component<HelpModalProps> = (props) => {
 
           {/* Content */}
           <div class="flex-1 overflow-y-auto p-4">
-            <MDHelp />
+            <QuickReferenceContent />
           </div>
         </div>
       </div>
@@ -41,68 +41,71 @@ const HelpModal: Component<HelpModalProps> = (props) => {
   );
 };
 
-const MDHelp: Component = () => (
+const QuickReferenceContent: Component = () => (
   <div class="space-y-4">
-    <HelpSection title="INPUT MODES" icon="input">
-      <ul class="list-disc list-inside text-sm text-base-content/80 space-y-1">
-        <li><strong>Protein + Ligand:</strong> X-ray PDB complex or docking output</li>
-        <li><strong>Ligand Only:</strong> SMILES paste, MOL/SDF file (small molecule in solvent)</li>
-      </ul>
-      <p class="text-xs text-base-content/60 mt-2">
-        X-ray PDB: auto-detects ligands, extracts to SDF, prepares receptor with PDBFixer.
-        Ligand-only: optional "Protonate pH 7.4" button for physiological protonation state.
+    <HelpSection title="HOW THE APP IS ORGANIZED" icon="info">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        The tabs across the top are the main workflows. The project name in the center is your
+        working folder, and the step tracker on the right shows where you are inside the current
+        workflow. Most runs save into the current project automatically and can be reopened later in
+        View.
       </p>
     </HelpSection>
 
-    <HelpSection title="OUTPUTS" icon="output">
-      <ul class="list-disc list-inside text-sm text-base-content/80 space-y-1">
-        <li><code class="bg-base-300 px-1 rounded">{'{job}'}_system.pdb</code> - Solvated system</li>
-        <li><code class="bg-base-300 px-1 rounded">{'{job}'}_trajectory.dcd</code> - Production trajectory</li>
-        <li><code class="bg-base-300 px-1 rounded">{'{job}'}_energy.csv</code> - Energy timeseries</li>
-        <li><code class="bg-base-300 px-1 rounded">{'{job}'}_checkpoint.chk</code> - Crash recovery</li>
-        <li><code class="bg-base-300 px-1 rounded">clusters/</code> - Top 5 conformer cluster centroids (auto)</li>
-      </ul>
+    <HelpSection title="VIEW" icon="output">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        Use View to inspect structures and reopen saved results. This is the 3D workspace for
+        imported PDB/CIF files, docking poses, MD trajectories, cluster centroids, overlays, and
+        analysis panels.
+      </p>
     </HelpSection>
 
-    <HelpSection title="AUTO PROCESSING" icon="auto">
-      <div class="flex flex-wrap gap-2">
-        <span class="badge badge-success gap-1">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
-          PDBFixer + hydrogens
-        </span>
-        <span class="badge badge-success gap-1">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
-          Solvation + ions
-        </span>
-        <span class="badge badge-success gap-1">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
-          Restrained equilibration
-        </span>
-        <span class="badge badge-success gap-1">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
-          Conformer clustering
-        </span>
-      </div>
+    <HelpSection title="MCMM" icon="input">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        MCMM is the ligand conformer workflow. Start from an SDF/MOL file or paste SMILES, choose a
+        search method such as ETKDG, MCMM, or CREST, then generate and rank low-energy conformers for
+        a single molecule.
+      </p>
     </HelpSection>
 
-    <HelpSection title="FORCE FIELD PRESETS" icon="info">
-      <div class="text-sm text-base-content/80 space-y-1">
-        <p><strong>Fast:</strong> ff14SB + TIP3P — well-tested, faster</p>
-        <p><strong>Accurate (default):</strong> ff19SB + OPC (4-site water) — higher accuracy</p>
-        <p class="text-xs text-base-content/60 mt-2">
-          OpenFF Sage 2.3.0 for ligand parameterization. 4fs HMR timestep.
-          ~270ps equilibration (protein+ligand) or ~170ps (ligand-only).
-          Checkpoint saved every 0.5 ns.
-        </p>
-      </div>
+    <HelpSection title="DOCK" icon="auto">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        Dock prepares a receptor from a bound structure, uses the selected reference ligand to define
+        the pocket, then docks one or more ligands into that site. This is the workflow to use when
+        you want ranked poses and post-docking scoring.
+      </p>
+    </HelpSection>
+
+    <HelpSection title="X-RAY" icon="warning">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        X-ray scans a folder of experimental structures and matching MTZ files, pairs the inputs, and
+        runs the crystallographic validation analysis for each matched structure.
+      </p>
+    </HelpSection>
+
+    <HelpSection title="SCORE" icon="warning">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        Score is for rescoring existing protein-ligand complexes. Import one or more PDB/CIF
+        structures and Ember will detect ligands, prepare the complexes, and report Vina, CORDIAL,
+        and QED metrics without running a full docking job.
+      </p>
+    </HelpSection>
+
+    <HelpSection title="SIMULATE" icon="output">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        Simulate runs molecular dynamics. You can start from a holo complex, an apo protein, or a
+        ligand-only system; Ember prepares the system, solvates it, equilibrates it, runs production
+        MD, then saves trajectories, analyses, and clustered end-state summaries.
+      </p>
+    </HelpSection>
+
+    <HelpSection title="PROJECTS AND JOBS" icon="info">
+      <p class="text-sm text-base-content/80 leading-relaxed">
+        The project control in the center lets you switch, move, or open the current project folder.
+        Each workflow creates its own job outputs inside that project, so you can generate conformers,
+        dock ligands, score complexes, and run simulations under the same project and review them later
+        in View.
+      </p>
     </HelpSection>
   </div>
 );

@@ -20,7 +20,7 @@ import AnalysisPanel from './AnalysisPanel';
 import LayerPanel from './LayerPanel';
 import DropZone from '../shared/DropZone';
 import ProjectTable from './ProjectTable';
-import { projectPaths } from '../../utils/projectPaths';
+import { projectPathsFromProjectDir } from '../../utils/projectPaths';
 import { loadProjectJob } from '../../utils/projectJobLoader';
 import { getVisibleProjectRows } from '../../utils/projectTable';
 import { buildImportFamily } from '../../utils/viewerQueue';
@@ -83,6 +83,7 @@ const ViewerMode: Component = () => {
     removeViewerLayerGroup,
     toggleViewerLayerGroupExpanded,
     toggleViewerLayerGroupVisible,
+    clearViewerLayers,
     setMode,
     setMdStep,
     setMdReceptorPdb,
@@ -169,9 +170,9 @@ const ViewerMode: Component = () => {
 
   createEffect(() => {
     const ready = state().projectReady;
-    const projectName = state().jobName;
+    const projectDir = state().projectDir;
 
-    if (!ready || !projectName) {
+    if (!ready || !projectDir) {
       setRecentJobs([]);
       return;
     }
@@ -181,7 +182,7 @@ const ViewerMode: Component = () => {
 
     void (async () => {
       try {
-        const jobs = await api.scanProjectArtifacts(projectName);
+        const jobs = await api.scanProjectArtifacts(projectDir);
         if (requestId !== recentJobsRequestId) return;
         const loadableJobs = sortedRecentJobs(jobs.filter((job) => job.type !== 'docking-pose'));
         setRecentJobs(loadableJobs);
@@ -243,6 +244,12 @@ const ViewerMode: Component = () => {
     state().viewer.layerGroups.length > 0;
 
   const hasProjectTable = () => (state().viewer.projectTable?.families.length || 0) > 0;
+  const projectTableState = () => state().viewer.projectTable ?? {
+    families: [],
+    rows: [],
+    activeRowId: null,
+    selectedRowIds: [],
+  };
   const activeProjectRow = () => {
     const table = state().viewer.projectTable;
     return table?.rows.find((row) => row.id === table.activeRowId) || null;
@@ -408,8 +415,8 @@ const ViewerMode: Component = () => {
 
   const getSurfacePropsOutputDir = (sourcePath: string) => {
     const sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
-    return state().customOutputDir
-      ? `${state().customOutputDir}/${state().jobName}/surfaces`
+    return state().projectDir
+      ? `${state().projectDir}/surfaces`
       : `${sourceDir}/surfaces`;
   };
 
@@ -1272,13 +1279,13 @@ const ViewerMode: Component = () => {
     }
   };
 
-  // Import a PDB/CIF into the current project's raw/ directory
+  // Import a PDB/CIF into the current project's structures/ directory
   // Loads the raw file directly — NGL handles bond orders natively (CIF bond tables / PDB CCD lookup)
   // and detects interactions via distance-based heuristics without needing explicit H atoms.
   const importToProject = async (sourcePath: string): Promise<string> => {
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    const paths = projectPaths(baseOutputDir, state().jobName);
+    const projectDir = state().projectDir;
+    if (!projectDir) return sourcePath;
+    const paths = projectPathsFromProjectDir(projectDir);
     const result = await api.importStructure(sourcePath, paths.root);
     if (result.ok) return result.value;
     return sourcePath;
@@ -1289,13 +1296,16 @@ const ViewerMode: Component = () => {
       return filePath;
     }
 
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
+    const projectDir = state().projectDir;
+    if (!projectDir) {
+      throw new Error('No project selected');
+    }
+    const paths = projectPathsFromProjectDir(projectDir);
     const safeName = (filePath.split('/').pop() || 'ligand')
       .replace(/\.[^.]+$/, '')
       .replace(/[^A-Za-z0-9._-]+/g, '_');
     const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const outputDir = `${baseOutputDir}/${state().jobName}/structures/viewer-normalized/${safeName}-${uniqueSuffix}`;
+    const outputDir = `${paths.structures}/viewer-normalized/${safeName}-${uniqueSuffix}`;
 
     const result = await api.convertSingleMolecule(filePath, outputDir, 'mol_file');
     if (!result.ok) {
@@ -1306,13 +1316,9 @@ const ViewerMode: Component = () => {
   };
 
   const getViewerSupportDir = async (name: string): Promise<string> => {
-    if (state().projectDir) {
-      return `${state().projectDir}/structures/${name}`;
-    }
-
-    const defaultDir = await api.getDefaultOutputDir();
-    const baseOutputDir = state().customOutputDir || defaultDir;
-    return `${projectPaths(baseOutputDir, state().jobName).structures}/${name}`;
+    const projectDir = state().projectDir;
+    if (!projectDir) throw new Error('No project selected');
+    return `${projectPathsFromProjectDir(projectDir).structures}/${name}`;
   };
 
   const resolvePocketReferenceLigandPath = async (row: ViewerProjectRow): Promise<string | null> => {
@@ -2642,7 +2648,6 @@ const ViewerMode: Component = () => {
 
       setViewerPdbIdInput('');
       await loadImportedStructures([result.value]);
-      setShowImportOverlay(false);
     } catch (err) {
       setError(`PDB fetch error: ${(err as Error).message}`);
     } finally {
@@ -2657,7 +2662,6 @@ const ViewerMode: Component = () => {
     setLoadingRecentJobId(jobId);
     try {
       await loadProjectJob(job, api);
-      setShowImportOverlay(false);
     } finally {
       setLoadingRecentJobId(null);
     }
@@ -2670,12 +2674,115 @@ const ViewerMode: Component = () => {
     setViewerProjectFamilySort(familyId, columnKey, nextDirection);
   };
 
+  const clearProjectTableSelectionComponents = () => {
+    if (!stage) return;
+    const projectTable = state().viewer.projectTable;
+    if (!projectTable) return;
+
+    for (const row of projectTable.rows) {
+      const comp = layerComponents.get(row.id);
+      if (!comp) continue;
+      stage.removeComponent(comp);
+      layerComponents.delete(row.id);
+    }
+  };
+
+  const clearViewerStageState = () => {
+    clearBindingSiteVolumes();
+    clearPocketReferenceLigand();
+
+    if (interactionShapeComponent && stage) {
+      stage.removeComponent(interactionShapeComponent);
+      interactionShapeComponent = null;
+    }
+
+    if (proteinComponent && stage) {
+      stage.removeComponent(proteinComponent);
+      proteinComponent = null;
+    }
+
+    if (ligandComponent && stage) {
+      stage.removeComponent(ligandComponent);
+      ligandComponent = null;
+    }
+
+    if (isAligned()) clearAlignment();
+    clearProjectTableSelectionComponents();
+    clearViewerLayers();
+    cachedProteinTopology = null;
+    cachedLigandTopology = null;
+
+    batch(() => {
+      setViewerPdbQueue([]);
+      setViewerTrajectoryPath(null);
+      setViewerTrajectoryInfo(null);
+      setViewerCurrentFrame(0);
+      setViewerPdbPath(null);
+      setViewerLigandPath(null);
+      setViewerDetectedLigands([]);
+      setViewerSelectedLigandId(null);
+    });
+  };
+
+  const handleRemoveProjectRow = async (rowId: string) => {
+    const projectTable = state().viewer.projectTable;
+    const row = projectTable?.rows.find((entry) => entry.id === rowId);
+    if (!projectTable || !row) return;
+
+    const removingActiveRow = projectTable.activeRowId === rowId;
+    clearProjectTableSelectionComponents();
+    removeViewerProjectRow(rowId);
+
+    const nextActiveRowId = state().viewer.projectTable?.activeRowId ?? null;
+    if (removingActiveRow) {
+      if (nextActiveRowId) {
+        await handleProjectTableRowSelect(nextActiveRowId);
+      } else {
+        clearViewerStageState();
+      }
+      return;
+    }
+
+    if (!state().viewer.projectTable) {
+      clearViewerStageState();
+    }
+  };
+
+  const handleRemoveProjectFamily = async (familyId: string) => {
+    const projectTable = state().viewer.projectTable;
+    const family = projectTable?.families.find((entry) => entry.id === familyId);
+    if (!projectTable || !family) return;
+
+    const removingActiveFamily = projectTable.rows.some(
+      (row) => row.familyId === familyId && row.id === projectTable.activeRowId,
+    );
+
+    clearProjectTableSelectionComponents();
+    removeViewerProjectFamily(familyId);
+
+    const nextActiveRowId = state().viewer.projectTable?.activeRowId ?? null;
+    if (removingActiveFamily) {
+      if (nextActiveRowId) {
+        await handleProjectTableRowSelect(nextActiveRowId);
+      } else {
+        clearViewerStageState();
+      }
+      return;
+    }
+
+    if (!state().viewer.projectTable) {
+      clearViewerStageState();
+    }
+  };
+
   const handleProjectTableRowSelect = async (rowId: string) => {
     const projectTable = state().viewer.projectTable;
     const row = projectTable?.rows.find((entry) => entry.id === rowId);
     if (!row) return;
 
     setViewerProjectActiveRow(rowId);
+    clearProjectTableSelectionComponents();
+    if (isAligned()) clearAlignment();
 
     if (row.loadKind === 'queue' && row.queueIndex !== undefined && row.queueIndex >= 0) {
       const familyQueueRows = projectTable?.rows
@@ -2734,6 +2841,8 @@ const ViewerMode: Component = () => {
     if (!initialRow) return;
 
     setViewerProjectActiveRow(initialRow.id);
+    clearProjectTableSelectionComponents();
+    if (isAligned()) clearAlignment();
     setViewerPdbQueue([]);
     setViewerPdbPath(initialRow.item.pdbPath);
     setViewerLigandPath(initialRow.item.ligandPath ?? null);
@@ -2754,9 +2863,12 @@ const ViewerMode: Component = () => {
     setError(null);
 
     try {
-      const defaultDir = await api.getDefaultOutputDir();
-      const baseOutputDir = state().customOutputDir || defaultDir;
-      const outputDir = `${baseOutputDir}/${state().jobName}/structures`;
+      const projectDir = state().projectDir;
+      if (!projectDir) {
+        setError('No project selected');
+        return;
+      }
+      const outputDir = `${projectDir}/structures`;
 
       const result = await api.convertSingleMolecule(smiles, outputDir, 'smiles');
       if (!result.ok) {
@@ -2782,9 +2894,12 @@ const ViewerMode: Component = () => {
       setViewerLigandPath(sdfPath);
 
       // Add to project table
-      const { family, rows } = buildImportFamily({ filePaths: [sdfPath], fileTypes: ['ligand'] });
+      const { family, rows } = buildImportFamily({
+        filePaths: [sdfPath],
+        fileTypes: ['ligand'],
+        labels: [smiles],
+      });
       addViewerProjectFamily(family, rows);
-      setShowImportOverlay(false);
 
       setSmilesInput('');
     } catch (err) {
@@ -3398,7 +3513,7 @@ const ViewerMode: Component = () => {
   };
 
   // Transfer: single-select only, auto-detect what to pre-populate
-  const canTransferCurrentView = () => {
+  const hasSingleTransferSelection = () => {
     const pt = state().viewer.projectTable;
     if (!pt) return false;
     return (pt.selectedRowIds || []).length === 1;
@@ -3410,15 +3525,57 @@ const ViewerMode: Component = () => {
     return pt.rows.find((r) => r.id === pt.activeRowId) ?? null;
   };
 
+  const getTransferRow = () => {
+    if (!hasSingleTransferSelection()) return null;
+    const pt = state().viewer.projectTable;
+    const selectedRowId = pt?.selectedRowIds?.[0];
+    if (!selectedRowId) return null;
+    return pt?.rows.find((r) => r.id === selectedRowId) ?? null;
+  };
+
+  const getTransferLigandPath = (row: ViewerProjectRow | null) => {
+    if (!row) return null;
+    if (row.item.ligandPath) return row.item.ligandPath;
+    if (
+      LIGAND_ROW_KINDS.has(row.rowKind)
+      || row.loadKind === 'standalone-ligand'
+      || row.item.type === 'ligand'
+      || row.item.type === 'conformer'
+    ) {
+      return row.item.pdbPath;
+    }
+    return null;
+  };
+
+  const canTransferDock = () => {
+    const row = getTransferRow();
+    return !!row && (PROTEIN_ROW_KINDS.has(row.rowKind) || !!getTransferLigandPath(row));
+  };
+
+  const canTransferMcmm = () => {
+    const row = getTransferRow();
+    return !!row && !!getTransferLigandPath(row) && !PROTEIN_ROW_KINDS.has(row.rowKind);
+  };
+
+  const canTransferSimulate = () => {
+    const row = getTransferRow();
+    return !!row && (PROTEIN_ROW_KINDS.has(row.rowKind) || !!row.item.ligandPath);
+  };
+
+  const canTransferCurrentView = () =>
+    hasSingleTransferSelection() && (canTransferDock() || canTransferMcmm() || canTransferSimulate());
+
   const handleTransferDock = () => {
-    const row = getActiveRow();
-    if (!row) return;
+    const row = getTransferRow();
+    if (!row || !canTransferDock()) return;
     if (PROTEIN_ROW_KINDS.has(row.rowKind)) {
       // Protein → set as dock receptor
       setDockReceptorPdbPath(row.item.pdbPath);
-    } else if (row.item.ligandPath) {
+    } else {
+      const ligandPath = getTransferLigandPath(row);
+      if (!ligandPath) return;
       // Ligand → set as dock ligand input
-      setDockLigandSdfPaths([row.item.ligandPath]);
+      setDockLigandSdfPaths([ligandPath]);
     }
     batch(() => {
       setMode('dock');
@@ -3427,14 +3584,13 @@ const ViewerMode: Component = () => {
   };
 
   const handleTransferMcmm = () => {
-    const row = getActiveRow();
-    if (!row) return;
-    const filePath = row.item.ligandPath || row.item.pdbPath;
-    if (filePath) {
-      workflowStore.setConformLigandSdf(filePath);
-      const name = filePath.split('/').pop()?.replace(/\.(sdf|mol|pdb|cif)(\.gz)?$/i, '') || 'molecule';
-      workflowStore.setConformLigandName(name);
-    }
+    const row = getTransferRow();
+    if (!row || !canTransferMcmm()) return;
+    const filePath = getTransferLigandPath(row);
+    if (!filePath) return;
+    workflowStore.setConformLigandSdf(filePath);
+    const name = filePath.split('/').pop()?.replace(/\.(sdf|mol|mol2|pdb|cif)(\.gz)?$/i, '') || 'molecule';
+    workflowStore.setConformLigandName(name);
     batch(() => {
       setMode('conform');
       workflowStore.setConformStep('conform-configure');
@@ -3442,8 +3598,8 @@ const ViewerMode: Component = () => {
   };
 
   const handleTransferSimulate = () => {
-    const row = getActiveRow();
-    if (!row) return;
+    const row = getTransferRow();
+    if (!row || !canTransferSimulate()) return;
     const pdbPath = row.item.pdbPath;
     const ligandPath = row.item.ligandPath || null;
     const ligandName = ligandPath
@@ -3490,16 +3646,6 @@ const ViewerMode: Component = () => {
         setMdStep('md-results');
       }
     });
-  };
-
-  const [showImportOverlay, setShowImportOverlay] = createSignal(false);
-
-  const handleProjectTableImport = () => {
-    setShowImportOverlay(true);
-  };
-
-  const handleImportOverlayBack = () => {
-    setShowImportOverlay(false);
   };
 
   const viewerLoadPanel = (fillHeight: boolean) => (
@@ -3640,36 +3786,9 @@ const ViewerMode: Component = () => {
             </div>
             </DropZone>
           </Show>
-          <Show when={showImportOverlay() && hasViewerSession()}>
-            <DropZone
-              accept={['.pdb', '.cif', '.sdf', '.mol', '.mol2', '.dcd', '.sdf.gz']}
-              onFiles={handleDroppedFiles}
-              hoverLabel="Drop structures (.pdb, .cif, .sdf, .dcd)"
-              class="absolute inset-0 z-10"
-            >
-            <div class="absolute inset-0 z-10 bg-base-100/95 flex flex-col overflow-auto">
-              <div class="px-3 py-2">
-                <button
-                  class="btn btn-ghost btn-sm gap-1"
-                  onClick={handleImportOverlayBack}
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Back to viewer
-                </button>
-              </div>
-              <div class="flex-1 flex items-center justify-center">
-                <div class="w-full max-w-md">
-                  {viewerLoadPanel(false)}
-                </div>
-              </div>
-            </div>
-            </DropZone>
-          </Show>
         </div>
 
-        <Show when={hasViewerSession() && hasProjectTable() && state().viewer.projectTable}>
+        <Show when={state().projectReady}>
           <div
             ref={projectTablePanelRef}
             class="relative shrink-0 min-h-0 h-full"
@@ -3683,27 +3802,47 @@ const ViewerMode: Component = () => {
               <div class="pointer-events-none absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-px bg-base-content/15" />
             </div>
             <ProjectTable
-              projectTable={state().viewer.projectTable!}
+              projectTable={projectTableState()}
               panelWidth={projectTableWidth()}
               onSelectRow={handleProjectTableRowSelect}
               onToggleRowSelection={handleToggleRowSelection}
               onToggleFamilyCollapsed={toggleViewerProjectFamilyCollapsed}
               onSortFamily={handleProjectTableSort}
               onPlayTrajectory={handleProjectTablePlayTrajectory}
-              onRemoveFamily={removeViewerProjectFamily}
-              onRemoveRow={removeViewerProjectRow}
+              onRemoveFamily={(familyId) => { void handleRemoveProjectFamily(familyId); }}
+              onRemoveRow={(rowId) => { void handleRemoveProjectRow(rowId); }}
               onRenameRow={renameViewerProjectRow}
               canNavigatePrevious={activeProjectRowIndex() > 0}
               canNavigateNext={activeProjectRowIndex() >= 0 && activeProjectRowIndex() < visibleProjectRows().length - 1}
               onNavigatePrevious={() => void navigateProjectTable(-1)}
               onNavigateNext={() => void navigateProjectTable(1)}
               canTransfer={canTransferCurrentView()}
+              transferTooltip={hasSingleTransferSelection() ? undefined : 'Select exactly one row to add it to another workflow'}
               canExport={canExportCurrentView()}
+              canTransferDock={canTransferDock()}
+              transferDockTooltip={canTransferDock() ? undefined : 'Dock accepts a receptor structure or a ligand row'}
+              canTransferMcmm={canTransferMcmm()}
+              transferMcmmTooltip={canTransferMcmm() ? undefined : 'MCMM only accepts ligand rows, not proteins or complexes'}
+              canTransferSimulate={canTransferSimulate()}
+              transferSimulateTooltip={canTransferSimulate() ? undefined : 'Dynamics requires a protein-containing structure or docked pose'}
               onTransferDock={handleTransferDock}
               onTransferMcmm={handleTransferMcmm}
               onTransferSimulate={handleTransferSimulate}
               onExport={() => void handleExportPdb()}
-              onImport={handleProjectTableImport}
+              onBrowseImport={handleImportFiles}
+              importPdbIdValue={viewerPdbIdInput()}
+              onImportPdbIdInput={setViewerPdbIdInput}
+              onFetchImportPdb={handleFetchViewerPdb}
+              importPdbFetchDisabled={isLoading() || isFetchingViewerPdb() || viewerPdbIdInput().trim().length !== 4}
+              importPdbFetchLoading={isFetchingViewerPdb()}
+              importSmilesValue={smilesInput()}
+              onImportSmilesInput={setSmilesInput}
+              onSubmitImportSmiles={handleLoadSmiles}
+              importSmilesDisabled={isLoading() || isFetchingViewerPdb() || isLoadingSmiles() || smilesInput().trim().length === 0}
+              importSmilesLoading={isLoadingSmiles()}
+              importSmilesCount={smilesInput().split('\n').map((line) => line.trim()).filter((line) => line.length > 0).length}
+              importDisabled={isLoading() || isFetchingViewerPdb() || isLoadingSmiles()}
+              importLoading={isLoading()}
               canAlignProtein={canAlignProtein()}
               canAlignLigand={canAlignLigand()}
               canAlignSubstructure={canAlignSubstructure()}

@@ -17,6 +17,9 @@ import ConformStepResults from './components/steps/ConformStepResults';
 import ScoreStepLoad from './components/steps/ScoreStepLoad';
 import ScoreStepProgress from './components/steps/ScoreStepProgress';
 import ScoreStepResults from './components/steps/ScoreStepResults';
+import XrayStepLoad from './components/steps/XrayStepLoad';
+import XrayStepProgress from './components/steps/XrayStepProgress';
+import XrayStepResults from './components/steps/XrayStepResults';
 import { workflowStore } from './stores/workflow';
 
 const App: Component = () => {
@@ -76,7 +79,7 @@ const App: Component = () => {
           <ConformStepResults />
         </Match>
 
-        {/* X-ray scoring mode steps */}
+        {/* Score mode steps */}
         <Match when={state().mode === 'score' && state().scoreStep === 'score-load'}>
           <ScoreStepLoad />
         </Match>
@@ -85,6 +88,17 @@ const App: Component = () => {
         </Match>
         <Match when={state().mode === 'score' && state().scoreStep === 'score-results'}>
           <ScoreStepResults />
+        </Match>
+
+        {/* X-ray mode steps */}
+        <Match when={state().mode === 'xray' && state().xrayStep === 'xray-load'}>
+          <XrayStepLoad />
+        </Match>
+        <Match when={state().mode === 'xray' && state().xrayStep === 'xray-progress'}>
+          <XrayStepProgress />
+        </Match>
+        <Match when={state().mode === 'xray' && state().xrayStep === 'xray-results'}>
+          <XrayStepResults />
         </Match>
 
       </Switch>

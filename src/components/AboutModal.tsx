@@ -1,16 +1,21 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, Show, createSignal, onMount } from 'solid-js';
+import { Component, Show, For, createSignal, onMount } from 'solid-js';
 import type { UpdateInfo } from '../utils/updateCheck';
+import { changelog } from '../utils/changelog';
 
 interface AboutModalProps {
   isOpen: boolean;
   onClose: () => void;
   updateInfo?: UpdateInfo | null;
+  showWhatsNew?: boolean;
 }
+
+type AboutTab = 'about' | 'changelog';
 
 const AboutModal: Component<AboutModalProps> = (props) => {
   const [appVersion, setAppVersion] = createSignal('');
   const [copied, setCopied] = createSignal(false);
+  const [activeTab, setActiveTab] = createSignal<AboutTab>(props.showWhatsNew ? 'changelog' : 'about');
   const brewUpdateCommand = 'brew update && brew upgrade --cask ember-md';
 
   onMount(async () => {
@@ -43,8 +48,46 @@ const AboutModal: Component<AboutModalProps> = (props) => {
             </button>
           </div>
 
+          {/* Tabs */}
+          <div class="flex border-b border-base-300">
+            <button
+              class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab() === 'about' ? 'border-primary text-primary' : 'border-transparent text-base-content/60 hover:text-base-content'}`}
+              onClick={() => setActiveTab('about')}
+            >
+              About
+            </button>
+            <button
+              class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab() === 'changelog' ? 'border-primary text-primary' : 'border-transparent text-base-content/60 hover:text-base-content'}`}
+              onClick={() => setActiveTab('changelog')}
+            >
+              What's New
+            </button>
+          </div>
+
           {/* Content */}
           <div class="flex-1 overflow-y-auto p-4 space-y-4">
+            <Show when={activeTab() === 'changelog'}>
+              <div class="space-y-4">
+                <For each={changelog}>{(entry) => (
+                  <div class="bg-base-200 rounded-lg p-3">
+                    <div class="flex items-center justify-between mb-1.5">
+                      <span class="text-sm font-semibold">v{entry.version}</span>
+                      <span class="text-[10px] text-base-content/50">{entry.date}</span>
+                    </div>
+                    <ul class="space-y-0.5">
+                      <For each={entry.highlights}>{(item) => (
+                        <li class="text-xs text-base-content/80 flex gap-1.5">
+                          <span class="text-primary mt-0.5 flex-shrink-0">&bull;</span>
+                          <span>{item}</span>
+                        </li>
+                      )}</For>
+                    </ul>
+                  </div>
+                )}</For>
+              </div>
+            </Show>
+
+            <Show when={activeTab() === 'about'}>
             {/* App Info */}
             <div class="text-center mb-4">
               <h2 class="text-2xl font-bold">Ember</h2>
@@ -271,6 +314,7 @@ const AboutModal: Component<AboutModalProps> = (props) => {
             <p class="text-[10px] text-base-content/50 text-center">
               Built with open-source tools for computational chemistry research.
             </p>
+            </Show>
           </div>
         </div>
       </div>

@@ -28,6 +28,11 @@ import {
   getXtbPath,
   getCordialRoot,
 } from '../paths';
+import {
+  runVinaScoreOnly,
+  runCordialScoringJob,
+  parseSdfProperties,
+} from '../scoring-utils';
 
 // ---------------------------------------------------------------------------
 // Module-level state
@@ -276,79 +281,7 @@ function dockSingleLigandVina(
   });
 }
 
-const resolveVinaScriptPath = (): string => path.join(appState.fraggenRoot, 'run_vina_docking.py');
-
-const runVinaScoreOnly = async (
-  receptorPath: string,
-  ligandPath: string,
-  referencePath: string,
-  options?: {
-    outputSdfGz?: string;
-    autoboxAdd?: number;
-    cpu?: number;
-    seed?: number;
-    onStdout?: (text: string) => void;
-    onStderr?: (text: string) => void;
-  },
-): Promise<Result<number, AppError>> => {
-  const vinaScript = resolveVinaScriptPath();
-  if (!fs.existsSync(vinaScript)) {
-    return Err({
-      type: 'SCRIPT_NOT_FOUND',
-      path: vinaScript,
-      message: `Vina script not found: ${vinaScript}`,
-    });
-  }
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember_vina_score_'));
-  const outputSdfGz = options?.outputSdfGz || path.join(tmpDir, 'scored.sdf.gz');
-
-  try {
-    fs.mkdirSync(path.dirname(outputSdfGz), { recursive: true });
-
-    const args = [
-      vinaScript,
-      '--receptor', receptorPath,
-      '--ligand', ligandPath,
-      '--reference', referencePath,
-      '--output_dir', path.dirname(outputSdfGz),
-      '--autobox_add', String(options?.autoboxAdd ?? 4),
-      '--cpu', String(options?.cpu ?? 1),
-      '--score_only',
-      '--score_only_output_sdf', outputSdfGz,
-    ];
-    if ((options?.seed ?? 0) > 0) {
-      args.push('--seed', String(options!.seed));
-    }
-
-    const { stdout, stderr, code } = await spawnPythonScript(args, {
-      onStdout: options?.onStdout,
-      onStderr: options?.onStderr,
-    });
-    if (code !== 0) {
-      return Err({
-        type: 'DOCKING_FAILED',
-        message: stderr || `Vina score_only failed with exit code ${code}`,
-      });
-    }
-
-    const match = stdout.match(/SCORE_ONLY:[^:]+:([-\d.]+)/);
-    if (!match) {
-      return Err({
-        type: 'PARSE_FAILED',
-        message: `Failed to parse Vina score_only output: ${stdout || stderr}`,
-      });
-    }
-
-    return Ok(parseFloat(match[1]));
-  } finally {
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // ignore temp cleanup failures
-    }
-  }
-};
+// runVinaScoreOnly, resolveVinaScriptPath — imported from ../scoring-utils
 
 function scoreReferencePoseVina(
   receptor: string,
@@ -372,108 +305,7 @@ function scoreReferencePoseVina(
   });
 }
 
-function parseSdfProperties(sdfPath: string): Promise<{
-  success: boolean;
-  error?: string;
-  smiles?: string;
-  vinaAffinity: number | null;
-  vinaScoreOnlyAffinity?: number;
-  refinementEnergy?: number;
-  isReferencePose?: boolean;
-  qed: number;
-  mw: number;
-  logp: number;
-  thumbnail?: string;
-}> {
-  return new Promise((resolve) => {
-    if (!appState.condaPythonPath || !fs.existsSync(appState.condaPythonPath)) {
-      resolve({
-        success: false,
-        error: 'Python not found',
-        vinaAffinity: null,
-        qed: 0,
-        mw: 0,
-        logp: 0,
-      });
-      return;
-    }
-
-    const scriptPath = path.join(appState.fraggenRoot, 'parse_sdf_properties.py');
-    if (!fs.existsSync(scriptPath)) {
-      resolve({
-        success: false,
-        error: 'parse_sdf_properties.py not found',
-        vinaAffinity: null,
-        qed: 0,
-        mw: 0,
-        logp: 0,
-      });
-      return;
-    }
-
-    const python = spawn(appState.condaPythonPath, [scriptPath, '--sdf_file', sdfPath]);
-    let stdout = '';
-    let stderr = '';
-
-    python.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-    });
-
-    python.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    python.on('close', (code) => {
-      if (code === 0 && stdout.trim()) {
-        try {
-          const result = JSON.parse(stdout.trim());
-          resolve({
-            success: result.success,
-            error: result.error,
-            smiles: result.smiles,
-            vinaAffinity: result.vinaAffinity ?? result.minimizedAffinity ?? null,
-            vinaScoreOnlyAffinity: result.vinaScoreOnlyAffinity ?? undefined,
-            refinementEnergy: result.refinementEnergy ?? undefined,
-            isReferencePose: result.isReferencePose === true,
-            qed: result.qed || 0,
-            mw: result.mw || 0,
-            logp: result.logp || 0,
-            thumbnail: result.thumbnail,
-          });
-        } catch (e) {
-          resolve({
-            success: false,
-            error: 'Failed to parse JSON output',
-            vinaAffinity: null,
-            qed: 0,
-            mw: 0,
-            logp: 0,
-          });
-        }
-      } else {
-          resolve({
-            success: false,
-            error: stderr || 'Script failed',
-            vinaAffinity: null,
-            qed: 0,
-            mw: 0,
-            logp: 0,
-          });
-      }
-    });
-
-    python.on('error', (err) => {
-        resolve({
-          success: false,
-          error: err.message,
-          vinaAffinity: null,
-          qed: 0,
-          mw: 0,
-          logp: 0,
-        });
-    });
-  });
-}
+// parseSdfProperties — imported from ../scoring-utils
 
 const readJsonIfExists = <T>(jsonPath: string): T | null => {
   try {
@@ -523,134 +355,7 @@ const mergeClusterScoresWithCanonical = (
   });
 };
 
-const resolveCordialScriptPath = (): string | null => {
-  const projectRoot = path.resolve(__dirname, '..', '..');
-  const candidates = [
-    path.join(appState.fraggenRoot, 'score_cordial.py'),
-    path.join(process.resourcesPath, 'scripts', 'score_cordial.py'),
-    path.join(projectRoot, 'scripts', 'score_cordial.py'),
-    path.join(process.cwd(), 'scripts', 'score_cordial.py'),
-  ];
-
-  for (const scriptPath of candidates) {
-    if (fs.existsSync(scriptPath)) {
-      return scriptPath;
-    }
-  }
-
-  return null;
-};
-
-const runCordialScoringJob = async (
-  input: { dockDir?: string; pairCsv?: string },
-  outputCsv: string,
-  batchSize: number,
-  options?: {
-    cwd?: string;
-    onStdout?: (text: string) => void;
-    onStderr?: (text: string) => void;
-  },
-): Promise<Result<{ scoresFile: string; count: number }, AppError>> => {
-  const cordialRoot = getCordialRoot();
-  if (!cordialRoot) {
-    return Err({
-      type: 'CORDIAL_FAILED',
-      message: 'CORDIAL not found. Add the macOS-patched fork at ./CORDIAL or set CORDIAL_ROOT.',
-    });
-  }
-
-  const pythonPath = appState.condaPythonPath;
-  if (!pythonPath) {
-    return Err({
-      type: 'PYTHON_NOT_FOUND',
-      message: 'Conda environment not found. Make sure the openmm-metal environment is set up.',
-    });
-  }
-
-  const scriptPath = resolveCordialScriptPath();
-  if (!scriptPath) {
-    return Err({
-      type: 'SCRIPT_NOT_FOUND',
-      path: path.join(appState.fraggenRoot, 'score_cordial.py'),
-      message: 'CORDIAL scoring script not found',
-    });
-  }
-
-  const args = [
-    scriptPath,
-    '--cordial_root', cordialRoot,
-    '--output', outputCsv,
-    '--batch_size', String(batchSize),
-  ];
-  if (input.dockDir) {
-    args.push('--dock_dir', input.dockDir);
-  } else if (input.pairCsv) {
-    args.push('--pair_csv', input.pairCsv);
-  } else {
-    return Err({ type: 'CORDIAL_FAILED', message: 'No CORDIAL input was provided' });
-  }
-
-  const proc = spawn(pythonPath, args, {
-    cwd: options?.cwd || cordialRoot,
-    env: {
-      ...process.env,
-      PYTHONPATH: cordialRoot,
-      KMP_DUPLICATE_LIB_OK: 'TRUE',
-      OMP_NUM_THREADS: process.env.OMP_NUM_THREADS || '1',
-      MKL_NUM_THREADS: process.env.MKL_NUM_THREADS || '1',
-      OPENBLAS_NUM_THREADS: process.env.OPENBLAS_NUM_THREADS || '1',
-      NUMEXPR_NUM_THREADS: process.env.NUMEXPR_NUM_THREADS || '1',
-      VECLIB_MAXIMUM_THREADS: process.env.VECLIB_MAXIMUM_THREADS || '1',
-    },
-  });
-
-  childProcesses.add(proc);
-
-  return await new Promise((resolve) => {
-    let stderr = '';
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      options?.onStdout?.(text);
-    });
-
-    proc.stderr?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      stderr += text;
-      options?.onStderr?.(text);
-    });
-
-    proc.on('close', (code) => {
-      childProcesses.delete(proc);
-
-      if (code === 0 && fs.existsSync(outputCsv)) {
-        try {
-          const content = fs.readFileSync(outputCsv, 'utf-8');
-          const lines = content.trim().split('\n');
-          resolve(Ok({ scoresFile: outputCsv, count: Math.max(0, lines.length - 1) }));
-        } catch (err) {
-          resolve(Err({
-            type: 'CORDIAL_FAILED',
-            message: `Error reading CORDIAL output: ${err}`,
-          }));
-        }
-      } else {
-        resolve(Err({
-          type: 'CORDIAL_FAILED',
-          message: stderr || `CORDIAL scoring failed with exit code ${code}`,
-        }));
-      }
-    });
-
-    proc.on('error', (err) => {
-      childProcesses.delete(proc);
-      resolve(Err({
-        type: 'CORDIAL_FAILED',
-        message: `Failed to start CORDIAL scoring: ${err.message}`,
-      }));
-    });
-  });
-};
+// resolveCordialScriptPath, runCordialScoringJob — imported from ../scoring-utils
 
 // ---------------------------------------------------------------------------
 // Registration

@@ -750,6 +750,9 @@ test.describe('Project table', () => {
     // Click Transfer dropdown and select MCMM
     await transferBtn.click();
     await window.waitForTimeout(300);
+    await expect(window.locator('[data-testid="project-table-transfer-dock"]')).toBeEnabled();
+    await expect(window.locator('[data-testid="project-table-transfer-mcmm"]')).toBeEnabled();
+    await expect(window.locator('[data-testid="project-table-transfer-simulate"]')).toBeDisabled();
     const mcmmOption = window.locator('[data-testid="project-table-transfer-mcmm"]');
     await expect(mcmmOption).toBeVisible({ timeout: 3_000 });
     await mcmmOption.click();
@@ -761,5 +764,46 @@ test.describe('Project table', () => {
       return s.mode;
     });
     expect(mode).toBe('conform');
+  });
+
+  test('transfer dropdown disables MCMM for protein and protein-ligand complex rows', async ({ window }) => {
+    test.setTimeout(30_000);
+
+    const projectTable = buildMdProjectTable({
+      familyId: 'md:test',
+      title: 'MD job',
+      systemPdb: ALANINE_PDB,
+      clusters: [],
+    });
+
+    await window.evaluate((args: { pdbPath: string; projectTable: any }) => {
+      const store = (window as any).__emberStore;
+      store.openViewerSession({
+        pdbPath: args.pdbPath,
+        projectTable: args.projectTable,
+      });
+    }, {
+      pdbPath: ALANINE_PDB,
+      projectTable,
+    });
+
+    await expect(window.locator('[data-testid="project-table"]')).toBeVisible({ timeout: 10_000 });
+
+    const transferBtn = window.locator('[data-testid="project-table-transfer"]');
+    await transferBtn.click();
+    await window.waitForTimeout(300);
+
+    await expect(window.locator('[data-testid="project-table-transfer-dock"]')).toBeEnabled();
+    await expect(window.locator('[data-testid="project-table-transfer-mcmm"]')).toBeDisabled();
+    await expect(window.locator('[data-testid="project-table-transfer-simulate"]')).toBeEnabled();
+
+    await window.locator('[data-testid="project-table-transfer-mcmm"]').click({ force: true });
+    await window.waitForTimeout(300);
+
+    const mode = await window.evaluate(() => {
+      const s = (window as any).__emberStore.state();
+      return s.mode;
+    });
+    expect(mode).toBe('viewer');
   });
 });

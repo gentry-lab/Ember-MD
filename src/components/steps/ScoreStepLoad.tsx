@@ -3,6 +3,11 @@ import { Component, Show, For, createSignal } from 'solid-js';
 import { workflowStore, ScoreComplexEntry } from '../../stores/workflow';
 import DropZone from '../shared/DropZone';
 
+const makeScoreEntryId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const formatLigandLabel = (ligand: { resname: string; chain: string; resnum: string }) =>
+  ligand.chain ? `${ligand.resname} ${ligand.chain}:${ligand.resnum}` : `${ligand.resname} ${ligand.resnum}`;
+
 const ScoreStepLoad: Component = () => {
   const {
     state,
@@ -17,53 +22,83 @@ const ScoreStepLoad: Component = () => {
   const [pdbIdInput, setPdbIdInput] = createSignal('');
   const [isFetching, setIsFetching] = createSignal(false);
 
+  const createScoreEntry = (
+    filePath: string,
+    name: string,
+    ligandId: string | null,
+    detectedLigands: ScoreComplexEntry['detectedLigands'],
+    isPrepared: boolean,
+    status: ScoreComplexEntry['status'],
+    errorMessage: string | null,
+  ): ScoreComplexEntry => ({
+    id: makeScoreEntryId(),
+    pdbPath: filePath,
+    name,
+    detectedLigands,
+    selectedLigandId: ligandId,
+    isPrepared,
+    preparedReceptorPath: null,
+    extractedLigandSdfPath: null,
+    vinaScore: null,
+    cordialExpectedPkd: null,
+    cordialPHighAffinity: null,
+    qed: null,
+    status,
+    errorMessage,
+  });
+
   const scanFile = async (filePath: string) => {
     const parts = filePath.split('/');
-    const name = (parts[parts.length - 1] || '').replace(/\.(pdb|cif)$/i, '');
+    const baseName = (parts[parts.length - 1] || '').replace(/\.(pdb|cif)$/i, '');
     // Skip if already loaded
     if (state().score.entries.some((e) => e.pdbPath === filePath)) return;
 
-    const entry: ScoreComplexEntry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      pdbPath: filePath,
-      name,
-      detectedLigands: [],
-      selectedLigandId: null,
-      isPrepared: false,
-      preparedReceptorPath: null,
-      extractedLigandSdfPath: null,
-      vinaScore: null,
-      cordialExpectedPkd: null,
-      cordialPHighAffinity: null,
-      qed: null,
-      status: 'detecting',
-      errorMessage: null,
-    };
+    const placeholderEntry = createScoreEntry(
+      filePath,
+      baseName,
+      null,
+      [],
+      false,
+      'detecting',
+      null,
+    );
 
-    addScoreEntries([entry]);
+    addScoreEntries([placeholderEntry]);
 
     try {
       const result = await api.detectPdbLigands(filePath);
       if (result.ok) {
         const ligands = result.value.ligands || [];
         const isPrepared = result.value.structureInfo?.isPrepared ?? false;
-        const bestLigand = [...ligands].sort((a, b) => (b.num_atoms || 0) - (a.num_atoms || 0))[0];
+        removeScoreEntry(placeholderEntry.id);
 
-        workflowStore.updateScoreEntry(entry.id, {
-          detectedLigands: ligands,
-          selectedLigandId: bestLigand?.id || null,
-          isPrepared,
-          status: ligands.length > 0 ? 'pending' : 'error',
-          errorMessage: ligands.length === 0 ? 'No ligand detected' : null,
-        });
+        if (ligands.length === 0) {
+          addScoreEntries([
+            createScoreEntry(filePath, baseName, null, [], isPrepared, 'error', 'No ligand detected'),
+          ]);
+          return;
+        }
+
+        const expandedEntries = ligands.map((ligand) =>
+            createScoreEntry(
+            filePath,
+            ligands.length === 1 ? baseName : `${baseName} - ${formatLigandLabel(ligand)}`,
+            ligand.id,
+            [ligand],
+            isPrepared,
+            'pending',
+            null,
+          ),
+        );
+        addScoreEntries(expandedEntries);
       } else {
-        workflowStore.updateScoreEntry(entry.id, {
+        workflowStore.updateScoreEntry(placeholderEntry.id, {
           status: 'error',
           errorMessage: result.error.message,
         });
       }
     } catch (err) {
-      workflowStore.updateScoreEntry(entry.id, {
+      workflowStore.updateScoreEntry(placeholderEntry.id, {
         status: 'error',
         errorMessage: (err as Error).message,
       });
@@ -115,7 +150,8 @@ const ScoreStepLoad: Component = () => {
     setIsFetching(true);
     setError(null);
     try {
-      const projectDir = state().projectDir || await api.getDefaultOutputDir();
+      const projectDir = state().projectDir;
+      if (!projectDir) throw new Error('No project selected');
       const result = await api.fetchPdb(pdbId, projectDir);
       if (result.ok) {
         await scanFile(result.value);
@@ -160,7 +196,7 @@ const ScoreStepLoad: Component = () => {
                 <div class="space-y-3">
                   <div class="flex items-center justify-between">
                     <p class="text-xs font-semibold">
-                      {state().score.entries.length} complex{state().score.entries.length === 1 ? '' : 'es'} loaded
+                      {state().score.entries.length} target{state().score.entries.length === 1 ? '' : 's'} loaded
                     </p>
                     <div class="flex gap-1">
                       <button class="btn btn-ghost btn-xs" onClick={handleSelectFiles}>+ Files</button>

@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Ember Contributors. MIT License.
-import { Component, Show, For, createSignal, createMemo, createEffect, onMount, onCleanup, batch } from 'solid-js';
+import { Component, Show, For, createSignal, createMemo, createEffect, on, onMount, onCleanup, batch } from 'solid-js';
 import { workflowStore } from '../../stores/workflow';
 import { buildDockingProjectTable, buildDockingViewerQueue } from '../../utils/viewerQueue';
 import path from 'path';
+import type { MoleculeDetailsResult } from '../../../shared/types/ipc';
 
 type SortField = 'ligandName' | 'vinaAffinity' | 'xtbEnergyKcal' | 'cordialPHighAffinity' | 'cordialPVeryHighAffinity' | 'qed';
 type SortDirection = 'asc' | 'desc';
@@ -106,6 +107,21 @@ const DockStepResults: Component = () => {
       setThumbnailUrl(url);
     }
   });
+
+  // Lazy-load RMSD + centroid for selected pose
+  const [poseMolDetails, setPoseMolDetails] = createSignal<MoleculeDetailsResult | null>(null);
+  createEffect(on(
+    () => selectedPose()?.outputSdf,
+    async (sdfPath) => {
+      setPoseMolDetails(null);
+      if (!sdfPath) return;
+      try {
+        const refPath = state().dock.referenceLigandPath || undefined;
+        const result = await api.getMoleculeDetails(sdfPath, refPath);
+        if (result.ok) setPoseMolDetails(result.value);
+      } catch { /* ignore */ }
+    },
+  ));
 
   const selectIndex = (idx: number) => {
     setSelectedIndex(idx);
@@ -432,6 +448,18 @@ const DockStepResults: Component = () => {
                     <span class="text-base-content/60">QED</span>
                     <span class="font-mono font-semibold">{pose().qed.toFixed(2)}</span>
                   </div>
+                  <Show when={poseMolDetails()?.rmsd != null}>
+                    <div class="flex justify-between text-xs">
+                      <span class="text-base-content/60">RMSD</span>
+                      <span class="font-mono font-semibold">{poseMolDetails()!.rmsd!.toFixed(2)} A</span>
+                    </div>
+                  </Show>
+                  <Show when={poseMolDetails()?.centroid != null}>
+                    <div class="flex justify-between text-xs">
+                      <span class="text-base-content/60">Centroid</span>
+                      <span class="font-mono font-semibold text-[10px]">({poseMolDetails()!.centroid!.x.toFixed(1)}, {poseMolDetails()!.centroid!.y.toFixed(1)}, {poseMolDetails()!.centroid!.z.toFixed(1)})</span>
+                    </div>
+                  </Show>
                 </div>
 
                 {/* Actions */}
