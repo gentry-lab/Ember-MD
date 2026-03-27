@@ -64,9 +64,9 @@ const MDStepProgress: Component = () => {
   const [showDiscardConfirm, setShowDiscardConfirm] = createSignal(false);
   const [isStopping, setIsStopping] = createSignal(false);
 
-  // Extend state
-  const [extendAmount, setExtendAmount] = createSignal(5);
-  const [isExtending, setIsExtending] = createSignal(false);
+  // Adjust runtime state
+  const [adjustTarget, setAdjustTarget] = createSignal<number | null>(null);
+  const [isAdjusting, setIsAdjusting] = createSignal(false);
 
   // After 8s in building/parameterizing, show a "this is normal" hint
   let prepHintTimer: ReturnType<typeof setTimeout> | undefined;
@@ -646,30 +646,30 @@ const MDStepProgress: Component = () => {
         </Show>
         <Show when={state().isRunning && state().md.currentStage === 'production' && productionNs()}>
           <div class="flex items-center gap-2 mt-1.5">
-            <span class="text-[10px] text-base-content/50">Extend:</span>
+            <span class="text-[10px] text-base-content/50">Adjust runtime:</span>
             <input
               type="number"
               class="input input-xs input-bordered w-16 text-xs"
               min={0.1}
               step={1}
-              value={extendAmount()}
-              onInput={(e) => setExtendAmount(parseFloat(e.currentTarget.value) || 1)}
+              value={adjustTarget() ?? productionNs()!.total}
+              onInput={(e) => setAdjustTarget(parseFloat(e.currentTarget.value) || null)}
             />
             <span class="text-[10px] text-base-content/50">ns</span>
             <button
               class="btn btn-xs btn-outline btn-primary"
-              disabled={isExtending() || extendAmount() <= 0}
+              disabled={isAdjusting() || !adjustTarget() || adjustTarget() === productionNs()!.total}
               onClick={async () => {
-                const prod = productionNs();
-                if (!prod) return;
-                setIsExtending(true);
-                const newTotal = prod.total + extendAmount();
-                await window.electronAPI.extendMdSimulation(newTotal);
-                appendLog(`\n--- Extended simulation to ${newTotal.toFixed(1)} ns ---\n`);
-                setIsExtending(false);
+                const target = adjustTarget();
+                if (!target || target <= 0) return;
+                setIsAdjusting(true);
+                await window.electronAPI.extendMdSimulation(target);
+                appendLog(`\n--- Adjusted runtime to ${target.toFixed(1)} ns ---\n`);
+                setAdjustTarget(null);
+                setIsAdjusting(false);
               }}
             >
-              +{extendAmount()} ns
+              Set
             </button>
           </div>
         </Show>
