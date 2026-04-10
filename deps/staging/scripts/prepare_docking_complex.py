@@ -58,8 +58,11 @@ def heavy_atom_smiles(mol: Any) -> str:
 
 
 def same_heavy_graph(mol_a: Any, mol_b: Any) -> bool:
-    no_h_a = Chem.RemoveHs(mol_a)
-    no_h_b = Chem.RemoveHs(mol_b)
+    try:
+        no_h_a = Chem.RemoveHs(mol_a)
+        no_h_b = Chem.RemoveHs(mol_b)
+    except Exception:
+        return False
     if no_h_a.GetNumAtoms() != no_h_b.GetNumAtoms():
         return False
     mcs = rdFMCS.FindMCS([no_h_a, no_h_b], completeRingsOnly=True, ringMatchesRingOnly=True)
@@ -104,14 +107,21 @@ def choose_reference_variant(
     candidate_paths = []
     for candidate_path, _parent_name in protonated_results:
         candidate_paths.append(candidate_path)
-        candidate_mol = load_first_sdf(candidate_path)
-        if same_heavy_graph(raw_mol, candidate_mol):
-            selected_path = candidate_path
-            selected_mol = candidate_mol
-            break
+        try:
+            candidate_mol = load_first_sdf(candidate_path)
+            if same_heavy_graph(raw_mol, candidate_mol):
+                selected_path = candidate_path
+                selected_mol = candidate_mol
+                break
+        except Exception as e:
+            print(f"Warning: skipping variant {candidate_path}: {e}", file=sys.stderr)
+            continue
 
     if selected_path is None or selected_mol is None:
-        raise RuntimeError("No protonated X-ray variant matched the raw ligand identity")
+        print("Warning: no protonated variant matched the raw ligand — falling back to raw + AddHs",
+              file=sys.stderr)
+        selected_mol = Chem.AddHs(Chem.Mol(raw_mol), addCoords=True)
+        selected_path = raw_xray_path
 
     metadata = {
         "selected_protonated_path": selected_path,

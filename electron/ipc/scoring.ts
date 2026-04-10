@@ -225,6 +225,14 @@ export function register(): void {
     const cordialRoot = getCordialRoot();
     const cordialAvailable = !!cordialRoot;
 
+    // Report CORDIAL availability early so UI can show the column during scoring
+    if (cordialAvailable) {
+      event.sender.send(IpcChannels.SCORE_OUTPUT, {
+        type: 'stdout',
+        data: 'SCORE_CORDIAL_AVAILABLE\n',
+      });
+    }
+
     for (let i = 0; i < entries.length; i++) {
       if (cancelRequested) break;
 
@@ -483,6 +491,13 @@ export function register(): void {
 
     const cordialRoot = getCordialRoot();
     const cordialAvailable = !!cordialRoot;
+
+    if (cordialAvailable) {
+      event.sender.send(IpcChannels.SCORE_OUTPUT, {
+        type: 'stdout',
+        data: 'SCORE_CORDIAL_AVAILABLE\n',
+      });
+    }
 
     emit(event, `[Score] Trajectory scoring: ${path.basename(trajectoryPath)}\n`);
     emit(event, `  Topology: ${path.basename(topologyPath)}\n`);

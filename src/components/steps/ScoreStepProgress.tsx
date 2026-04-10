@@ -27,6 +27,10 @@ const ScoreStepProgress: Component = () => {
 
   onMount(() => {
     const cleanup = api.onScoreOutput((data) => {
+      // Detect CORDIAL availability early so column shows during scoring
+      if (data.data.includes('SCORE_CORDIAL_AVAILABLE')) {
+        workflowStore.setScoreCordialAvailable(true);
+      }
       // Fast-path: only parse lines if structured marker present
       if (data.data.includes('SCORE_ENTRY_RESULT')) {
         for (const line of data.data.split('\n')) {
@@ -258,6 +262,9 @@ const ScoreStepProgress: Component = () => {
                 <th>Name</th>
                 <th>Status</th>
                 <th class="text-right">Vina</th>
+                <Show when={state().score.cordialAvailable}>
+                  <th class="text-right">CORDIAL</th>
+                </Show>
                 <th class="text-right">QED</th>
               </tr>
             </thead>
@@ -281,10 +288,15 @@ const ScoreStepProgress: Component = () => {
                     </Show>
                   </td>
                   <td class="text-right font-mono text-xs">
-                    {entry.vinaScore != null ? entry.vinaScore : '--'}
+                    {entry.vinaScore != null ? entry.vinaScore.toFixed(1) : '--'}
                   </td>
+                  <Show when={state().score.cordialAvailable}>
+                    <td class="text-right font-mono text-xs">
+                      {entry.cordialExpectedPkd != null ? entry.cordialExpectedPkd.toFixed(1) : '--'}
+                    </td>
+                  </Show>
                   <td class="text-right font-mono text-xs">
-                    {entry.qed != null ? entry.qed : '--'}
+                    {entry.qed != null ? entry.qed.toFixed(3) : '--'}
                   </td>
                 </tr>
               )}</For>

@@ -38,8 +38,7 @@ const ScoreStepResults: Component = () => {
 
   const errorEntries = () => state().score.entries.filter((e) => e.status === 'error');
 
-  const hasCordial = () => state().score.cordialAvailable &&
-    state().score.entries.some((e) => e.cordialExpectedPkd != null);
+  const hasCordial = () => state().score.cordialAvailable;
 
   const handleSort = (key: SortKey) => {
     if (sortKey() === key) {

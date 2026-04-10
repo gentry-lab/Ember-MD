@@ -233,7 +233,7 @@ def parse_pdb_ligands(pdb_path: str) -> Dict[str, Dict[str, Any]]:
 
 
 def extract_ligand(pdb_path: str, ligand_id: str, output_path: str) -> bool:
-    """Extract a specific ligand to a separate PDB file."""
+    """Extract a specific ligand to a PDB or SDF file (based on output extension)."""
     ligands = parse_pdb_ligands(pdb_path)
 
     if ligand_id not in ligands:
@@ -242,13 +242,94 @@ def extract_ligand(pdb_path: str, ligand_id: str, output_path: str) -> bool:
 
     ligand = ligands[ligand_id]
 
-    with open(output_path, 'w') as f:
-        f.write(f"REMARK  Extracted ligand {ligand_id} from {os.path.basename(pdb_path)}\n")
-        for atom in ligand['atoms']:
-            f.write(atom['line'])
-        f.write("END\n")
+    # Build the PDB block
+    pdb_block = f"REMARK  Extracted ligand {ligand_id} from {os.path.basename(pdb_path)}\n"
+    for atom in ligand['atoms']:
+        pdb_block += atom['line']
+    pdb_block += "END\n"
 
-    return True
+    if output_path.lower().endswith('.sdf'):
+        # Convert to SDF with proper bond orders
+        mol = _pdb_block_to_mol(pdb_block, ligand_id)
+        if mol is not None:
+            from rdkit import Chem
+            mol.SetProp("_Name", ligand_id)
+            writer = Chem.SDWriter(output_path)
+            writer.write(mol)
+            writer.close()
+            return True
+        else:
+            # Fallback: write PDB format even though .sdf was requested
+            print(f"Warning: Could not convert ligand to SDF, writing PDB format to {output_path}",
+                  file=sys.stderr)
+            with open(output_path, 'w') as f:
+                f.write(pdb_block)
+            return True
+    else:
+        with open(output_path, 'w') as f:
+            f.write(pdb_block)
+        return True
+
+
+def _pdb_block_to_mol(pdb_block: str, ligand_id: str) -> Any:
+    """Convert a PDB block to an RDKit Mol with bond order perception.
+
+    Tries OpenBabel first (better bond order perception from 3D coords),
+    then falls back to RDKit PDB reader.
+    """
+    from rdkit import Chem
+
+    # Try RDKit MolFromPDBBlock (removeHs to avoid HO1/HO2 → Holmium misparse)
+    mol = Chem.MolFromPDBBlock(pdb_block, removeHs=True, sanitize=False)
+    if mol is not None:
+        try:
+            Chem.SanitizeMol(mol)
+            return mol
+        except Exception as e:
+            print(f"  RDKit sanitization failed for {ligand_id}: {e}", file=sys.stderr)
+
+    # Try OpenBabel via temp file
+    try:
+        import subprocess
+        import shutil
+        python_bin_dir = os.path.dirname(os.path.realpath(sys.executable))
+        obabel_bin = os.path.join(python_bin_dir, 'obabel')
+        if not os.path.isfile(obabel_bin):
+            obabel_bin = shutil.which('obabel') or 'obabel'
+        if os.path.isfile(obabel_bin):
+            with tempfile.NamedTemporaryFile(suffix='.pdb', mode='w', delete=False) as tmp_pdb:
+                tmp_pdb.write(pdb_block)
+                tmp_pdb_path = tmp_pdb.name
+            tmp_sdf_path = tmp_pdb_path.replace('.pdb', '.sdf')
+            try:
+                env = os.environ.copy()
+                conda_prefix = os.path.dirname(python_bin_dir)
+                babel_data = os.path.join(conda_prefix, 'share', 'openbabel')
+                if os.path.isdir(babel_data):
+                    for d in os.listdir(babel_data):
+                        full = os.path.join(babel_data, d)
+                        if os.path.isdir(full):
+                            env['BABEL_DATADIR'] = full
+                            break
+                result = subprocess.run(
+                    [obabel_bin, tmp_pdb_path, '-O', tmp_sdf_path],
+                    capture_output=True, text=True, timeout=30, env=env,
+                )
+                if result.returncode == 0 and os.path.exists(tmp_sdf_path):
+                    supplier = Chem.SDMolSupplier(tmp_sdf_path, removeHs=True)
+                    m = next(iter(supplier), None)
+                    if m is not None:
+                        return m
+            finally:
+                for p in (tmp_pdb_path, tmp_sdf_path):
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+    except Exception as e:
+        print(f"  OpenBabel fallback failed for {ligand_id}: {e}", file=sys.stderr)
+
+    return None
 
 
 def _water_near_ligand(water_coords: List[Tuple[float, float, float]], ligand_coords: List[Tuple[float, float, float]], distance: float) -> bool:
